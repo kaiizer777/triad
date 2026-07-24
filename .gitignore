@@ -1,0 +1,29 @@
+# Binaries for programs and modules
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace
+go.work
+
+# Configuration & Secrets
+config.yaml
+.env
+
+# Session Data
+sessions/*
+!sessions/.gitkeep
+
+# OS / Editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
