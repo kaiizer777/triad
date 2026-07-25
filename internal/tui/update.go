@@ -16,6 +16,7 @@ import (
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -130,7 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.autocompleteIndex >= 0 && m.autocompleteIndex < len(m.autocompleteCmds) {
 					selected := m.autocompleteCmds[m.autocompleteIndex]
 					newVal := "/" + selected.Name
-					if !strings.Contains(selected.Name, " ") && selected.Name != "help" && selected.Name != "status" && selected.Name != "summary" && selected.Name != "undo" {
+					if !strings.Contains(selected.Name, " ") && selected.Name != "help" && selected.Name != "status" && selected.Name != "summary" && selected.Name != "undo" && selected.Name != "trace" {
 						newVal += " "
 					}
 					m.input.SetValue(newVal)
@@ -266,6 +267,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if !cmdHandled {
 			batch := clarify.AssessAmbiguity(msg.content)
 			if batch.NeedsClarification {
+				tracePath := tracelog.TracePathForSession(m.transcript.FilePath())
+				_ = tracelog.Append(tracePath, tracelog.Entry{
+					Entity:      "clarify",
+					EventType:   tracelog.EventClarifyTrigger,
+					Description: fmt.Sprintf("Clarification requested (%d question(s)) for task: %s", len(batch.Questions), msg.content),
+				})
 				_ = m.transcript.Append(transcript.Entry{
 					Speaker:   transcript.SpeakerSystem,
 					Type:      transcript.TypeMessage,

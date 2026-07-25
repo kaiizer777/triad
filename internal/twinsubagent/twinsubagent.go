@@ -42,6 +42,7 @@ import (
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -245,6 +246,13 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parentC
 		"max_turns", r.maxTurns,
 	)
 
+	tracePath := tracelog.TracePathForSession(transcriptPath)
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:      fmt.Sprintf("twin:%s", id),
+		EventType:   tracelog.EventTwinSpawn,
+		Description: fmt.Sprintf("Spawned twin subagent %s for task: %s", id, task),
+	})
+
 	res := Result{TranscriptPath: transcriptPath}
 
 	// §6.4 — Private propose→review→execute loop.
@@ -321,6 +329,11 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parentC
 			logger.L().Info("twinsubagent finished cleanly",
 				"id", id, "turns", res.Turns, "summary_len", len(res.Summary),
 			)
+			_ = tracelog.Append(tracePath, tracelog.Entry{
+				Entity:      fmt.Sprintf("twin:%s", id),
+				EventType:   tracelog.EventTwinComplete,
+				Description: fmt.Sprintf("Completed twin subagent %s (%d turns, truncated=false)", id, res.Turns),
+			})
 			return res, nil
 		}
 
@@ -344,6 +357,11 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parentC
 	logger.L().Warn("twinsubagent hit turn cap without task_complete",
 		"id", id, "turns", res.Turns, "max_turns", r.maxTurns,
 	)
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:      fmt.Sprintf("twin:%s", id),
+		EventType:   tracelog.EventTwinComplete,
+		Description: fmt.Sprintf("Completed twin subagent %s (%d turns, truncated=true)", id, res.Turns),
+	})
 	return res, nil
 }
 

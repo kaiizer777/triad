@@ -1,4 +1,4 @@
-﻿// Package twinsubagent — this file contains the §6.6 clarify-phase shim.
+// Package twinsubagent — this file contains the §6.6 clarify-phase shim.
 //
 // RunClarifyPhase runs the shared Phase 3 clarify step in the twin pair's
 // own isolated transcript. Because the twin pair is headless (spawned
@@ -24,9 +24,11 @@
 package twinsubagent
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/kaiizer777/triad/internal/clarify"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -45,6 +47,13 @@ func RunClarifyPhase(task string, tr *transcript.Transcript, nowFn func() time.T
 	if !batch.NeedsClarification {
 		return batch
 	}
+
+	tracePath := tracelog.TracePathForSession(tr.FilePath())
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:      "clarify",
+		EventType:   tracelog.EventClarifyTrigger,
+		Description: fmt.Sprintf("Clarification requested (%d question(s)) for task: %s", len(batch.Questions), task),
+	})
 
 	// Append the formatted questions so the transcript records what was unclear.
 	_ = tr.Append(transcript.Entry{

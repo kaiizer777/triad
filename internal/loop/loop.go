@@ -18,6 +18,7 @@ import (
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/subagent"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/twinsubagent"
 )
@@ -331,6 +332,12 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 					// Fresh task — run the shared clarify step.
 					batch := clarify.AssessAmbiguity(msg)
 					if batch.NeedsClarification {
+						tracePath := tracelog.TracePathForSession(l.transcript.FilePath())
+						_ = tracelog.Append(tracePath, tracelog.Entry{
+							Entity:      "clarify",
+							EventType:   tracelog.EventClarifyTrigger,
+							Description: fmt.Sprintf("Clarification requested (%d question(s)) for task: %s", len(batch.Questions), msg),
+						})
 						_ = l.append(transcript.Entry{
 							Speaker:   transcript.SpeakerSystem,
 							Type:      transcript.TypeMessage,

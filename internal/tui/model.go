@@ -17,6 +17,7 @@ import (
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -874,9 +875,21 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return m.handleHelp(), ""
 	case "mode":
 		return m.handleMode(args)
+	case "trace":
+		return m.handleTrace(), ""
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace).", name)
 	}
+}
+
+// handleTrace renders the session trace log using the tracelog package.
+func (m *Model) handleTrace() string {
+	tracePath := tracelog.TracePathForSession(m.transcript.FilePath())
+	entries, err := tracelog.LoadTrace(tracePath)
+	if err != nil {
+		return fmt.Sprintf("/trace failed: %v", err)
+	}
+	return tracelog.FormatTraceOutput(entries)
 }
 
 // handleMode views or sets the current top-level orchestration mode.

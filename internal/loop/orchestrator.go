@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -177,6 +178,15 @@ func (l *Loop) AppendRoutingDecision(task, tier, targetMode, reason string, auto
 	if err != nil {
 		return fmt.Errorf("orchestrator: failed to marshal routing decision: %w", err)
 	}
+
+	tracePath := tracelog.TracePathForSession(l.transcript.FilePath())
+	desc := fmt.Sprintf("Routed task to %s (%s complexity — %s)", targetMode, tier, reason)
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:      "orchestrator",
+		EventType:   tracelog.EventRoutingDecision,
+		Description: desc,
+	})
+
 	return l.append(transcript.Entry{
 		Speaker:   transcript.SpeakerSystem,
 		Type:      transcript.TypeRoutingDecision,
