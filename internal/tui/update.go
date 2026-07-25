@@ -76,9 +76,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rightCardInnerHeight := max(1, bodyHeight-rightCardVertFrame)
 
 		// Viewport inner dimensions using exact style frame sizes:
-		// Layout budget inside RightCard: Pipeline (1) + Status (1) + Separator (1) + Input (1) = 4 lines reserved
+		// Layout budget inside RightCard: Pipeline (1) + Input Separator (1) + Input (1) = 3 lines reserved (4 if sidebar hidden)
+		bottomRows := 3
+		if sidebarWidth == 0 {
+			bottomRows = 4
+		}
 		vpWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
-		vpHeight := max(1, rightCardInnerHeight-4)
+		vpHeight := max(1, rightCardInnerHeight-bottomRows)
 
 		// Input box width based on rightCardInnerWidth
 		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
@@ -89,6 +93,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.ready {
 			m.viewport = viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))
+			m.sysViewport = viewport.New(viewport.WithWidth(max(10, sidebarWidth-4)), viewport.WithHeight(8))
 			m.ready = true
 		} else {
 			m.viewport.SetWidth(vpWidth)
@@ -96,6 +101,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(m.renderTranscript())
 		m.viewport.GotoBottom()
+		m.sysViewport.SetContent(m.renderSystemLogs())
+		m.sysViewport.GotoBottom()
 
 	case tea.KeyMsg:
 		if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
@@ -459,10 +466,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.syncAutocompleteState()
 
-	// Update viewport component for scrolling keypresses
-	var vpCmd tea.Cmd
+	// Update viewport components for scrolling keypresses
+	var vpCmd, sysCmd tea.Cmd
 	m.viewport, vpCmd = m.viewport.Update(msg)
-	cmds = append(cmds, vpCmd)
+	m.sysViewport, sysCmd = m.sysViewport.Update(msg)
+	cmds = append(cmds, vpCmd, sysCmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -503,6 +511,8 @@ func (m *Model) syncAutocompleteState() {
 func (m *Model) refreshViewport() {
 	m.viewport.SetContent(m.renderTranscript())
 	m.viewport.GotoBottom()
+	m.sysViewport.SetContent(m.renderSystemLogs())
+	m.sysViewport.GotoBottom()
 }
 
 // gitDisabledSentinel is the special return value from maybeAutoCommit that

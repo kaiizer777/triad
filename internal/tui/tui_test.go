@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -1154,6 +1155,115 @@ func TestTUI_ViewHeightOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestTUI_TranscriptGapAndBottomPadding(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker:   transcript.SpeakerYou,
+		Type:      transcript.TypeMessage,
+		Content:   "Hello from user",
+		Timestamp: time.Now(),
+	})
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker:   transcript.SpeakerCoder,
+		Type:      transcript.TypeMessage,
+		Content:   "Response from coder",
+		Timestamp: time.Now(),
+	})
+
+	rendered := model.renderTranscript()
+	if !strings.HasSuffix(rendered, "\n\n\n") {
+		t.Errorf("expected rendered transcript to end with trailing blank line gap (\\n\\n\\n), got: %q", rendered)
+	}
+
+	if !strings.Contains(rendered, "····") {
+		t.Errorf("expected rendered transcript to contain entry divider, got: %q", rendered)
+	}
+}
+
+func TestTUI_SystemLogsInSidebar(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker:   transcript.SpeakerSystem,
+		Type:      transcript.TypeMessage,
+		Content:   "System event occurred",
+		Timestamp: time.Now(),
+	})
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker:   transcript.SpeakerYou,
+		Type:      transcript.TypeMessage,
+		Content:   "Hello from user",
+		Timestamp: time.Now(),
+	})
+
+	model.refreshViewport()
+	sidebar := model.renderSidebar(60, 30)
+	if !strings.Contains(sidebar, "SYSTEM LOGS") {
+		t.Errorf("expected sidebar to contain SYSTEM LOGS section header, got: %q", sidebar)
+	}
+	if !strings.Contains(sidebar, "System event occurred") {
+		t.Errorf("expected sidebar to contain system event message, got: %q", sidebar)
+	}
+
+	mainChat := model.renderTranscript()
+	if strings.Contains(mainChat, "System event occurred") {
+		t.Errorf("expected main chat to filter out system messages, got: %q", mainChat)
+	}
+	if !strings.Contains(mainChat, "Hello from user") {
+		t.Errorf("expected main chat to contain user message, got: %q", mainChat)
+	}
+}
+
+func TestTUI_RenderMessageCalloutBoxes(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	now := time.Now()
+	model.transcript.Append(transcript.Entry{
+		ID:        1,
+		Speaker:   transcript.SpeakerYou,
+		Type:      transcript.TypeMessage,
+		Content:   "Please update the project",
+		Timestamp: now,
+	})
+	model.transcript.Append(transcript.Entry{
+		ID:        2,
+		Speaker:   transcript.SpeakerCoder,
+		Type:      transcript.TypeMessage,
+		Content:   "I will update the project files now.",
+		Timestamp: now,
+	})
+	model.transcript.Append(transcript.Entry{
+		ID:        3,
+		Speaker:   transcript.SpeakerReviewer,
+		Type:      transcript.TypeMessage,
+		Content:   "APPROVED: Looks safe and sound.",
+		Timestamp: now,
+	})
+
+	chat := model.renderTranscript()
+	if !strings.Contains(chat, "Please update the project") {
+		t.Errorf("expected chat to contain user message, got: %q", chat)
+	}
+	if !strings.Contains(chat, "I will update the project files now.") {
+		t.Errorf("expected chat to contain coder message, got: %q", chat)
+	}
+	if !strings.Contains(chat, "APPROVED BY REVIEWER") || !strings.Contains(chat, "Looks safe and sound.") {
+		t.Errorf("expected chat to contain reviewer approved message, got: %q", chat)
+	}
+	if !strings.Contains(chat, "╭") || !strings.Contains(chat, "╰") {
+		t.Errorf("expected chat messages to be wrapped in rounded box UIs, got: %q", chat)
+	}
+}
+
+
 
 
 

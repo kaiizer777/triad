@@ -65,10 +65,13 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	// Fixed bottom rows that must ALWAYS be visible:
-	// Pipeline Dock (1) + Status Bar (1) + Input Separator (1) + Input Row (1) = 4 rows pinned at bottom.
+	// Fixed bottom rows that must ALWAYS be visible in right card:
+	// Pipeline Dock (1) + Input Separator (1) + Input Row (1) = 3 rows pinned at bottom (4 if sidebar hidden).
 	// Plus optional Autocomplete Popup height when active.
-	const bottomRows = 4
+	bottomRows := 3
+	if sidebarWidth == 0 {
+		bottomRows = 4
+	}
 	vpContentHeight := max(1, rightCardInnerHeight-bottomRows-popupHeight)
 	vpContentWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 
@@ -82,29 +85,46 @@ func (m Model) View() tea.View {
 		Render(vpView)
 
 	pipelineDock := m.renderPipelineDock(rightCardInnerWidth)
-	statusBar := m.renderStatusBar(rightCardInnerWidth)
 	inputBar := m.renderInputBar(rightCardInnerWidth)
 
 	// Clip ONLY the scrollable viewport portion — never the pinned bottom dock.
 	scrollableArea := clipLines(vpContainer, vpContentHeight)
 
-	// Pin bottom: pipeline + status + (popup if active) + input are always rendered last, never clipped.
+	// Pin bottom: pipeline + (statusBar if no sidebar) + (popup if active) + input are always rendered last.
 	var bottomDock string
-	if popup != "" {
-		bottomDock = lipgloss.JoinVertical(
-			lipgloss.Left,
-			pipelineDock,
-			statusBar,
-			popup,
-			inputBar,
-		)
+	if sidebarWidth == 0 {
+		statusBar := m.renderStatusBar(rightCardInnerWidth)
+		if popup != "" {
+			bottomDock = lipgloss.JoinVertical(
+				lipgloss.Left,
+				pipelineDock,
+				statusBar,
+				popup,
+				inputBar,
+			)
+		} else {
+			bottomDock = lipgloss.JoinVertical(
+				lipgloss.Left,
+				pipelineDock,
+				statusBar,
+				inputBar,
+			)
+		}
 	} else {
-		bottomDock = lipgloss.JoinVertical(
-			lipgloss.Left,
-			pipelineDock,
-			statusBar,
-			inputBar,
-		)
+		if popup != "" {
+			bottomDock = lipgloss.JoinVertical(
+				lipgloss.Left,
+				pipelineDock,
+				popup,
+				inputBar,
+			)
+		} else {
+			bottomDock = lipgloss.JoinVertical(
+				lipgloss.Left,
+				pipelineDock,
+				inputBar,
+			)
+		}
 	}
 
 	rightCardContent := lipgloss.JoinVertical(
@@ -322,20 +342,91 @@ func (m Model) renderSidebar(width int, height int) string {
 		sb.WriteString(row2)
 	}
 
-	lines := strings.Split(sb.String(), "\n")
-	if len(lines) > innerHeight {
-		lines = lines[:innerHeight]
+	// ── SYSTEM LOGS (Scrollable Viewport in Remaining Area of Left Card) ────
+	header := m.styles.SidebarHeader.Render("▸ SYSTEM LOGS")
+	sysHeaderLines := []string{
+		header,
+		rule,
+	}
+
+	topLines := strings.Split(sb.String(), "\n")
+	if len(topLines) > 0 && topLines[len(topLines)-1] == "" {
+		topLines = topLines[:len(topLines)-1]
+	}
+
+	availSysHeight := max(3, innerHeight-len(topLines)-len(sysHeaderLines)-1)
+	m.sysViewport.SetWidth(innerWidth)
+	m.sysViewport.SetHeight(availSysHeight)
+	m.sysViewport.SetContent(m.renderSystemLogs())
+
+	sysView := clipLines(m.sysViewport.View(), availSysHeight)
+	sysLines := strings.Split(sysView, "\n")
+
+	var finalLines []string
+	finalLines = append(finalLines, topLines...)
+	finalLines = append(finalLines, "")
+	finalLines = append(finalLines, sysHeaderLines...)
+	finalLines = append(finalLines, sysLines...)
+
+	if len(finalLines) > innerHeight {
+		finalLines = finalLines[:innerHeight]
 	} else {
-		for len(lines) < innerHeight {
-			lines = append(lines, "")
+		for len(finalLines) < innerHeight {
+			finalLines = append(finalLines, "")
 		}
 	}
-	padded := strings.Join(lines, "\n")
+	padded := strings.Join(finalLines, "\n")
 
 	return m.styles.SidebarContainer.
 		Width(width).
 		Height(height).
 		Render(padded)
+}
+
+// renderSystemLogs formats all system entries (SpeakerSystem) for the sidebar viewport.
+func (m Model) renderSystemLogs() string {
+	allEntries := m.transcript.Entries()
+	var sysEntries []transcript.Entry
+	for _, entry := range allEntries {
+		if entry.Speaker == transcript.SpeakerSystem {
+			sysEntries = append(sysEntries, entry)
+		}
+	}
+
+	if len(sysEntries) == 0 {
+		return m.styles.WelcomeSub.Render("  No system events recorded.")
+	}
+
+	var sb strings.Builder
+	vw := max(10, m.sysViewport.Width())
+
+	for i, entry := range sysEntries {
+		ts := m.styles.Timestamp.Render(entry.Timestamp.Format("15:04"))
+		pill := m.styles.SystemPill.Render(" SYS ")
+		header := lipgloss.JoinHorizontal(lipgloss.Top, pill, " ", ts)
+		sb.WriteString(header)
+		sb.WriteString("\n")
+
+		cleanContent := strings.ReplaceAll(entry.Content, "\t", "    ")
+		cleanContent = strings.ReplaceAll(cleanContent, "\r", "")
+
+		lines := strings.Split(cleanContent, "\n")
+		for _, line := range lines {
+			wrapped := wrapText(line, max(1, vw-4))
+			for _, wl := range wrapped {
+				bar := m.styles.TitleKeycapKey.Render("▌")
+				sb.WriteString(" " + bar + " " + m.styles.EntryContent.Render(wl))
+				sb.WriteString("\n")
+			}
+		}
+
+		if i < len(sysEntries)-1 {
+			divW := max(4, vw-2)
+			sb.WriteString(" " + m.styles.EntryDivider.Render(strings.Repeat("·", divW)))
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
 }
 
 // renderPipelineDock builds a 4-step visual pipeline tracker:
@@ -539,9 +630,16 @@ func (m Model) renderProposedAction(content string, width int) string {
 	return m.styles.ToolCallBox.Width(boxW).Render(strings.TrimRight(sb.String(), "\n"))
 }
 
-// renderTranscript formats all transcript entries for the viewport.
+// renderTranscript formats all non-system transcript entries for the main chat viewport.
 func (m Model) renderTranscript() string {
-	entries := m.transcript.Entries()
+	allEntries := m.transcript.Entries()
+	var entries []transcript.Entry
+	for _, entry := range allEntries {
+		if entry.Speaker != transcript.SpeakerSystem {
+			entries = append(entries, entry)
+		}
+	}
+
 	if len(entries) == 0 {
 		return m.renderWelcomeScreen()
 	}
@@ -554,24 +652,18 @@ func (m Model) renderTranscript() string {
 		cleanContent = strings.ReplaceAll(cleanContent, "\r", "")
 
 		var pill string
-		var accentBar lipgloss.Style
 
 		switch entry.Speaker {
 		case transcript.SpeakerYou:
 			pill = m.styles.YouPill.Render(" YOU ")
-			accentBar = m.styles.YouMessageBar
 		case transcript.SpeakerCoder:
 			pill = m.styles.CoderPill.Render(" CODER ")
-			accentBar = m.styles.CoderMessageBar
 		case transcript.SpeakerReviewer:
 			pill = m.styles.ReviewerPill.Render(" REVIEWER ")
-			accentBar = m.styles.ReviewerMessageBar
 		case transcript.SpeakerSystem:
 			pill = m.styles.SystemPill.Render(" SYSTEM ")
-			accentBar = m.styles.TitleKeycapKey
 		default:
 			pill = m.styles.SystemPill.Render(fmt.Sprintf(" %s ", entry.Speaker))
-			accentBar = m.styles.TitleKeycapKey
 		}
 
 		entryHeader := lipgloss.JoinHorizontal(lipgloss.Top, pill, "  ", ts)
@@ -601,33 +693,39 @@ func (m Model) renderTranscript() string {
 				content = badge + "\n" + strings.TrimPrefix(content, "OBJECTION")
 			}
 
-			if entry.Speaker == transcript.SpeakerYou {
-				boxW := max(0, m.viewport.Width()-m.styles.UserCalloutBox.GetHorizontalFrameSize())
-				wrapped := wrapText(content, boxW)
-				body = m.styles.UserCalloutBox.Width(boxW).Render(strings.Join(wrapped, "\n"))
-			} else {
-				lines := strings.Split(content, "\n")
-				var formatted []string
-				for _, line := range lines {
-					styledLine := formatMarkdownLine(line, m.styles)
-					wrappedLines := wrapText(styledLine, max(1, m.viewport.Width()-8))
-					for _, wl := range wrappedLines {
-						bar := accentBar.Render("▌")
-						formatted = append(formatted, "  "+bar+" "+wl)
-					}
-				}
-				body = strings.Join(formatted, "\n")
+			var boxStyle lipgloss.Style
+			switch entry.Speaker {
+			case transcript.SpeakerYou:
+				boxStyle = m.styles.UserCalloutBox
+			case transcript.SpeakerCoder:
+				boxStyle = m.styles.CoderCalloutBox
+			case transcript.SpeakerReviewer:
+				boxStyle = m.styles.ReviewerCalloutBox
+			default:
+				boxStyle = m.styles.UserCalloutBox
 			}
+
+			boxW := max(0, m.viewport.Width()-boxStyle.GetHorizontalFrameSize())
+			lines := strings.Split(content, "\n")
+			var formattedLines []string
+			for _, line := range lines {
+				styledLine := formatMarkdownLine(line, m.styles)
+				wrappedLines := wrapText(styledLine, max(1, boxW))
+				formattedLines = append(formattedLines, wrappedLines...)
+			}
+			body = boxStyle.Width(boxW).Render(strings.Join(formattedLines, "\n"))
 		}
 
 		sb.WriteString(entryHeader)
 		sb.WriteString("\n")
 		sb.WriteString(body)
 		if i < len(entries)-1 {
-			sb.WriteString("\n")
+			sb.WriteString("\n\n")
 			divW := max(4, m.viewport.Width()-4)
 			sb.WriteString("  " + m.styles.EntryDivider.Render(strings.Repeat("·", divW)))
-			sb.WriteString("\n")
+			sb.WriteString("\n\n")
+		} else {
+			sb.WriteString("\n\n\n")
 		}
 	}
 	return sb.String()
@@ -696,6 +794,9 @@ func (m Model) renderWelcomeScreen() string {
 
 // formatMarkdownLine applies basic inline styling for bullets and inline code.
 func formatMarkdownLine(line string, styles Styles) string {
+	if strings.Contains(line, "\x1b[") {
+		return line
+	}
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
 		rest := trimmed[2:]

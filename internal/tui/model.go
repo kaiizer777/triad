@@ -50,6 +50,8 @@ type Styles struct {
 
 	// Message Feed Callouts & Accents
 	UserCalloutBox     lipgloss.Style
+	CoderCalloutBox    lipgloss.Style
+	ReviewerCalloutBox lipgloss.Style
 	YouMessageBar      lipgloss.Style
 	CoderMessageBar    lipgloss.Style
 	ReviewerMessageBar lipgloss.Style
@@ -136,6 +138,7 @@ func DefaultStyles() Styles {
 
 		amber   = lipgloss.Color("#D97706")
 		amberLt = lipgloss.Color("#FCD34D")
+		amberBg = lipgloss.Color("#261A08")
 
 		blue   = lipgloss.Color("#2563EB")
 		blueMd = lipgloss.Color("#3B82F6")
@@ -261,6 +264,20 @@ func DefaultStyles() Styles {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(blueMd).
 			Background(blueBg).
+			Foreground(textPrimary).
+			Padding(0, 1),
+
+		CoderCalloutBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(violetMd).
+			Background(violetBg).
+			Foreground(textPrimary).
+			Padding(0, 1),
+
+		ReviewerCalloutBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(amberLt).
+			Background(amberBg).
 			Foreground(textPrimary).
 			Padding(0, 1),
 
@@ -503,10 +520,11 @@ type Model struct {
 	// executed action.
 	gitDisabled bool
 
-	spinner  spinner.Model
-	viewport viewport.Model
-	input    textinput.Model
-	styles   Styles
+	spinner     spinner.Model
+	viewport    viewport.Model
+	sysViewport viewport.Model
+	input       textinput.Model
+	styles      Styles
 
 	// commands holds the slash command registry loaded at startup.
 	// May be empty (no commands/ dir) but should never be nil.
