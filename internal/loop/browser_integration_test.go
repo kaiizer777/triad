@@ -75,6 +75,16 @@ func TestBrowserTool_FullApprovalLoop(t *testing.T) {
 		t.Skip("Playwright Chromium binary not installed; run `playwright install chromium` to enable this test")
 	}
 
+	// Force Triad mode. This test exercises the *approval loop* itself
+	// (propose → Reviewer → execute), not Orchestrator's classification,
+	// so we bypass routing. The default CurrentMode is ModeOrchestrator,
+	// which would auto-classify "check the local test page banner" as
+	// Trivial and dispatch to General Chat — there is no Reviewer there,
+	// so the loop would run exactly one tool call and return, never
+	// reaching the second/third actions this test asserts on.
+	// (Pre-Phase-5 the rubric was looser and this case happened to land
+	// in Triad, which is why the failure is "recent".)
+
 	// Set up the local HTTP server (the "running local dev server"
 	// the spec uses as an example). Serves a small page that the
 	// browser tools will read.
@@ -152,6 +162,7 @@ func TestBrowserTool_FullApprovalLoop(t *testing.T) {
 	}
 	l := loop.New(tr, coderCfg, reviewerCfg, mc, workDir)
 	l.SetBrowser(mgr)
+	l.CurrentMode = loop.ModeTriad
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -259,6 +270,17 @@ func TestBrowserTool_NoManager(t *testing.T) {
 	}
 	l := loop.New(tr, coderCfg, reviewerCfg, mc, workDir)
 	// Intentionally do NOT call l.SetBrowser.
+	//
+	// Force Triad mode for the same reason as
+	// TestBrowserTool_FullApprovalLoop above: this test relies on the
+	// loop making multiple tool calls (browser_navigate, then
+	// task_complete), but the default Orchestrator mode would route
+	// the one-word task "navigate" to Trivial → General Chat, which
+	// is single-shot and would never reach the second mock response.
+	// (The assertion still incidentally passes today because it only
+	// checks for the browser-not-configured error, but the test is
+	// more robust and less surprising in Triad mode.)
+	l.CurrentMode = loop.ModeTriad
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
