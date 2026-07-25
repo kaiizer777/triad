@@ -85,6 +85,22 @@ func cmdExecuteBrowserTool(workDir string, bm *browser.Manager, toolCall agent.T
 	}
 }
 
+// cmdExecuteWebSearch executes an approved web_search tool call asynchronously.
+func cmdExecuteWebSearch(apiKey string, toolCall agent.ToolCall) tea.Cmd {
+	return func() tea.Msg {
+		var args agent.ExecuteToolArgs
+		if toolCall.Function.Arguments != "" && toolCall.Function.Arguments != "{}" {
+			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+		}
+		res, err := agent.ExecuteWebSearch(args.Query, apiKey)
+		return toolResultMsg{
+			toolCall: toolCall,
+			result:   res,
+			err:      err,
+		}
+	}
+}
+
 // cmdSpawnSubagent runs an approved spawn_subagent tool call in the
 // background and returns a toolResultMsg so the existing toolResultMsg
 // handler in update.go picks it up unchanged (no TUI-side special

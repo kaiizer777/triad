@@ -153,6 +153,7 @@ func main() {
 
 	// --- Create TUI Model ---
 	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
+	model.SetSearchAPIKey(cfg.SearchAPIKey)
 
 	// --- Browser manager (docs/work2.md §4.2) ---
 	// The TUI owns the long-lived Playwright process. Browser launch

@@ -334,6 +334,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusMessage = fmt.Sprintf("Executing browser tool %q...", tc.Function.Name)
 						return m, cmdExecuteBrowserTool(m.workDir, m.browser, tc)
 					}
+					if tc.Function.Name == "web_search" {
+						m.statusMessage = "Searching the web..."
+						return m, cmdExecuteWebSearch(m.searchAPIKey, tc)
+					}
 					m.statusMessage = fmt.Sprintf("Executing approved tool %q...", tc.Function.Name)
 					return m, cmdExecuteTool(m.workDir, tc, m.commandTimeout)
 				}

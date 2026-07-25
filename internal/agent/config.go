@@ -31,6 +31,7 @@ type Config struct {
 	BaseURL               string `yaml:"base_url"`
 	APIKey                string `yaml:"api_key"`
 	Model                 string `yaml:"model"`
+	SearchAPIKey          string `yaml:"search_api_key"`
 	// CommandTimeoutSeconds caps run_command execution time (default 30).
 	// Set to 0 or omit in config.yaml to use the default.
 	CommandTimeoutSeconds int    `yaml:"command_timeout_seconds"`
@@ -47,10 +48,16 @@ const (
 // LoadConfig attempts to load configuration from path (e.g., config.yaml).
 // If the file does not exist, environment variables are used as fallbacks.
 func LoadConfig(path string) (*Config, error) {
+	searchKey := os.Getenv("FIRECRAWL_API_KEY")
+	if searchKey == "" {
+		searchKey = os.Getenv("SEARCH_API_KEY")
+	}
+
 	rawCfg := Config{
-		BaseURL: os.Getenv("OPENCODE_BASE_URL"),
-		APIKey:  os.Getenv("OPENCODE_API_KEY"),
-		Model:   os.Getenv("OPENCODE_MODEL"),
+		BaseURL:      os.Getenv("OPENCODE_BASE_URL"),
+		APIKey:       os.Getenv("OPENCODE_API_KEY"),
+		Model:        os.Getenv("OPENCODE_MODEL"),
+		SearchAPIKey: searchKey,
 	}
 
 	data, err := os.ReadFile(path)
@@ -67,6 +74,9 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		if yamlCfg.Model != "" {
 			rawCfg.Model = yamlCfg.Model
+		}
+		if yamlCfg.SearchAPIKey != "" {
+			rawCfg.SearchAPIKey = yamlCfg.SearchAPIKey
 		}
 		if yamlCfg.CommandTimeoutSeconds > 0 {
 			rawCfg.CommandTimeoutSeconds = yamlCfg.CommandTimeoutSeconds

@@ -519,6 +519,7 @@ type Model struct {
 	// via SetBrowser after NewModel — the manager is owned by
 	// the caller and not closed by the TUI.
 	browser *browser.Manager
+	searchAPIKey string
 
 	width  int
 	height int
@@ -570,6 +571,11 @@ func NewModel(
 
 	m.RestoreSessionState()
 	return m
+}
+
+// SetSearchAPIKey sets the Firecrawl API key used by web_search tool calls.
+func (m *Model) SetSearchAPIKey(key string) {
+	m.searchAPIKey = key
 }
 
 // SetBrowser attaches a browser.Manager to the TUI so that approved
@@ -851,10 +857,30 @@ func (m *Model) handleSystemCommand(name string) (body string, errMsg string) {
 		return m.handleSummary(), ""
 	case "undo":
 		return m.handleUndo(), ""
+	case "help":
+		return m.handleHelp(), ""
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help).", name)
 	}
 }
+
+// handleHelp formats a list of all registered slash commands and their descriptions.
+func (m *Model) handleHelp() string {
+	if m.commands == nil || m.commands.Count() == 0 {
+		return "No slash commands registered."
+	}
+	var sb strings.Builder
+	sb.WriteString("Available Slash Commands:\n")
+	for _, cmd := range m.commands.List() {
+		desc := cmd.Description
+		if desc == "" {
+			desc = "No description provided."
+		}
+		fmt.Fprintf(&sb, "  /%s — %s\n", cmd.Name, desc)
+	}
+	return sb.String()
+}
+
 
 // handleSummary renders a local, git-based report of changes made during the
 // current session. It queries git log and git show --stat scoped to commits

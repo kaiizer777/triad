@@ -851,13 +851,26 @@ func (m Model) renderAutocompletePopup(width int) string {
 	sb.WriteString(header)
 	sb.WriteString("\n")
 
-	maxVisible := 5
-	cmds := m.autocompleteCmds
-	if len(cmds) > maxVisible {
-		cmds = cmds[:maxVisible]
+	maxVisible := 8
+	allCmds := m.autocompleteCmds
+	startIdx := 0
+	if len(allCmds) > maxVisible {
+		startIdx = m.autocompleteIndex - maxVisible/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		if startIdx+maxVisible > len(allCmds) {
+			startIdx = len(allCmds) - maxVisible
+		}
 	}
+	endIdx := startIdx + maxVisible
+	if endIdx > len(allCmds) {
+		endIdx = len(allCmds)
+	}
+	cmds := allCmds[startIdx:endIdx]
 
-	for i, cmd := range cmds {
+	for idx, cmd := range cmds {
+		realIdx := startIdx + idx
 		var line string
 		nameStr := "/" + cmd.Name
 		descStr := cmd.Description
@@ -866,7 +879,7 @@ func (m Model) renderAutocompletePopup(width int) string {
 		badge := m.styles.AutocompleteBadge.Render(badgeStr)
 		badgeW := lipgloss.Width(badge)
 
-		if i == m.autocompleteIndex {
+		if realIdx == m.autocompleteIndex {
 			prefix := "▸ "
 			name := m.styles.AutocompleteItemSel.Render(nameStr)
 			nameW := lipgloss.Width(nameStr) + 2
@@ -884,7 +897,7 @@ func (m Model) renderAutocompletePopup(width int) string {
 			line = lipgloss.JoinHorizontal(lipgloss.Top, prefix, name, " ", badge, " ", desc)
 		}
 		sb.WriteString(truncateLine(line, innerWidth))
-		if i < len(cmds)-1 {
+		if idx < len(cmds)-1 {
 			sb.WriteString("\n")
 		}
 	}

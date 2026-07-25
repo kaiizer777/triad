@@ -82,6 +82,9 @@ type Loop struct {
 	// write_file / run_command, just with a different executor
 	// (docs/work2.md §4.2).
 	Browser *browser.Manager
+
+	// SearchAPIKey holds the Firecrawl API key used by the web_search tool.
+	SearchAPIKey string
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -100,6 +103,11 @@ func New(
 		workDir:    workDir,
 		MaxRetries: DefaultMaxRetries,
 	}
+}
+
+// SetSearchAPIKey sets the Firecrawl API key used by web_search tool calls.
+func (l *Loop) SetSearchAPIKey(key string) {
+	l.SearchAPIKey = key
 }
 
 // SetBrowser attaches a browser.Manager to the loop so that approved
@@ -335,6 +343,8 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
 			case browser.IsBrowserTool(toolCall.Function.Name):
 				result, execErr = l.runBrowserTool(toolCall)
+			case toolCall.Function.Name == "web_search":
+				result, execErr = l.runWebSearch(toolCall)
 			default:
 				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
 			}
@@ -594,6 +604,20 @@ func (l *Loop) runBrowserTool(toolCall agent.ToolCall) (string, error) {
 		return "", fmt.Errorf("browser tool %q approved but no browser.Manager is configured on the loop; restart Triad with a browser-capable configuration", toolCall.Function.Name)
 	}
 	return l.Browser.ExecuteTool(l.workDir, toolCall.Function.Name, toolCall.Function.Arguments)
+}
+
+// runWebSearch handles approved web_search tool calls in the loop.
+func (l *Loop) runWebSearch(toolCall agent.ToolCall) (string, error) {
+	var args agent.ExecuteToolArgs
+	if toolCall.Function.Arguments != "" && toolCall.Function.Arguments != "{}" {
+		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+			return "", fmt.Errorf("web_search: failed to parse arguments: %w", err)
+		}
+	}
+	if strings.TrimSpace(args.Query) == "" {
+		return "", fmt.Errorf("web_search: required argument 'query' is missing or empty")
+	}
+	return agent.ExecuteWebSearch(args.Query, l.SearchAPIKey)
 }
 
 // autoCommit is the headless equivalent of the TUI's maybeAutoCommit.

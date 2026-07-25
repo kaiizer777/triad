@@ -702,6 +702,33 @@ func TestTUI_SlashCommand_SummaryMixedRepo(t *testing.T) {
 	}
 }
 
+func TestTUI_SlashCommand_Help(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	updated, cmd := model.Update(humanInputMsg{content: "/help"})
+	m := updated.(Model)
+
+	if cmd != nil {
+		t.Errorf("/help should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 transcript entry for /help, got %d", len(entries))
+	}
+	last := entries[0]
+	if last.Speaker != transcript.SpeakerSystem {
+		t.Errorf("expected System entry, got %q", last.Speaker)
+	}
+	if !strings.Contains(last.Content, "Available Slash Commands:") {
+		t.Errorf("expected 'Available Slash Commands:' header, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "/diff") || !strings.Contains(last.Content, "/plan") || !strings.Contains(last.Content, "/status") {
+		t.Errorf("expected command listing in help output, got: %q", last.Content)
+	}
+}
+
 func TestTUI_SlashCommand_NoRegistry(t *testing.T) {
 	client := &mockClient{}
 	// Empty registry (no commands dir at all).
@@ -866,10 +893,13 @@ func setupAutocompleteTestModel(t *testing.T) (Model, func()) {
 	}
 
 	cmdFiles := map[string]string{
-		"plan.md":   "---\ntarget: coder\ndescription: Ask Coder to produce a plan only\n---\nPropose a step-by-step plan for: {{args}}\n",
-		"status.md": "---\ntarget: system\ndescription: Check current session status\n---\nShow status\n",
-		"strict.md": "---\ntarget: coder\ndescription: Enforce strict safety gates\n---\nStrict instructions: {{args}}\n",
-		"undo.md":   "---\ntarget: system\ndescription: Undo last action\n---\nUndo action\n",
+		"diff.md":    "---\ntarget: reviewer\ndescription: Re-examine proposed action diff\n---\nRe-examine diff\n",
+		"help.md":    "---\ntarget: system\ndescription: Show available slash commands\n---\nShow help\n",
+		"plan.md":    "---\ntarget: coder\ndescription: Ask Coder to produce a plan only\n---\nPropose a step-by-step plan for: {{args}}\n",
+		"status.md":  "---\ntarget: system\ndescription: Check current session status\n---\nShow status\n",
+		"strict.md":  "---\ntarget: reviewer\ndescription: Enforce strict safety gates\n---\nStrict instructions: {{args}}\n",
+		"summary.md": "---\ntarget: system\ndescription: Render session summary\n---\nShow summary\n",
+		"undo.md":    "---\ntarget: system\ndescription: Undo last action\n---\nUndo action\n",
 	}
 	for name, content := range cmdFiles {
 		if err := os.WriteFile(filepath.Join(cmdDir, name), []byte(content), 0644); err != nil {
@@ -891,15 +921,15 @@ func TestTUI_Autocomplete_Filtering(t *testing.T) {
 	model, cleanup := setupAutocompleteTestModel(t)
 	defer cleanup()
 
-	// 1. Typing '/' opens popup with all 4 commands
+	// 1. Typing '/' opens popup with all 7 commands sorted
 	m := typeString(model, "/")
 	if !m.autocompleteActive {
 		t.Fatalf("expected autocompleteActive to be true on '/'")
 	}
-	if len(m.autocompleteCmds) != 4 {
-		t.Fatalf("expected 4 commands on '/', got %d", len(m.autocompleteCmds))
+	if len(m.autocompleteCmds) != 7 {
+		t.Fatalf("expected 7 commands on '/', got %d", len(m.autocompleteCmds))
 	}
-	if m.autocompleteCmds[0].Name != "plan" || m.autocompleteCmds[3].Name != "undo" {
+	if m.autocompleteCmds[0].Name != "diff" || m.autocompleteCmds[6].Name != "undo" {
 		t.Errorf("unexpected command order: %+v", m.autocompleteCmds)
 	}
 
@@ -909,13 +939,14 @@ func TestTUI_Autocomplete_Filtering(t *testing.T) {
 		t.Fatalf("expected 1 match ('plan') on '/p', got %v", m.autocompleteCmds)
 	}
 
-	// 3. Clear and type '/s' narrows to [status, strict]
+
+	// 3. Clear and type '/s' narrows to [status, strict, summary]
 	m.input.SetValue("")
 	m = typeString(m, "/s")
-	if !m.autocompleteActive || len(m.autocompleteCmds) != 2 {
-		t.Fatalf("expected 2 matches ('status', 'strict') on '/s', got %d", len(m.autocompleteCmds))
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 3 {
+		t.Fatalf("expected 3 matches ('status', 'strict', 'summary') on '/s', got %d", len(m.autocompleteCmds))
 	}
-	if m.autocompleteCmds[0].Name != "status" || m.autocompleteCmds[1].Name != "strict" {
+	if m.autocompleteCmds[0].Name != "status" || m.autocompleteCmds[1].Name != "strict" || m.autocompleteCmds[2].Name != "summary" {
 		t.Errorf("unexpected commands on '/s': %+v", m.autocompleteCmds)
 	}
 
@@ -930,7 +961,7 @@ func TestTUI_Autocomplete_Navigation(t *testing.T) {
 	model, cleanup := setupAutocompleteTestModel(t)
 	defer cleanup()
 
-	// Type '/s' -> matches [status, strict], initial index 0
+	// Type '/s' -> matches [status, strict, summary], initial index 0
 	m := typeString(model, "/s")
 	if m.autocompleteIndex != 0 {
 		t.Fatalf("expected initial autocompleteIndex to be 0, got %d", m.autocompleteIndex)
@@ -943,6 +974,13 @@ func TestTUI_Autocomplete_Navigation(t *testing.T) {
 		t.Fatalf("expected autocompleteIndex 1 after Down, got %d", m.autocompleteIndex)
 	}
 
+	// Press Down arrow -> index becomes 2 (summary)
+	up, _ = m.Update(makeKeyMsg("down"))
+	m = up.(Model)
+	if m.autocompleteIndex != 2 {
+		t.Fatalf("expected autocompleteIndex 2 after Down, got %d", m.autocompleteIndex)
+	}
+
 	// Press Down arrow again -> index wraps to 0 (status)
 	up, _ = m.Update(makeKeyMsg("down"))
 	m = up.(Model)
@@ -950,11 +988,11 @@ func TestTUI_Autocomplete_Navigation(t *testing.T) {
 		t.Fatalf("expected autocompleteIndex 0 after wrapping Down, got %d", m.autocompleteIndex)
 	}
 
-	// Press Up arrow -> index wraps to 1 (strict)
+	// Press Up arrow -> index wraps to 2 (summary)
 	up, _ = m.Update(makeKeyMsg("up"))
 	m = up.(Model)
-	if m.autocompleteIndex != 1 {
-		t.Fatalf("expected autocompleteIndex 1 after Up, got %d", m.autocompleteIndex)
+	if m.autocompleteIndex != 2 {
+		t.Fatalf("expected autocompleteIndex 2 after Up, got %d", m.autocompleteIndex)
 	}
 }
 

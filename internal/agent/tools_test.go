@@ -280,10 +280,9 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
 	// 5 base tools (write_file, read_file, run_command, task_complete,
-	// spawn_subagent) + 5 browser_* tools (navigate, click, type,
-	// get_text, screenshot) added in docs/work2.md §4.2.
-	if len(tools) != 10 {
-		t.Fatalf("expected 10 tools, got %d", len(tools))
+	// spawn_subagent) + 5 browser_* tools + 1 web_search tool.
+	if len(tools) != 11 {
+		t.Fatalf("expected 11 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)

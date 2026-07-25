@@ -246,6 +246,23 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "web_search",
+			Description: "Search the web using Firecrawl and return up to 5 clean Markdown results (title, URL, and Markdown content/snippet). Read-only.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"query": {
+						Type:        "string",
+						Description: "The search query string.",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+	},
 }
 
 // CoderTools returns the full list of tool schemas for the Coder agent.
@@ -399,6 +416,7 @@ type ExecuteToolArgs struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Command string `json:"command"`
+	Query   string `json:"query"`
 }
 
 // SpawnSubagentArgs holds the decoded arguments for a spawn_subagent tool call.
@@ -459,6 +477,10 @@ func validateToolArgs(toolName string, args ExecuteToolArgs) error {
 	case "run_command":
 		if args.Command == "" {
 			return fmt.Errorf("run_command: required argument 'command' is missing or empty")
+		}
+	case "web_search":
+		if args.Query == "" {
+			return fmt.Errorf("web_search: required argument 'query' is missing or empty")
 		}
 	}
 	return nil
@@ -525,6 +547,12 @@ func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (s
 		// clear, debuggable error rather than silently falling through
 		// to the "unknown tool" default.
 		execErr = fmt.Errorf("ExecuteTool: spawn_subagent must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
+	case "web_search":
+		apiKey := os.Getenv("FIRECRAWL_API_KEY")
+		if apiKey == "" {
+			apiKey = os.Getenv("SEARCH_API_KEY")
+		}
+		result, execErr = ExecuteWebSearch(args.Query, apiKey)
 	default:
 		execErr = fmt.Errorf("ExecuteTool: unknown tool name %q", call.Function.Name)
 	}
