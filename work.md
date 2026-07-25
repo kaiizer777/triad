@@ -112,37 +112,88 @@ ready.
 
 ---
 
-## Phase 3 — The Clarify Phase
+## Phase 4 — Orchestrator Routing Logic
 
-**Goal:** get the batched upfront clarifying-questions behavior working
-across your existing modes (General Chat, Triad), before Orchestrator and
-twin subagents exist to also need it. This is independent of Phases 1-2 and
-can be built in parallel if you prefer, but is listed here since Phase 4
-depends on it.
+**Goal:** give Orchestrator mode actual judgment — this is where the
+`orchestrator` placeholder from Phase 1.2.5 gets replaced with real routing.
+Twin subagents (Phase 6) don't exist yet — for this phase, "route to twin
+subagent" can simply route to Triad as a stand-in, with the real twin-pair
+behavior arriving in Phase 6.
 
-- [ ] 3.1 — Implement a shared `clarify` step (e.g. `internal/clarify/
-      clarify.go`) that any mode can call before starting real work: given a
-      task description, the relevant agent(s) assess it for ambiguity
-- [ ] 3.2 — If ambiguity exists, **all** questions get batched into a single
-      upfront round — not asked one at a time, not scattered mid-task
-- [ ] 3.3 — Work does not begin until the human answers, or explicitly says
-      something equivalent to "proceed, use your best judgment" — at which
-      point the agent(s) proceed using the most reasonable interpretation
-      and note the assumption made, rather than blocking forever
-- [ ] 3.4 — Wire this into **General Chat** and **Triad** modes first (the
-      two that already exist from Phase 1) — Orchestrator and twin-subagent
-      wiring comes later in Phases 4 and 6, reusing this same shared step
-      rather than duplicating clarify logic
-- [ ] 3.5 — **Test:** give General Chat mode a deliberately ambiguous task,
-      confirm it produces a single batched clarify round rather than
-      guessing or asking piecemeal
-- [ ] 3.6 — **Test:** repeat for Triad mode — confirm Coder/Reviewer clarify
-      before the first proposed action, not mid-task
-- [ ] 3.7 — **Test:** confirm saying "just proceed" after a clarify round
-      correctly unblocks work in both modes, using a stated best-guess
-      interpretation rather than stalling indefinitely
+- [x] 4.1 — Orchestrator receives the task first whenever `current_mode ==
+      orchestrator` (the default)
+- [x] 4.2 — Orchestrator **always states its routing reasoning out loud** in
+      the transcript before acting — e.g. `"[Orchestrator]: This looks like
+      a one-line typo fix — routing to General Chat."` — this is not
+      optional, it's the traceability mitigation from Phase 0 and must never
+      be skipped, even on "obvious" auto-proceed cases
+- [x] 4.3 — **Auto-proceed, no human confirmation needed**, only at the two
+      extremes:
+      - Genuinely trivial (single-file typo/rename/one-liner, no
+        architectural or security surface) → routes to **General Chat**
+        immediately
+      - Genuinely critical (touches auth, payments, deletion, matches any
+        existing hook blocklist pattern from Workflow 2 §3.2.3, or anything
+        Orchestrator itself flags as high-risk) → routes to **Triad**
+        immediately, since more oversight is never the wrong default
+- [x] 4.4 — **For everything in the genuine middle** → Orchestrator **must
+      ask the human to confirm or override** before proceeding: `"[
+      Orchestrator]: I'd route this to a twin-subagent pair — proceed, or
+      would you prefer full Triad instead?"` (routes to Triad directly for
+      now, per this phase's stand-in note above, until Phase 6 lands)
+- [x] 4.5 — Log every routing decision (auto or confirmed) as its own
+      transcript entry type, e.g. `Type: "routing_decision"`, containing:
+      the task, the complexity judgment, the target mode, and whether it was
+      auto-proceeded or human-confirmed
+- [x] 4.6 — Wire the clarify step from Phase 3 in *before* Orchestrator's
+      routing judgment — clarify ambiguity first, then route, not the other
+      way around
+- [x] 4.7 — **Test:** give Orchestrator a clearly trivial task, confirm it
+      auto-routes to General Chat with a logged, stated reason
+- [x] 4.8 — **Test:** give Orchestrator a clearly critical task (e.g.
+      something matching the hook blocklist), confirm it auto-routes to
+      Triad with a logged, stated reason
+- [x] 4.9 — **Test:** give Orchestrator a genuinely ambiguous-complexity
+      task, confirm it stops and asks for confirmation rather than silently
+      picking
+- [x] 4.10 — **Test:** confirm every routing decision (all three cases
+      above) produces a `routing_decision` transcript entry with accurate
+      contents
 
-**Checkpoint:** both existing modes now ask batched clarifying questions
-upfront on ambiguous tasks, using one shared, reusable clarify step.
+
+**Checkpoint:** Orchestrator mode now makes real, logged, traceable routing
+decisions, correctly auto-proceeding at the extremes and confirming with you
+in the middle. It still routes "medium" tasks to full Triad as a stand-in —
+Phase 6 replaces that stand-in with real twin-subagent behavior.
+
+---
+
+## Phase 5 — Rubric for Orchestrator's Judgment (Refinement Pass)
+
+**Goal:** this phase exists because Phase 4's "genuinely trivial" /
+"genuinely critical" / "genuine middle" judgment needs concrete criteria, not
+just vibes — this was flagged as an open item and deserves its own focused
+pass rather than being bolted onto Phase 4's already-full scope.
+
+- [ ] 5.1 — Draft a short, concrete rubric Orchestrator's system prompt can
+      apply consistently — e.g. file count touched, whether the task matches
+      existing hook blocklist patterns (Workflow 2 §3.2.3), whether it's a
+      new feature vs. a one-line fix, whether it touches auth/payment/
+      deletion code paths
+- [ ] 5.2 — Update Orchestrator's system prompt to reference this rubric
+      explicitly rather than leaving the judgment fully open-ended
+- [ ] 5.3 — Re-run Phase 4's tests (4.7-4.9) against a wider set of real or
+      realistic tasks spanning the full trivial→critical range, and
+      specifically probe the middle ground with tasks intentionally designed
+      to be ambiguous under the rubric
+- [ ] 5.4 — **Test:** confirm the rubric produces consistent routing on
+      repeated runs of the same or very similar task — inconsistency here is
+      exactly the non-deterministic-routing risk flagged in Phase 0, so
+      treat repeat-run drift as a real bug to investigate, not noise
+
+**Checkpoint:** Orchestrator's routing judgment now follows a documented,
+testable rubric instead of an unconstrained model guess, and you've
+confirmed it's reasonably consistent on repeated similar inputs.
+
 
 ---

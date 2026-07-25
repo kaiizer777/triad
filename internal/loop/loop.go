@@ -128,6 +128,21 @@ type Loop struct {
 	// Triad. Orchestrator and Twin Subagent wire into the same
 	// step in their own phases.
 	pendingClarify *clarify.Batch
+
+	// pendingOrchestratorConfirm is set when Orchestrator has asked the human
+	// to confirm or override a middle-tier routing decision (Phase 4, §4.4).
+	// When non-nil, the next human message is treated as a confirm/override
+	// reply rather than a fresh task. The clarify phase is skipped for this
+	// reply — we don't want to re-clarify the confirmation itself.
+	// Cleared after the reply is resolved in resolveOrchestratorConfirm.
+	pendingOrchestratorConfirm *orchestratorConfirm
+
+	// effectiveMode is the mode used for the current active cycle. It is set
+	// by the orchestrator routing gate (for ModeOrchestrator tasks) or
+	// directly from CurrentMode (for manually forced modes). runActiveCycle
+	// reads this field — not CurrentMode — so Orchestrator can redirect a
+	// single task to General or Triad without changing the session-level mode.
+	effectiveMode Mode
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -210,77 +225,138 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 				})
 			}
 
-			// --- Clarify phase (Phase 3) ---
+			// --- Orchestrator confirm reply (Phase 4, §4.4) ---
 			//
-			// If we have a pending clarify round, this message is a
-			// REPLY to it (answers or a proceed signal) — process
-			// the reply without re-clarifying.
-			//
-			// Otherwise, this is a fresh task. Assess it: if it's
-			// ambiguous, append a single batched System entry
-			// asking the questions, set pendingClarify, and DO
-			// NOT start the active cycle. The loop returns to
-			// the top of Run, waits for the human's reply, and
-			// re-enters this branch with pendingClarify set.
-			if l.pendingClarify != nil {
-				if clarify.IsProceedCommand(msg) {
-					// "just proceed" / /proceed — record the
-					// best-guess interpretation in the
-					// transcript and unblock the active cycle
-					// using the original task (the first
-					// entry of the pending round).
-					_ = l.append(transcript.Entry{
+			// When Orchestrator has asked the human to confirm or override a
+			// middle-tier routing decision, pendingOrchestratorConfirm is set.
+			// The next message is the confirm/override reply — skip clarify
+			// entirely (we don't want to re-clarify the confirmation itself)
+			// and resolve the routing decision directly.
+			if l.pendingOrchestratorConfirm != nil {
+				em, resolveErr := l.resolveOrchestratorConfirm(msg)
+				if resolveErr != nil {
+					sysEntry := transcript.Entry{
 						Speaker:   transcript.SpeakerSystem,
 						Type:      transcript.TypeMessage,
-						Content:   clarify.FormatProceedNote(*l.pendingClarify),
+						Content:   fmt.Sprintf("Error: %v", resolveErr),
 						Timestamp: time.Now(),
-					})
-					l.pendingClarify = nil
-					// Fall through to the active cycle below.
-				} else {
-					// Real answers (or any non-proceed reply).
-					// The human's reply is already in the
-					// transcript as a [You] entry; record a
-					// short System ack so the next agent
-					// turn sees the answers were received,
-					// then continue with the active cycle.
-					_ = l.append(transcript.Entry{
-						Speaker:   transcript.SpeakerSystem,
-						Type:      transcript.TypeMessage,
-						Content:   "[System]: Clarification received — proceeding.",
-						Timestamp: time.Now(),
-					})
-					l.pendingClarify = nil
-					// Fall through to the active cycle below.
+					}
+					_ = l.append(sysEntry)
+					state = StateIdle
+					return resolveErr
 				}
-			} else {
-				// Fresh task — run the shared clarify step.
-				batch := clarify.AssessAmbiguity(msg)
-				if batch.NeedsClarification {
-					_ = l.append(transcript.Entry{
+				l.effectiveMode = em
+				// Fall through to active cycle — skip clarify and routing.
+
+			} else if l.CurrentMode == ModeOrchestrator {
+				// --- Orchestrator routing gate (Phase 4, §4.1 + §4.3 + §4.4) ---
+				//
+				// For orchestrator mode, route the task immediately — before the
+				// clarify step. The dispatched mode (General Chat or Triad) runs
+				// its own clarification within its execution context if needed.
+				// This ensures the clarify heuristics (bare-action, sensitive-
+				// surface) do not intercept and block auto-proceed routing
+				// decisions for clearly trivial or clearly critical tasks.
+				//
+				// Routing tiers (§4.3 and §4.4):
+				//   trivial  → auto-route to General Chat, no confirmation
+				//   critical → auto-route to Triad, no confirmation
+				//   middle   → emit confirmation prompt, stay idle
+				em, waiting, routeErr := l.runOrchestratorRouting(msg)
+				if routeErr != nil {
+					sysEntry := transcript.Entry{
 						Speaker:   transcript.SpeakerSystem,
 						Type:      transcript.TypeMessage,
-						Content:   clarify.FormatClarifyBlock(batch),
+						Content:   fmt.Sprintf("Error: %v", routeErr),
 						Timestamp: time.Now(),
-					})
-					// Stash the batch for the next message.
-					// IMPORTANT: we capture by value into the
-					// pointer field. The next message will be
-					// processed as a reply (or proceed), not
-					// re-clarified.
-					stored := batch
-					l.pendingClarify = &stored
-					// Stay idle until the human replies or
-					// says "proceed". We deliberately do
-					// NOT consume the active cycle here.
+					}
+					_ = l.append(sysEntry)
+					state = StateIdle
+					return routeErr
+				}
+				if waiting {
+					// Middle-tier: Orchestrator has asked for human confirmation.
+					// Stay idle until the human confirms or overrides.
 					continue
 				}
-				// Task is unambiguous — proceed. We do NOT
-				// emit a System note for this case (the
-				// transcript would be noisy on every clear
-				// task); the doc only requires the entry
-				// when there was an actual clarification
-				// round or a proceed signal.
+				l.effectiveMode = em
+				// Fall through to active cycle.
+
+			} else {
+				// --- Non-orchestrator: Clarify phase (Phase 3) ---
+				//
+				// If we have a pending clarify round, this message is a
+				// REPLY to it (answers or a proceed signal) — process
+				// the reply without re-clarifying.
+				//
+				// Otherwise, this is a fresh task. Assess it: if it's
+				// ambiguous, append a single batched System entry
+				// asking the questions, set pendingClarify, and DO
+				// NOT start the active cycle. The loop returns to
+				// the top of Run, waits for the human's reply, and
+				// re-enters this branch with pendingClarify set.
+				if l.pendingClarify != nil {
+					if clarify.IsProceedCommand(msg) {
+						// "just proceed" / /proceed — record the
+						// best-guess interpretation in the
+						// transcript and unblock the active cycle
+						// using the original task (the first
+						// entry of the pending round).
+						_ = l.append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   clarify.FormatProceedNote(*l.pendingClarify),
+							Timestamp: time.Now(),
+						})
+						l.pendingClarify = nil
+						// Fall through to the active cycle below.
+					} else {
+						// Real answers (or any non-proceed reply).
+						// The human's reply is already in the
+						// transcript as a [You] entry; record a
+						// short System ack so the next agent
+						// turn sees the answers were received,
+						// then continue with the active cycle.
+						_ = l.append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   "[System]: Clarification received — proceeding.",
+							Timestamp: time.Now(),
+						})
+						l.pendingClarify = nil
+						// Fall through to the active cycle below.
+					}
+				} else {
+					// Fresh task — run the shared clarify step.
+					batch := clarify.AssessAmbiguity(msg)
+					if batch.NeedsClarification {
+						_ = l.append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   clarify.FormatClarifyBlock(batch),
+							Timestamp: time.Now(),
+						})
+						// Stash the batch for the next message.
+						// IMPORTANT: we capture by value into the
+						// pointer field. The next message will be
+						// processed as a reply (or proceed), not
+						// re-clarified.
+						stored := batch
+						l.pendingClarify = &stored
+						// Stay idle until the human replies or
+						// says "proceed". We deliberately do
+						// NOT consume the active cycle here.
+						continue
+					}
+					// Task is unambiguous — proceed. We do NOT
+					// emit a System note for this case (the
+					// transcript would be noisy on every clear
+					// task); the doc only requires the entry
+					// when there was an actual clarification
+					// round or a proceed signal.
+				}
+				// Forced mode (general or triad) — use it directly.
+				l.effectiveMode = l.CurrentMode
 			}
 
 			state = StateActive
@@ -357,7 +433,10 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		}
 
 		// --- General Chat Mode (single agent, no Reviewer, no approval loop) ---
-		if l.CurrentMode == ModeGeneral {
+		// Use effectiveMode (set by orchestrator routing or directly from CurrentMode)
+		// rather than CurrentMode so Orchestrator can redirect a single task without
+		// changing the session-level mode.
+		if l.effectiveMode == ModeGeneral {
 			if len(coderResp.ToolCalls) == 0 {
 				entry := transcript.Entry{
 					Speaker:   transcript.SpeakerCoder,

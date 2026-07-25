@@ -105,9 +105,15 @@ func newTestLoop(t *testing.T, mc *mockClient) (*loop.Loop, *transcript.Transcri
 	workDir := t.TempDir()
 
 	l := loop.New(tr, coderCfg, reviewerCfg, mc, workDir)
+	// Force ModeTriad so all pre-Phase-4 tests exercise the Coder→Reviewer
+	// approval path without going through orchestrator routing. Before Phase 4,
+	// ModeOrchestrator was a pass-through to Triad; now it does real routing,
+	// so any test that wants Triad behavior must set the mode explicitly.
+	l.CurrentMode = loop.ModeTriad
 	taskChan := make(chan string, 1)
 	return l, tr, taskChan
 }
+
 
 func runLoop(t *testing.T, l *loop.Loop, taskChan chan string, task string) error {
 	t.Helper()
@@ -1014,6 +1020,10 @@ func TestSpawnSubagent_RejectionDoesNotSpawn(t *testing.T) {
 		HasTools: false,
 	}
 	l := loop.New(tr, coderCfg, reviewerCfg, subMock, workDir)
+	// This test exercises the Triad approval path (Coder→Reviewer veto).
+	// Force ModeTriad so orchestrator routing doesn't intercept the task.
+	l.CurrentMode = loop.ModeTriad
+
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
