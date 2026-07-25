@@ -167,19 +167,59 @@ func (r *Registry) Filter(prefix string) []Command {
 		return nil
 	}
 	prefix = strings.TrimPrefix(prefix, "/")
-	prefix = strings.ToLower(strings.TrimSpace(prefix))
-
-	all := r.List()
-	if prefix == "" {
-		return all
-	}
+	prefix = strings.ToLower(prefix)
 
 	var matched []Command
-	for _, cmd := range all {
-		if strings.HasPrefix(strings.ToLower(cmd.Name), prefix) {
-			matched = append(matched, cmd)
+	all := r.List()
+	if prefix == "" {
+		matched = append(matched, all...)
+	} else {
+		for _, cmd := range all {
+			if strings.HasPrefix(strings.ToLower(cmd.Name), prefix) {
+				matched = append(matched, cmd)
+			}
 		}
 	}
+
+	// If "mode" command exists, inject mode subcommand variants
+	if _, hasMode := r.commands["mode"]; hasMode {
+		modeSubCmds := []Command{
+			{
+				Name:        "mode orchestrator",
+				Target:      TargetSystem,
+				Description: "Switch to Orchestrator mode (default routing)",
+			},
+			{
+				Name:        "mode general",
+				Target:      TargetSystem,
+				Description: "Switch to General Chat mode (single agent, no Reviewer loop)",
+			},
+			{
+				Name:        "mode triad",
+				Target:      TargetSystem,
+				Description: "Switch to Triad mode (full propose → review → execute loop)",
+			},
+		}
+		for _, sub := range modeSubCmds {
+			if prefix == "" || strings.HasPrefix(sub.Name, prefix) {
+				alreadyPresent := false
+				for _, m := range matched {
+					if m.Name == sub.Name {
+						alreadyPresent = true
+						break
+					}
+				}
+				if !alreadyPresent {
+					matched = append(matched, sub)
+				}
+			}
+		}
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Name < matched[j].Name
+	})
+
 	return matched
 }
 

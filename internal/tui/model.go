@@ -80,13 +80,6 @@ type Styles struct {
 	InputHint       lipgloss.Style
 	InputSeparator  lipgloss.Style
 
-	// Pipeline Dock
-	PipelineStepActive  lipgloss.Style
-	PipelineStepPending lipgloss.Style
-	PipelineStepDone    lipgloss.Style
-	PipelineArrow       lipgloss.Style
-	PipelineDock        lipgloss.Style
-
 	ViewportContainer  lipgloss.Style
 	RightCardContainer lipgloss.Style
 	EntryContent       lipgloss.Style
@@ -378,32 +371,6 @@ func DefaultStyles() Styles {
 		InputSeparator: lipgloss.NewStyle().
 			Foreground(borderSoft),
 
-		// ── Pipeline Dock Steps ───────────────────────────────────────
-		PipelineStepActive: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(violetMd).
-			Padding(0, 1),
-
-		PipelineStepPending: lipgloss.NewStyle().
-			Foreground(muted).
-			Background(surface).
-			Padding(0, 1),
-
-		PipelineStepDone: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(obsidian).
-			Background(emeraldLt).
-			Padding(0, 1),
-
-		PipelineArrow: lipgloss.NewStyle().
-			Foreground(border),
-
-		PipelineDock: lipgloss.NewStyle().
-			Background(obsidian).
-			Foreground(textDim).
-			Padding(0, 1),
-
 		// ── Right Panel & Viewport ────────────────────────────────────
 		RightCardContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -526,6 +493,9 @@ type Model struct {
 	input       textinput.Model
 	styles      Styles
 
+	// currentMode holds the top-level orchestration mode (orchestrator | general | triad).
+	currentMode loop.Mode
+
 	// commands holds the slash command registry loaded at startup.
 	// May be empty (no commands/ dir) but should never be nil.
 	commands *commands.Registry
@@ -558,7 +528,7 @@ func NewModel(
 
 	ti := textinput.New()
 	ti.Placeholder = "Ask Triad to build a feature, edit code, or analyze tasks..."
-	ti.Prompt = " ❯ "
+	ti.Prompt = ""
 	ti.SetWidth(40)
 	ti.Focus()
 
@@ -585,6 +555,7 @@ func NewModel(
 		input:          ti,
 		styles:         styles,
 		commands:       cmdReg,
+		currentMode:    loop.ModeOrchestrator,
 	}
 
 	m.RestoreSessionState()
@@ -614,6 +585,19 @@ func (m *Model) SetBrowser(bm *browser.Manager) {
 // RestoreSessionState evaluates existing transcript entries and sets initial state, status, and Cmd.
 func (m *Model) RestoreSessionState() {
 	entries := m.transcript.Entries()
+
+	for _, entry := range entries {
+		if entry.Speaker == transcript.SpeakerSystem {
+			if strings.HasPrefix(entry.Content, "Mode set to: General") {
+				m.currentMode = loop.ModeGeneral
+			} else if strings.HasPrefix(entry.Content, "Mode set to: Triad") {
+				m.currentMode = loop.ModeTriad
+			} else if strings.HasPrefix(entry.Content, "Mode set to: Orchestrator") {
+				m.currentMode = loop.ModeOrchestrator
+			}
+		}
+	}
+
 	if len(entries) == 0 {
 		m.sessionState = loop.StateIdle
 		m.statusMessage = "Ready — Type your prompt below and press Enter."
@@ -842,7 +826,7 @@ func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bo
 	// table — each handler writes its own System entry and returns.
 	// /status is the canonical example; /undo reverts the last auto-commit.
 	if cmd.Target == commands.TargetSystem {
-		body, handlerErr := m.handleSystemCommand(name)
+		body, handlerErr := m.handleSystemCommand(name, args)
 		if handlerErr != "" {
 			return "", false, true, handlerErr
 		}
@@ -867,7 +851,7 @@ func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bo
 // as a System entry, and a non-empty errMsg if the command name isn't
 // recognised. The errMsg path is used by the caller to surface "unknown
 // system command" as a separate error entry rather than a System note.
-func (m *Model) handleSystemCommand(name string) (body string, errMsg string) {
+func (m *Model) handleSystemCommand(name string, args string) (body string, errMsg string) {
 	switch name {
 	case "status":
 		return m.describeSession(), ""
@@ -877,8 +861,42 @@ func (m *Model) handleSystemCommand(name string) (body string, errMsg string) {
 		return m.handleUndo(), ""
 	case "help":
 		return m.handleHelp(), ""
+	case "mode":
+		return m.handleMode(args)
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode).", name)
+	}
+}
+
+// handleMode views or sets the current top-level orchestration mode.
+func (m *Model) handleMode(args string) (body string, errMsg string) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		switch m.currentMode {
+		case loop.ModeGeneral:
+			return "Current mode: General Chat (single agent, no Reviewer loop).", ""
+		case loop.ModeTriad:
+			return "Current mode: Triad (full propose → review → execute loop).", ""
+		default:
+			return "Current mode: Orchestrator (default routing mode).", ""
+		}
+	}
+
+	mode, err := loop.ParseMode(args)
+	if err != nil {
+		return "", fmt.Sprintf("Unknown mode %q. Valid modes: orchestrator, general, triad.", args)
+	}
+
+	m.currentMode = mode
+	switch mode {
+	case loop.ModeGeneral:
+		return "Mode set to: General — Orchestrator will not route until you change this.", ""
+	case loop.ModeTriad:
+		return "Mode set to: Triad — Orchestrator will not route until you change this.", ""
+	case loop.ModeOrchestrator:
+		return "Mode set to: Orchestrator — Default routing enabled.", ""
+	default:
+		return fmt.Sprintf("Mode set to: %s", mode), ""
 	}
 }
 

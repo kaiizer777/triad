@@ -75,21 +75,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rightCardInnerWidth := max(1, mainContainerWidth-rightCardHorizFrame)
 		rightCardInnerHeight := max(1, bodyHeight-rightCardVertFrame)
 
-		// Viewport inner dimensions using exact style frame sizes:
-		// Layout budget inside RightCard: Pipeline (1) + Input Separator (1) + Input (1) = 3 lines reserved (4 if sidebar hidden)
-		bottomRows := 3
+		// Input box width based on rightCardInnerWidth
+		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
+		hintW := lipgloss.Width(m.styles.TitleKeycapKey.Render("Enter")) + lipgloss.Width(m.styles.TitleKeycapLabel.Render(" Submit"))
+		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
+		inputWidth := max(10, inputContainerContentWidth-pillW-hintW-6)
+		m.input.SetWidth(inputWidth)
+
+		// Viewport inner dimensions using exact input bar height:
+		inputBarHeight := lipgloss.Height(m.renderInputBar(rightCardInnerWidth))
+		bottomRows := inputBarHeight
 		if sidebarWidth == 0 {
-			bottomRows = 4
+			bottomRows += 1
 		}
 		vpWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 		vpHeight := max(1, rightCardInnerHeight-bottomRows)
-
-		// Input box width based on rightCardInnerWidth
-		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
-		hintW := lipgloss.Width(m.styles.TitleKeycapKey.Render(" ↵ "))
-		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
-		inputWidth := max(10, inputContainerContentWidth-pillW-hintW-4)
-		m.input.SetWidth(inputWidth)
 
 		if !m.ready {
 			m.viewport = viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))
@@ -128,11 +128,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "tab", "enter":
 				if m.autocompleteIndex >= 0 && m.autocompleteIndex < len(m.autocompleteCmds) {
 					selected := m.autocompleteCmds[m.autocompleteIndex]
-					newVal := "/" + selected.Name + " "
+					newVal := "/" + selected.Name
+					if !strings.Contains(selected.Name, " ") && selected.Name != "help" && selected.Name != "status" && selected.Name != "summary" && selected.Name != "undo" {
+						newVal += " "
+					}
 					m.input.SetValue(newVal)
 					m.input.CursorEnd()
-					m.autocompleteActive = false
-					m.dismissedInput = newVal
+					if selected.Name == "mode" {
+						m.dismissedInput = ""
+						m.syncAutocompleteState()
+					} else {
+						m.autocompleteActive = false
+						m.dismissedInput = newVal
+					}
 					return m, nil
 				}
 			}
@@ -198,6 +206,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.sessionState == loop.StateIdle {
 			m.sessionState = loop.StateActive
+			if note := loop.CheckModeMismatch(m.currentMode, msg.content); note != "" {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   note,
+					Timestamp: time.Now(),
+				})
+				m.refreshViewport()
+			}
 			m.statusMessage = "Coder is thinking..."
 			return m, cmdCoderTurn(m.transcript, m.coder, m.client)
 		}
@@ -227,6 +244,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.speaker == transcript.SpeakerCoder {
+			if m.currentMode == loop.ModeGeneral {
+				if len(msg.resp.ToolCalls) == 0 {
+					entry := transcript.Entry{
+						Speaker:   transcript.SpeakerCoder,
+						Type:      transcript.TypeMessage,
+						Content:   msg.resp.Text,
+						Timestamp: time.Now(),
+					}
+					_ = m.transcript.Append(entry)
+					m.sessionState = loop.StateIdle
+					m.plainTextTurns = 0
+					m.statusMessage = "Task complete (General Chat). Session idle."
+					m.refreshViewport()
+					return m, nil
+				}
+
+				toolCall := msg.resp.ToolCalls[0]
+				if toolCall.Function.Name == "task_complete" {
+					doneEntry := transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   "Task complete. Session is now idle. Enter your next task.",
+						Timestamp: time.Now(),
+					}
+					_ = m.transcript.Append(doneEntry)
+					m.sessionState = loop.StateIdle
+					m.activeToolCall = nil
+					m.statusMessage = "Task complete. Session idle."
+					m.refreshViewport()
+					return m, nil
+				}
+
+				m.activeToolCall = &toolCall
+				proposedContent := loop.FormatProposedAction(toolCall)
+				proposedEntry := transcript.Entry{
+					Speaker:   transcript.SpeakerCoder,
+					Type:      transcript.TypeProposedAction,
+					Content:   proposedContent,
+					Timestamp: time.Now(),
+				}
+				_ = m.transcript.Append(proposedEntry)
+				m.refreshViewport()
+
+				if toolCall.Function.Name == "spawn_subagent" {
+					m.statusMessage = "Running subagent..."
+					return m, cmdSpawnSubagent(
+						m.transcript.FilePath(),
+						m.workDir,
+						m.coder,
+						m.client,
+						m.commandTimeout,
+						toolCall,
+					)
+				}
+				if browser.IsBrowserTool(toolCall.Function.Name) {
+					m.statusMessage = fmt.Sprintf("Executing browser tool %q...", toolCall.Function.Name)
+					return m, cmdExecuteBrowserTool(m.workDir, m.browser, toolCall)
+				}
+				if toolCall.Function.Name == "web_search" {
+					m.statusMessage = "Searching the web..."
+					return m, cmdExecuteWebSearch(m.searchAPIKey, toolCall)
+				}
+				m.statusMessage = fmt.Sprintf("Executing tool %q...", toolCall.Function.Name)
+				return m, cmdExecuteTool(m.workDir, toolCall, m.commandTimeout)
+			}
+
 			if len(msg.resp.ToolCalls) == 0 {
 				// Plain text message / plan from Coder — no tool call yet.
 				entry := transcript.Entry{
@@ -454,6 +537,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retryCount = 0
 		m.lastCoderMessage = ""
 		m.lastProposedEntryID = 0
+		if m.currentMode == loop.ModeGeneral {
+			m.sessionState = loop.StateIdle
+			m.statusMessage = "Action executed (General Chat). Session idle."
+			m.refreshViewport()
+			return m, nil
+		}
 		m.statusMessage = "Action executed. Coder considering next step..."
 		m.refreshViewport()
 		return m, cmdCoderTurn(m.transcript, m.coder, m.client)

@@ -1033,3 +1033,34 @@ func TestSpawnSubagent_RejectionDoesNotSpawn(t *testing.T) {
 		t.Errorf("expected exactly 1 subagent summary in main transcript, got %d", summaryCount)
 	}
 }
+
+func TestModeGeneralSingleAgentNoReviewer(t *testing.T) {
+	mc := newMockClient()
+	l, tr, taskChan := newTestLoop(t, mc)
+	l.CurrentMode = loop.ModeGeneral
+
+	mc.addResponse("Coder", mockResponse{
+		resp: agent.AgentResponse{Text: "Here is a simple answer in general mode."},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	taskChan <- "explain hello"
+	close(taskChan)
+
+	if err := l.Run(ctx, taskChan); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	entries := tr.Entries()
+	hasReviewer := false
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerReviewer {
+			hasReviewer = true
+		}
+	}
+	if hasReviewer {
+		t.Errorf("expected no Reviewer entries in ModeGeneral, but found Reviewer entry")
+	}
+}

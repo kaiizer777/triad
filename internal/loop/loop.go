@@ -41,6 +41,32 @@ const (
 // DefaultMaxRetries is the default cap on propose→object cycles per atomic action.
 const DefaultMaxRetries = 5
 
+// Mode represents the top-level orchestration mode.
+type Mode string
+
+const (
+	// ModeOrchestrator is the default session mode where an Orchestrator routes tasks (defaults to Triad in Phase 1).
+	ModeOrchestrator Mode = "orchestrator"
+	// ModeGeneral is a single-agent path with Coder only (no Reviewer, no approval loop).
+	ModeGeneral Mode = "general"
+	// ModeTriad is the full propose→review→execute loop with Reviewer veto power.
+	ModeTriad Mode = "triad"
+)
+
+// ParseMode parses a raw mode string (case-insensitive).
+func ParseMode(raw string) (Mode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "orchestrator":
+		return ModeOrchestrator, nil
+	case "general":
+		return ModeGeneral, nil
+	case "triad":
+		return ModeTriad, nil
+	default:
+		return "", fmt.Errorf("unknown mode %q (must be orchestrator, general, or triad)", raw)
+	}
+}
+
 // AgentClient is the interface the loop uses to call an agent.
 // Using an interface here lets loop_test.go inject a mock without network calls.
 type AgentClient interface {
@@ -83,6 +109,9 @@ type Loop struct {
 	// (docs/work2.md §4.2).
 	Browser *browser.Manager
 
+	// CurrentMode controls task execution mode (orchestrator | general | triad).
+	CurrentMode Mode
+
 	// SearchAPIKey holds the Firecrawl API key used by the web_search tool.
 	SearchAPIKey string
 }
@@ -96,12 +125,13 @@ func New(
 	workDir string,
 ) *Loop {
 	return &Loop{
-		transcript: t,
-		coder:      coder,
-		reviewer:   reviewer,
-		client:     client,
-		workDir:    workDir,
-		MaxRetries: DefaultMaxRetries,
+		transcript:  t,
+		coder:       coder,
+		reviewer:    reviewer,
+		client:      client,
+		workDir:     workDir,
+		MaxRetries:  DefaultMaxRetries,
+		CurrentMode: ModeOrchestrator,
 	}
 }
 
@@ -154,6 +184,16 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 			}
 			if err := l.append(entry); err != nil {
 				return fmt.Errorf("loop: failed to append human message: %w", err)
+			}
+
+			// Passive FYI note if forced mode looks mismatched to the task (Phase 2)
+			if note := CheckModeMismatch(l.CurrentMode, msg); note != "" {
+				_ = l.append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   note,
+					Timestamp: time.Now(),
+				})
 			}
 
 			state = StateActive
@@ -227,6 +267,85 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		coderResp, err := l.client.Respond(ctx, l.coder, l.transcript.Entries())
 		if err != nil {
 			return false, fmt.Errorf("coder API call failed: %w", err)
+		}
+
+		// --- General Chat Mode (single agent, no Reviewer, no approval loop) ---
+		if l.CurrentMode == ModeGeneral {
+			if len(coderResp.ToolCalls) == 0 {
+				entry := transcript.Entry{
+					Speaker:   transcript.SpeakerCoder,
+					Type:      transcript.TypeMessage,
+					Content:   coderResp.Text,
+					Timestamp: time.Now(),
+				}
+				if err := l.append(entry); err != nil {
+					return false, fmt.Errorf("loop: failed to append coder message: %w", err)
+				}
+				return true, nil
+			}
+
+			toolCall := coderResp.ToolCalls[0]
+			if toolCall.Function.Name == "task_complete" {
+				doneEntry := transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   "Task complete. Session is now idle. Enter your next task.",
+					Timestamp: time.Now(),
+				}
+				_ = l.append(doneEntry)
+				return true, nil
+			}
+
+			proposedContent := FormatProposedAction(toolCall)
+			proposedEntry := transcript.Entry{
+				Speaker:   transcript.SpeakerCoder,
+				Type:      transcript.TypeProposedAction,
+				Content:   proposedContent,
+				Timestamp: time.Now(),
+			}
+			if err := l.append(proposedEntry); err != nil {
+				return false, fmt.Errorf("loop: failed to append proposed_action: %w", err)
+			}
+
+			var result string
+			var execErr error
+			switch {
+			case toolCall.Function.Name == "spawn_subagent":
+				result, execErr = l.runSpawnSubagent(ctx, toolCall)
+			case browser.IsBrowserTool(toolCall.Function.Name):
+				result, execErr = l.runBrowserTool(toolCall)
+			case toolCall.Function.Name == "web_search":
+				result, execErr = l.runWebSearch(toolCall)
+			default:
+				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
+			}
+			resultContent := result
+			if execErr != nil {
+				resultContent = fmt.Sprintf("ERROR: %v", execErr)
+			}
+
+			resultEntry := transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeActionResult,
+				Content:   resultContent,
+				Timestamp: time.Now(),
+			}
+			if err := l.append(resultEntry); err != nil {
+				return false, fmt.Errorf("loop: failed to append action_result: %w", err)
+			}
+
+			if execErr == nil {
+				if note := autoCommit(l.workDir, l.transcript.FilePath(), toolCall, resultEntry.ID); note != "" {
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   note,
+						Timestamp: time.Now(),
+					})
+				}
+			}
+
+			return true, nil
 		}
 
 		// If Coder returned plain text (a plan/message), append and give Coder another turn

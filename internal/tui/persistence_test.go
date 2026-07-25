@@ -315,3 +315,42 @@ func TestPersistence_InitCmdBatching(t *testing.T) {
 		t.Errorf("expected non-empty View output after restoring session")
 	}
 }
+
+func TestPersistence_ModeRestoredOnResume(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+	sessionPath := filepath.Join(tmpDir, "mode_session.jsonl")
+	tr := transcript.NewTranscript(sessionPath)
+
+	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
+	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
+
+	cmdDir := filepath.Join(tmpDir, "commands")
+	if err := os.MkdirAll(cmdDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cmdDir, "mode.md"), []byte("---\ntarget: system\ndescription: mode\n---\nmode body\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	reg, err := commands.Load(cmdDir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg)
+
+	// Switch mode to general
+	updated, _ := model.Update(humanInputMsg{content: "/mode general"})
+	_ = updated.(Model)
+
+	// Reload transcript from disk (simulating session resume)
+	reloadedTr, err := transcript.LoadFromFile(sessionPath)
+	if err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+
+	resumedModel := NewModel(reloadedTr, coder, reviewer, client, tmpDir, 0, reg)
+	if resumedModel.currentMode != loop.ModeGeneral {
+		t.Errorf("expected currentMode to be ModeGeneral after resume, got %v", resumedModel.currentMode)
+	}
+}

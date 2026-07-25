@@ -257,16 +257,7 @@ func TestTUI_Phase7_WindowResize(t *testing.T) {
 	}
 }
 
-func TestTUI_Phase7_PipelineDock(t *testing.T) {
-	client := &mockClient{}
-	model, cleanup := setupTestModel(t, client)
-	defer cleanup()
 
-	dock := model.renderPipelineDock(100)
-	if dock == "" {
-		t.Fatalf("expected non-empty pipeline dock string")
-	}
-}
 
 func TestTUI_Phase7_Badges(t *testing.T) {
 	client := &mockClient{}
@@ -896,6 +887,7 @@ func setupAutocompleteTestModel(t *testing.T) (Model, func()) {
 	cmdFiles := map[string]string{
 		"diff.md":    "---\ntarget: reviewer\ndescription: Re-examine proposed action diff\n---\nRe-examine diff\n",
 		"help.md":    "---\ntarget: system\ndescription: Show available slash commands\n---\nShow help\n",
+		"mode.md":    "---\ntarget: system\ndescription: View or set current orchestration mode (orchestrator|general|triad)\n---\nView or set mode\n",
 		"plan.md":    "---\ntarget: coder\ndescription: Ask Coder to produce a plan only\n---\nPropose a step-by-step plan for: {{args}}\n",
 		"status.md":  "---\ntarget: system\ndescription: Check current session status\n---\nShow status\n",
 		"strict.md":  "---\ntarget: reviewer\ndescription: Enforce strict safety gates\n---\nStrict instructions: {{args}}\n",
@@ -922,15 +914,15 @@ func TestTUI_Autocomplete_Filtering(t *testing.T) {
 	model, cleanup := setupAutocompleteTestModel(t)
 	defer cleanup()
 
-	// 1. Typing '/' opens popup with all 7 commands sorted
+	// 1. Typing '/' opens popup with all 11 commands sorted (8 base + 3 mode subcommands)
 	m := typeString(model, "/")
 	if !m.autocompleteActive {
 		t.Fatalf("expected autocompleteActive to be true on '/'")
 	}
-	if len(m.autocompleteCmds) != 7 {
-		t.Fatalf("expected 7 commands on '/', got %d", len(m.autocompleteCmds))
+	if len(m.autocompleteCmds) != 11 {
+		t.Fatalf("expected 11 commands on '/', got %d", len(m.autocompleteCmds))
 	}
-	if m.autocompleteCmds[0].Name != "diff" || m.autocompleteCmds[6].Name != "undo" {
+	if m.autocompleteCmds[0].Name != "diff" || m.autocompleteCmds[10].Name != "undo" {
 		t.Errorf("unexpected command order: %+v", m.autocompleteCmds)
 	}
 
@@ -1260,6 +1252,152 @@ func TestTUI_RenderMessageCalloutBoxes(t *testing.T) {
 	}
 	if !strings.Contains(chat, "╭") || !strings.Contains(chat, "╰") {
 		t.Errorf("expected chat messages to be wrapped in rounded box UIs, got: %q", chat)
+	}
+}
+
+func TestTUI_ModeCommand(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// 1. /mode with no args returns current mode report
+	updated, _ := model.Update(humanInputMsg{content: "/mode"})
+	m := updated.(Model)
+	entries := m.transcript.Entries()
+	if len(entries) != 1 || !strings.Contains(entries[0].Content, "Current mode: Orchestrator") {
+		t.Fatalf("expected current mode report for /mode, got: %v", entries)
+	}
+
+	// 2. /mode general sets mode to General
+	updated, _ = m.Update(humanInputMsg{content: "/mode general"})
+	m = updated.(Model)
+	entries = m.transcript.Entries()
+	if len(entries) != 2 || !strings.Contains(entries[1].Content, "Mode set to: General") {
+		t.Fatalf("expected confirmation for /mode general, got: %v", entries[1].Content)
+	}
+
+	// 3. /mode triad sets mode to Triad
+	updated, _ = m.Update(humanInputMsg{content: "/mode triad"})
+	m = updated.(Model)
+	entries = m.transcript.Entries()
+	if len(entries) != 3 || !strings.Contains(entries[2].Content, "Mode set to: Triad") {
+		t.Fatalf("expected confirmation for /mode triad, got: %v", entries[2].Content)
+	}
+
+	// 4. /mode orchestrator sets mode to Orchestrator
+	updated, _ = m.Update(humanInputMsg{content: "/mode orchestrator"})
+	m = updated.(Model)
+	entries = m.transcript.Entries()
+	if len(entries) != 4 || !strings.Contains(entries[3].Content, "Mode set to: Orchestrator") {
+		t.Fatalf("expected confirmation for /mode orchestrator, got: %v", entries[3].Content)
+	}
+
+	// 5. /mode invalid returns error
+	updated, _ = m.Update(humanInputMsg{content: "/mode invalid"})
+	m = updated.(Model)
+	entries = m.transcript.Entries()
+	if len(entries) != 5 || !strings.Contains(entries[4].Content, "Unknown mode") {
+		t.Fatalf("expected unknown mode error for /mode invalid, got: %v", entries[4].Content)
+	}
+}
+
+func TestTUI_ModeGeneralExecution(t *testing.T) {
+	client := &mockClient{}
+	client.coderResponses = append(client.coderResponses, agent.AgentResponse{Text: "Plain text response in general mode"})
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	// Switch to general mode
+	updated, _ := model.Update(humanInputMsg{content: "/mode general"})
+	model = updated.(Model)
+
+	// Send task
+	updated, cmd := model.Update(humanInputMsg{content: "hello world"})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatalf("expected cmd for coder turn in general mode")
+	}
+
+	// Execute coder turn
+	msg := cmd()
+	updated, nextCmd := model.Update(msg)
+	model = updated.(Model)
+
+	if nextCmd != nil {
+		t.Errorf("expected no nextCmd (no Reviewer turn) in ModeGeneral, got %v", nextCmd)
+	}
+
+	entries := model.transcript.Entries()
+	hasReviewer := false
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerReviewer {
+			hasReviewer = true
+		}
+	}
+	if hasReviewer {
+		t.Errorf("expected no Reviewer entries in General mode, but found Reviewer entry")
+	}
+}
+
+func TestTUI_ModeAutocompleteSuggestions(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// 1. Typing '/mode' shows /mode plus all 3 mode options
+	m := typeString(model, "/mode")
+	if !m.autocompleteActive {
+		t.Fatalf("expected autocompleteActive to be true on '/mode'")
+	}
+	if len(m.autocompleteCmds) != 4 {
+		t.Fatalf("expected 4 autocompleteCmds on '/mode', got %d: %+v", len(m.autocompleteCmds), m.autocompleteCmds)
+	}
+
+	// 2. Typing '/mode ' narrows to 3 mode options
+	m = typeString(model, "/mode ")
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 3 {
+		t.Fatalf("expected 3 autocompleteCmds on '/mode ', got %d: %+v", len(m.autocompleteCmds), m.autocompleteCmds)
+	}
+
+	// 3. Typing '/mode g' narrows to '/mode general'
+	m = typeString(model, "/mode g")
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 1 || m.autocompleteCmds[0].Name != "mode general" {
+		t.Fatalf("expected 1 match ('mode general') on '/mode g', got %+v", m.autocompleteCmds)
+	}
+
+	// 4. Pressing Tab selects '/mode general'
+	updated, _ := m.Update(makeKeyMsg("tab"))
+	m = updated.(Model)
+	if m.input.Value() != "/mode general" {
+		t.Fatalf("expected input value '/mode general', got %q", m.input.Value())
+	}
+}
+
+func TestTUI_ModeMismatchNotice(t *testing.T) {
+	client := &mockClient{
+		coderResponses: []agent.AgentResponse{
+			{Text: "Acknowledged."},
+		},
+	}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	// Switch to Triad mode
+	model.currentMode = loop.ModeTriad
+
+	// Submit a trivial task via humanInputMsg
+	updated, _ := model.Update(humanInputMsg{content: "hello"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	var foundMismatchNote bool
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerSystem && strings.Contains(e.Content, "you're in Triad mode; this looks trivial") {
+			foundMismatchNote = true
+			break
+		}
+	}
+
+	if !foundMismatchNote {
+		t.Fatalf("expected TUI transcript to contain passive mode mismatch note for forced triad mode + trivial task. Entries: %+v", entries)
 	}
 }
 

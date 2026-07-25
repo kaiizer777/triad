@@ -291,3 +291,33 @@ func TestRegistry_Filter(t *testing.T) {
 	}
 }
 
+func TestRegistry_FilterModeSubcommands(t *testing.T) {
+	dir := t.TempDir()
+	body := []byte("---\ntarget: system\ndescription: mode\n---\nbody\n")
+	if err := os.WriteFile(filepath.Join(dir, "mode.md"), body, 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// 1. Filtering "mode" returns base command + 3 subcommands
+	modeMatches := reg.Filter("mode")
+	if len(modeMatches) != 4 {
+		t.Fatalf("expected 4 matches for 'mode', got %d: %+v", len(modeMatches), modeMatches)
+	}
+
+	// 2. Filtering "mode " (with trailing space) returns only the 3 subcommands
+	spaceMatches := reg.Filter("mode ")
+	if len(spaceMatches) != 3 {
+		t.Fatalf("expected 3 matches for 'mode ', got %d: %+v", len(spaceMatches), spaceMatches)
+	}
+
+	// 3. Filtering "mode g" returns "mode general"
+	gMatches := reg.Filter("mode g")
+	if len(gMatches) != 1 || gMatches[0].Name != "mode general" {
+		t.Fatalf("expected 'mode general' for 'mode g', got %+v", gMatches)
+	}
+}
+

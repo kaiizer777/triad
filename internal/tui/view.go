@@ -65,12 +65,13 @@ func (m Model) View() tea.View {
 		}
 	}
 
+	inputBar := m.renderInputBar(rightCardInnerWidth)
+
 	// Fixed bottom rows that must ALWAYS be visible in right card:
-	// Pipeline Dock (1) + Input Separator (1) + Input Row (1) = 3 rows pinned at bottom (4 if sidebar hidden).
-	// Plus optional Autocomplete Popup height when active.
-	bottomRows := 3
+	// Input Bar (measured dynamically) + optional Status Bar if no sidebar + optional Autocomplete Popup height when active.
+	bottomRows := lipgloss.Height(inputBar)
 	if sidebarWidth == 0 {
-		bottomRows = 4
+		bottomRows += 1
 	}
 	vpContentHeight := max(1, rightCardInnerHeight-bottomRows-popupHeight)
 	vpContentWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
@@ -84,20 +85,16 @@ func (m Model) View() tea.View {
 		Height(vpContentHeight).
 		Render(vpView)
 
-	pipelineDock := m.renderPipelineDock(rightCardInnerWidth)
-	inputBar := m.renderInputBar(rightCardInnerWidth)
-
 	// Clip ONLY the scrollable viewport portion — never the pinned bottom dock.
 	scrollableArea := clipLines(vpContainer, vpContentHeight)
 
-	// Pin bottom: pipeline + (statusBar if no sidebar) + (popup if active) + input are always rendered last.
+	// Pin bottom: (statusBar if no sidebar) + (popup if active) + input are always rendered last.
 	var bottomDock string
 	if sidebarWidth == 0 {
 		statusBar := m.renderStatusBar(rightCardInnerWidth)
 		if popup != "" {
 			bottomDock = lipgloss.JoinVertical(
 				lipgloss.Left,
-				pipelineDock,
 				statusBar,
 				popup,
 				inputBar,
@@ -105,7 +102,6 @@ func (m Model) View() tea.View {
 		} else {
 			bottomDock = lipgloss.JoinVertical(
 				lipgloss.Left,
-				pipelineDock,
 				statusBar,
 				inputBar,
 			)
@@ -114,16 +110,11 @@ func (m Model) View() tea.View {
 		if popup != "" {
 			bottomDock = lipgloss.JoinVertical(
 				lipgloss.Left,
-				pipelineDock,
 				popup,
 				inputBar,
 			)
 		} else {
-			bottomDock = lipgloss.JoinVertical(
-				lipgloss.Left,
-				pipelineDock,
-				inputBar,
-			)
+			bottomDock = inputBar
 		}
 	}
 
@@ -244,6 +235,16 @@ func (m Model) renderSidebar(width int, height int) string {
 	default:
 		sb.WriteString(m.styles.SidebarBadgeThink.Render(" THINK "))
 	}
+	sb.WriteString("\n")
+
+	// Mode badge
+	modeLabel := m.styles.SidebarLabel.Render(" Mode   ")
+	modeVal := strings.ToUpper(string(m.currentMode))
+	if modeVal == "" {
+		modeVal = "ORCHESTRATOR"
+	}
+	sb.WriteString(modeLabel)
+	sb.WriteString(m.styles.SidebarBadgeThink.Render(" " + modeVal + " "))
 	sb.WriteString("\n")
 
 	// Workdir
@@ -429,95 +430,7 @@ func (m Model) renderSystemLogs() string {
 	return sb.String()
 }
 
-// renderPipelineDock builds a 4-step visual pipeline tracker:
-// [1 Prompt] -> [2 Propose] -> [3 Review] -> [4 Exec]
-func (m Model) renderPipelineDock(width int) string {
-	type stepState int
-	const (
-		stepPending stepState = iota
-		stepActive
-		stepDone
-	)
 
-	step1, step2, step3, step4 := stepDone, stepPending, stepPending, stepPending
-	if m.sessionState == loop.StateIdle {
-		step1 = stepPending
-	} else if m.sessionState == loop.StateActive {
-		if m.activeToolCall != nil {
-			step2, step3, step4 = stepDone, stepDone, stepActive
-		} else if strings.Contains(m.statusMessage, "Reviewer") {
-			step2, step3 = stepDone, stepActive
-		} else {
-			step2 = stepActive
-		}
-	}
-
-	renderStep := func(n int, label string, state stepState) string {
-		var icon string
-		switch state {
-		case stepDone:
-			icon = "✓"
-		case stepActive:
-			icon = "●"
-		default:
-			icon = "○"
-		}
-		var text string
-		if width < 85 {
-			text = fmt.Sprintf(" %s%d ", icon, n)
-		} else {
-			text = fmt.Sprintf(" %s %d %s ", icon, n, label)
-		}
-		switch state {
-		case stepActive:
-			return m.styles.PipelineStepActive.Render(text)
-		case stepDone:
-			return m.styles.PipelineStepDone.Render(text)
-		default:
-			return m.styles.PipelineStepPending.Render(text)
-		}
-	}
-
-	arrow := m.styles.PipelineArrow.Render(" ❯ ")
-	s1 := renderStep(1, "Prompt", step1)
-	s2 := renderStep(2, "Propose", step2)
-	s3 := renderStep(3, "Review", step3)
-	s4 := renderStep(4, "Exec", step4)
-
-	dockContent := lipgloss.JoinHorizontal(lipgloss.Top, s1, arrow, s2, arrow, s3, arrow, s4)
-
-	prefix := ""
-	if width >= 90 {
-		prefix = m.styles.SidebarSubHeader.Render(" PIPELINE  ")
-	}
-	leftFull := prefix + dockContent
-
-	var stateBadge string
-	switch {
-	case m.sessionState == loop.StateIdle:
-		stateBadge = m.styles.SidebarBadgeIdle.Render(" IDLE ")
-	case m.activeToolCall != nil:
-		stateBadge = m.styles.SidebarBadgeActive.Render(" EXEC ")
-	default:
-		stateBadge = m.styles.SidebarBadgeThink.Render(" THINK ")
-	}
-
-	containerW := max(0, width-m.styles.PipelineDock.GetHorizontalFrameSize())
-
-	leftW := lipgloss.Width(leftFull)
-	badgeW := lipgloss.Width(stateBadge)
-	gapW := containerW - leftW - badgeW
-
-	var fullLine string
-	if gapW > 1 && width >= 60 {
-		fullLine = leftFull + strings.Repeat(" ", gapW) + stateBadge
-	} else {
-		fullLine = leftFull
-	}
-
-	res := m.styles.PipelineDock.Width(containerW).Render(truncateLine(fullLine, containerW))
-	return clipLines(res, 1)
-}
 
 // renderStatusBar renders the live status line with state icon and spinner.
 func (m Model) renderStatusBar(width int) string {
@@ -546,21 +459,25 @@ func (m Model) renderInputBar(width int) string {
 
 	pill := m.styles.InputPill.Render(" ❯ YOU ")
 
-	// Use compact hint symbols to prevent truncation on narrower terminals.
-	var hintText string
+	var hint string
 	if m.sessionState == loop.StateActive {
-		hintText = " ↵ "
+		hint = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.styles.TitleKeycapKey.Render("Enter"),
+			m.styles.TitleKeycapLabel.Render(" Interject"),
+		)
 	} else {
-		hintText = " ↵ "
+		hint = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.styles.TitleKeycapKey.Render("Enter"),
+			m.styles.TitleKeycapLabel.Render(" Submit"),
+		)
 	}
-	hint := m.styles.TitleKeycapKey.Render(hintText)
 
 	containerW := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
 	pillW := lipgloss.Width(pill)
 	hintW := lipgloss.Width(hint)
 
-	// Reserve 8 chars (2 spaces + prompt/cursor width + safety buffer) to prevent soft-wrapping.
-	inputW := max(10, containerW-pillW-hintW-8)
+	// Reserve 6 chars safety buffer to prevent soft-wrapping under any window size
+	inputW := max(10, containerW-pillW-hintW-6)
 	m.input.SetWidth(inputW)
 
 	inputView := m.input.View()
