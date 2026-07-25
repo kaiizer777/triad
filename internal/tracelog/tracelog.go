@@ -18,6 +18,7 @@ const (
 	EventTwinComplete      = "twin_complete"
 	EventClarifyTrigger     = "clarify_trigger"
 	EventHookIntervention  = "hook_intervention"
+	EventRecoveryAttempt   = "recovery_attempt"
 )
 
 // Entry represents a single high-level event in the session trace log.

@@ -8,6 +8,7 @@ package loop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,12 @@ const (
 
 // DefaultMaxRetries is the default cap on propose→object cycles per atomic action.
 const DefaultMaxRetries = 5
+
+// MaxRecoveryAttempts is the Phase 3.5 cap on recovery attempts per
+// browser action. This counts both the deterministic attempt (3.2) and
+// the model-assisted attempt (3.3) — so a value of 2 means one of
+// each. A genuinely broken page won't spin past this cap.
+const MaxRecoveryAttempts = 2
 
 // Mode represents the top-level orchestration mode.
 type Mode string
@@ -114,6 +121,15 @@ type Loop struct {
 	// (docs/work2.md §4.2).
 	Browser *browser.Manager
 
+	// recoveryAttempts tracks Phase 3 recovery attempts per tool call
+	// ID. The key is the tool call ID; the value is the number of
+	// recovery attempts made so far. When the value reaches
+	// MaxRecoveryAttempts (2), no further recovery is attempted and
+	// the error is surfaced to Coder normally. This map is cleared
+	// when an action is approved (the ID changes) or when a new
+	// active cycle starts.
+	recoveryAttempts map[string]int
+
 	// CurrentMode controls task execution mode (orchestrator | general | triad).
 	CurrentMode Mode
 
@@ -164,13 +180,14 @@ func New(
 	workDir string,
 ) *Loop {
 	return &Loop{
-		transcript:  t,
-		coder:       coder,
-		reviewer:    reviewer,
-		client:      client,
-		workDir:     workDir,
-		MaxRetries:  DefaultMaxRetries,
-		CurrentMode: ModeOrchestrator,
+		transcript:       t,
+		coder:            coder,
+		reviewer:         reviewer,
+		client:           client,
+		workDir:          workDir,
+		MaxRetries:       DefaultMaxRetries,
+		CurrentMode:      ModeOrchestrator,
+		recoveryAttempts: make(map[string]int),
 	}
 }
 
@@ -564,6 +581,34 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			default:
 				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
 			}
+
+			// Phase 3: In General Chat mode, recovery is simpler —
+			// deterministic recovery runs silently; if it fails, the
+			// error is surfaced directly to Coder (no Reviewer gate).
+			var recoveryErr *browser.SelectorRecoveryError
+			if execErr != nil && errors.As(execErr, &recoveryErr) {
+				if recoveryErr.Phase == "deterministic" && recoveryErr.Candidate != "" {
+					// Try the candidate directly.
+					recoverResult, recoverExecErr := l.Browser.ExecuteRecoveredAction(
+						recoveryErr.Failure.ToolName,
+						recoveryErr.Candidate,
+						recoveryErr.Strategy,
+						toolCall.Function.Arguments,
+					)
+					if recoverExecErr == nil {
+						result = recoverResult
+						execErr = nil
+						_ = l.append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   fmt.Sprintf("[Recovery]: Selector recovered deterministically using %q [%s].", recoveryErr.Candidate, recoveryErr.Strategy),
+							Timestamp: time.Now(),
+						})
+					}
+				}
+				// If recovery failed, fall through to normal error handling.
+			}
+
 			resultContent := result
 			if execErr != nil {
 				resultContent = fmt.Sprintf("ERROR: %v", execErr)
@@ -714,6 +759,27 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			default:
 				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
 			}
+
+			// --- Phase 3: Selector failure recovery ---
+			// If the browser tool returned a SelectorRecoveryError,
+			// the loop attempts recovery instead of surfacing the
+			// raw error to Coder.
+			var recoveryErr *browser.SelectorRecoveryError
+			if execErr != nil && errors.As(execErr, &recoveryErr) {
+				recovered, recoverErr := l.handleSelectorRecovery(ctx, toolCall, recoveryErr)
+				if recoverErr != nil {
+					return false, false, recoverErr
+				}
+				if recovered {
+					// Recovery succeeded — the corrected action was
+					// executed and its result appended. Continue the
+					// outer loop so Coder can propose the next action.
+					return true, false, nil
+				}
+				// Recovery not possible — fall through to normal
+				// error handling below.
+			}
+
 			resultContent := result
 			if execErr != nil {
 				resultContent = fmt.Sprintf("ERROR: %v", execErr)
@@ -1032,6 +1098,13 @@ func (l *Loop) runSpawnTwinSubagent(ctx context.Context, toolCall agent.ToolCall
 // (the Chromium process / shared page) that ExecuteTool doesn't
 // have, so the loop owns that state and dispatches the call here.
 //
+// Phase 3: selector failure recovery is integrated here. When a
+// selector fails (zero match or ambiguous match), this method
+// attempts deterministic recovery first (Phase 3.2). If that fails
+// and recovery attempts haven't been exhausted, it returns a
+// sentinel error that signals the caller to invoke LLM-assisted
+// recovery (Phase 3.3).
+//
 // If no browser manager is configured on the loop, the call
 // surfaces a clear "browser not configured" error rather than
 // crashing — same defensive pattern as the other special-cased
@@ -1048,7 +1121,71 @@ func (l *Loop) runBrowserTool(toolCall agent.ToolCall) (string, error) {
 	if l.Browser == nil {
 		return "", fmt.Errorf("browser tool %q approved but no browser.Manager is configured on the loop; restart Triad with a browser-capable configuration", toolCall.Function.Name)
 	}
-	return l.Browser.ExecuteTool(l.workDir, toolCall.Function.Name, toolCall.Function.Arguments)
+
+	result, err := l.Browser.ExecuteTool(l.workDir, toolCall.Function.Name, toolCall.Function.Arguments)
+	if err == nil {
+		// Success — clear any recovery tracking for this action.
+		delete(l.recoveryAttempts, toolCall.ID)
+		return result, nil
+	}
+
+	// --- Phase 3: Selector failure detection and recovery ---
+
+	// Parse the selector and strategy from the tool arguments to
+	// feed into the failure detector.
+	selector, strategy := parseSelectorFromArgs(toolCall.Function.Arguments)
+
+	failure := browser.DetectSelectorFailure(toolCall.Function.Name, strategy, selector, err)
+	if failure == nil {
+		// Not a selector failure — surface as a normal tool error.
+		return result, err
+	}
+
+	attempts := l.recoveryAttempts[toolCall.ID]
+	if attempts >= MaxRecoveryAttempts {
+		// Recovery cap hit — surface the error to Coder.
+		delete(l.recoveryAttempts, toolCall.ID)
+		return result, fmt.Errorf("browser selector recovery exhausted after %d attempts: %w", attempts, err)
+	}
+
+	// Increment attempt counter.
+	l.recoveryAttempts[toolCall.ID] = attempts + 1
+
+	// --- Phase 3.2: Deterministic recovery ---
+	recovery := l.Browser.AttemptDeterministicRecovery(failure)
+	if recovery != nil && recovery.Recovered {
+		// Deterministic recovery succeeded — return the recovered
+		// result as if the original action had succeeded.
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   fmt.Sprintf("[Recovery]: Selector %q [%s] failed (%s). Deterministic recovery found and used %q [%s].", selector, strategy, failure.Type, recovery.Result, strategy),
+			Timestamp: time.Now(),
+		})
+		delete(l.recoveryAttempts, toolCall.ID)
+		return recovery.Result, nil
+	}
+	if recovery != nil && recovery.Candidate != "" {
+		// Deterministic recovery found a candidate but couldn't execute
+		// it. Return a signal error so the caller can propose it to
+		// Reviewer.
+		return result, &browser.SelectorRecoveryError{
+			Failure:    *failure,
+			Candidate:  recovery.Candidate,
+			Strategy:   recovery.CandidateStrategy,
+			Phase:      "deterministic",
+			OriginalErr: err,
+		}
+	}
+
+	// --- Phase 3.3: LLM-assisted recovery needed ---
+	// Deterministic recovery failed. Signal the caller to invoke the
+	// LLM for a corrected selector.
+	return result, &browser.SelectorRecoveryError{
+		Failure:     *failure,
+		Phase:       "model",
+		OriginalErr: err,
+	}
 }
 
 // runWebSearch handles approved web_search tool calls in the loop.
@@ -1161,5 +1298,262 @@ func autoCommit(workDir, sessionPath string, toolCall agent.ToolCall, resultEntr
 		return fmt.Sprintf("auto-commit %s: %s", res.Hash, intent)
 	}
 	return ""
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Selector failure recovery helpers
+// ---------------------------------------------------------------------------
+
+// parseSelectorFromArgs extracts the selector and strategy fields
+// from a browser tool call's raw JSON arguments. Returns empty
+// strings when the args are malformed or missing these fields.
+func parseSelectorFromArgs(rawArgs string) (selector string, strategy browser.SelectStrategy) {
+	var args struct {
+		Selector string `json:"selector"`
+		Strategy string `json:"strategy"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return "", ""
+	}
+	return args.Selector, browser.SelectStrategy(args.Strategy)
+}
+
+// buildRecoveryPrompt constructs the prompt sent to the LLM for
+// Phase 3.3 model-assisted recovery. It gives the model the page
+// context, the failed selector, and a focused instruction to
+// suggest ONE corrected selector — not to replan the whole task.
+func buildRecoveryPrompt(pageContext, toolName, selector string, strategy browser.SelectStrategy) string {
+	return fmt.Sprintf(
+		"The following browser action failed because the selector matched no element:\n\n"+
+			"Tool: %s\n"+
+			"Selector: %s\n"+
+			"Strategy: %s\n\n"+
+			"Here is the current page's interactive elements and structure:\n%s\n\n"+
+			"Please suggest ONE corrected selector (with strategy) that would successfully target the intended element. "+
+			"Return ONLY a JSON object with fields \"selector\" and \"strategy\", nothing else.",
+		toolName, selector, strategy, pageContext,
+	)
+}
+
+// parseLLMSelectorResponse extracts a corrected selector and strategy
+// from the LLM's response to the recovery prompt. The LLM is asked
+// to return a JSON object {"selector": "...", "strategy": "..."}.
+func parseLLMSelectorResponse(response string) (selector string, strategy browser.SelectStrategy, err error) {
+	// Try to find a JSON object in the response.
+	trimmed := strings.TrimSpace(response)
+
+	// If the response is wrapped in markdown code fences, strip them.
+	if strings.HasPrefix(trimmed, "```") {
+		lines := strings.Split(trimmed, "\n")
+		var jsonLines []string
+		inBlock := false
+		for _, line := range lines {
+			if strings.HasPrefix(line, "```") {
+				if inBlock {
+					break
+				}
+				inBlock = true
+				continue
+			}
+			if inBlock {
+				jsonLines = append(jsonLines, line)
+			}
+		}
+		trimmed = strings.Join(jsonLines, "\n")
+	}
+
+	var parsed struct {
+		Selector string `json:"selector"`
+		Strategy string `json:"strategy"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return "", "", fmt.Errorf("failed to parse LLM recovery response as JSON: %w (response: %.200s)", err, response)
+	}
+	if parsed.Selector == "" {
+		return "", "", fmt.Errorf("LLM recovery response has empty selector")
+	}
+	return parsed.Selector, browser.SelectStrategy(parsed.Strategy), nil
+}
+
+// handleSelectorRecovery orchestrates the Phase 3 recovery flow for
+// a browser tool that failed with a selector error. It is called from
+// runReviewCycle when a SelectorRecoveryError is detected.
+//
+// The flow:
+//  1. If the recovery error has a candidate (from deterministic
+//     recovery), propose it to Reviewer as a new action.
+//  2. If no candidate, invoke the LLM for a corrected selector
+//     (Phase 3.3) — the LLM's response goes through Reviewer.
+//  3. Cap recovery attempts at MaxRecoveryAttempts (2).
+//
+// Returns (true, nil) when recovery succeeded and the corrected
+// action was executed. Returns (false, nil) when recovery is not
+// possible (falls through to normal error handling). Returns
+// (false, err) on internal errors.
+func (l *Loop) handleSelectorRecovery(
+	ctx context.Context,
+	originalToolCall agent.ToolCall,
+	recoveryErr *browser.SelectorRecoveryError,
+) (bool, error) {
+	tracePath := tracelog.TracePathForSession(l.transcript.FilePath())
+
+	// Log the recovery attempt.
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:    "recovery",
+		EventType: tracelog.EventRecoveryAttempt,
+		Description: fmt.Sprintf("Phase 3 recovery: selector %q [%s] failed (%s), phase=%s",
+			recoveryErr.Failure.Selector, recoveryErr.Failure.Strategy,
+			recoveryErr.Failure.Type, recoveryErr.Phase),
+	})
+
+	// --- Path 1: Deterministic candidate → propose to Reviewer ---
+	if recoveryErr.Phase == "deterministic" && recoveryErr.Candidate != "" {
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content: fmt.Sprintf("[Recovery]: Selector %q [%s] failed (%s). Deterministic recovery suggests %q [%s]. Proposing to Reviewer.",
+				recoveryErr.Failure.Selector, recoveryErr.Failure.Strategy,
+				recoveryErr.Failure.Type, recoveryErr.Candidate, recoveryErr.Strategy),
+			Timestamp: time.Now(),
+		})
+
+		// Build a new tool call with the recovered selector.
+		correctedCall := buildCorrectedToolCall(originalToolCall, recoveryErr.Candidate, string(recoveryErr.Strategy))
+		correctedContent := FormatProposedAction(correctedCall)
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerCoder,
+			Type:      transcript.TypeProposedAction,
+			Content:   correctedContent,
+			Timestamp: time.Now(),
+		})
+
+		// Let Reviewer decide.
+		approved, _, reviewErr := l.runReviewCycle(ctx, correctedCall)
+		return approved, reviewErr
+	}
+
+	// --- Path 2: LLM-assisted recovery ---
+	if l.Browser == nil {
+		return false, nil
+	}
+
+	attempts := l.recoveryAttempts[originalToolCall.ID]
+	if attempts >= MaxRecoveryAttempts {
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   fmt.Sprintf("[Recovery]: Selector recovery exhausted after %d attempts. Surfacing error to Coder.", attempts),
+			Timestamp: time.Now(),
+		})
+		return false, nil
+	}
+	l.recoveryAttempts[originalToolCall.ID] = attempts + 1
+
+	// Extract page context for the LLM.
+	pageContext := l.Browser.PageContextForRecovery()
+	if pageContext == "" || pageContext == "(page not available)" {
+		return false, nil
+	}
+
+	// Build the recovery prompt.
+	prompt := buildRecoveryPrompt(
+		pageContext,
+		recoveryErr.Failure.ToolName,
+		recoveryErr.Failure.Selector,
+		recoveryErr.Failure.Strategy,
+	)
+
+	// Invoke the LLM with a focused recovery prompt.
+	_ = l.append(transcript.Entry{
+		Speaker:   transcript.SpeakerSystem,
+		Type:      transcript.TypeMessage,
+		Content:   fmt.Sprintf("[Recovery]: Deterministic recovery failed. Invoking model to correct selector %q [%s] (attempt %d/%d).", recoveryErr.Failure.Selector, recoveryErr.Failure.Strategy, attempts+1, MaxRecoveryAttempts),
+		Timestamp: time.Now(),
+	})
+
+	recoveryEntries := []transcript.Entry{
+		{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   prompt,
+			Timestamp: time.Now(),
+		},
+	}
+
+	llmResp, err := l.client.Respond(ctx, l.coder, recoveryEntries)
+	if err != nil {
+		return false, fmt.Errorf("LLM recovery call failed: %w", err)
+	}
+
+	if len(llmResp.ToolCalls) > 0 {
+		// LLM responded with a tool call — use it as the corrected action.
+		correctedCall := llmResp.ToolCalls[0]
+
+		// Append the LLM's proposal.
+		correctedContent := FormatProposedAction(correctedCall)
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerCoder,
+			Type:      transcript.TypeProposedAction,
+			Content:   correctedContent,
+			Timestamp: time.Now(),
+		})
+
+		// Let Reviewer decide.
+		approved, _, reviewErr := l.runReviewCycle(ctx, correctedCall)
+		return approved, reviewErr
+	}
+
+	// LLM responded with text — try to parse a selector from it.
+	selector, strategy, parseErr := parseLLMSelectorResponse(llmResp.Text)
+	if parseErr != nil {
+		// LLM didn't produce a usable selector. Log and fall through.
+		_ = l.append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   fmt.Sprintf("[Recovery]: Model did not produce a valid selector: %v", parseErr),
+			Timestamp: time.Now(),
+		})
+		return false, nil
+	}
+
+	// Build a corrected tool call from the LLM's text response.
+	correctedCall := buildCorrectedToolCall(originalToolCall, selector, string(strategy))
+	correctedContent := FormatProposedAction(correctedCall)
+	_ = l.append(transcript.Entry{
+		Speaker:   transcript.SpeakerCoder,
+		Type:      transcript.TypeProposedAction,
+		Content:   correctedContent,
+		Timestamp: time.Now(),
+	})
+
+	// Let Reviewer decide.
+	approved, _, reviewErr := l.runReviewCycle(ctx, correctedCall)
+	return approved, reviewErr
+}
+
+// buildCorrectedToolCall creates a new tool call with the corrected
+// selector and strategy, preserving the original tool name and other
+// arguments.
+func buildCorrectedToolCall(original agent.ToolCall, selector, strategy string) agent.ToolCall {
+	// Parse original args and replace selector/strategy.
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(original.Function.Arguments), &args); err != nil {
+		args = make(map[string]interface{})
+	}
+	args["selector"] = selector
+	if strategy != "" {
+		args["strategy"] = strategy
+	}
+
+	correctedArgs, _ := json.Marshal(args)
+
+	return agent.ToolCall{
+		ID:   original.ID + "_recovery",
+		Type: "function",
+		Function: agent.ToolCallFunction{
+			Name:      original.Function.Name,
+			Arguments: string(correctedArgs),
+		},
+	}
 }
 

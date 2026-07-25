@@ -155,14 +155,14 @@ timeout — no fixed sleeps anywhere in the browser tool implementation.
 gets invoked to recover from a detected, concrete failure, not to re-plan
 continuously. This is the core "robustness" feature of this whole document.
 
-- [ ] 3.1 — Detect selector failures precisely, as **two distinct failure
+- [x] 3.1 — Detect selector failures precisely, as **two distinct failure
       types**, not one generic bucket: (a) zero matches — the selector found
       nothing, and (b) ambiguous match — the selector matched more than one
       element (Playwright's own locators are strict by default and throw a
       "strict mode violation" on this exact case, so this is a real,
       commonly-hit failure mode worth handling separately, not folding into
       the zero-match case)
-- [ ] 3.2 — On a detected selector failure, before simply surfacing an error
+- [x] 3.2 — On a detected selector failure, before simply surfacing an error
       back to Coder to start over, attempt one cheap, deterministic
       recovery pass first — the recovery differs by failure type from 3.1:
       for **zero matches**, re-query the page for elements with similar
@@ -174,34 +174,34 @@ continuously. This is the core "robustness" feature of this whole document.
       `.filter()`/`.and()` disambiguation pattern) before giving up and
       asking the model. Both recovery paths here are plain DOM inspection
       code, not a model call
-- [ ] 3.3 — Only if the deterministic recovery pass in 3.2 also fails,
+- [x] 3.3 — Only if the deterministic recovery pass in 3.2 also fails,
       invoke Coder specifically to reconsider *this one failed step* —
       giving it the current page's relevant text/structure and the original
       failed selector, asking for a corrected target. This is the
       "LLM-as-exception-handler" pattern from §0.3: the model is solving one
       concrete, bounded problem, not replanning the whole task
-- [ ] 3.4 — This recovery flow still goes through the normal Reviewer
+- [x] 3.4 — This recovery flow still goes through the normal Reviewer
       approval gate — a corrected selector proposal is itself a new
       proposed action, reviewed like any other, not auto-executed just
       because it's a "recovery"
-- [ ] 3.5 — Cap recovery attempts per action (e.g. 2 attempts: one
+- [x] 3.5 — Cap recovery attempts per action (e.g. 2 attempts: one
       deterministic, one model-assisted) before surfacing a clean failure to
       the human — mirroring the existing loop-guard cap philosophy from
       Workflow 1 §4.3, so a genuinely broken page doesn't spin indefinitely
-- [ ] 3.6 — **Test:** deliberately break a selector Coder would reasonably
+- [x] 3.6 — **Test:** deliberately break a selector Coder would reasonably
       propose (e.g. rename a button's visible text slightly), confirm the
       deterministic recovery pass (3.2) catches simple zero-match cases
       without ever calling the model
-- [ ] 3.7 — **Test:** deliberately create an ambiguous-match case (e.g. two
+- [x] 3.7 — **Test:** deliberately create an ambiguous-match case (e.g. two
       buttons with the same accessible name in different sections), confirm
       the strict-mode-violation failure is detected as its own type and the
       filter/narrow-based recovery from 3.2 resolves it without a model call
       where the page structure makes disambiguation possible
-- [ ] 3.8 — **Test:** break a selector badly enough that deterministic
+- [x] 3.8 — **Test:** break a selector badly enough that deterministic
       recovery fails, confirm the model-assisted recovery (3.3) is invoked
       exactly once, produces a corrected proposal, and that proposal still
       goes through Reviewer
-- [ ] 3.9 — **Test:** confirm the cap from 3.5 triggers cleanly on a
+- [x] 3.9 — **Test:** confirm the cap from 3.5 triggers cleanly on a
       genuinely unrecoverable case (element truly doesn't exist on the
       page) rather than looping
 
