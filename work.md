@@ -139,35 +139,35 @@ memory/
     └── <topic>.md          # curated, one file per recurring theme
 ```
 
-- [ ] 8.2.1 — Implement `memory/INDEX.md` as the **only** file read
+- [x] 8.2.1 — Implement `memory/INDEX.md` as the **only** file read
       automatically at the start of every session, regardless of mode. Keep
       it to short pointers + a handful of "quick facts," not full content
-- [ ] 8.2.2 — Implement `memory/daily/<date>.md` as an **append-only**
+- [x] 8.2.2 — Implement `memory/daily/<date>.md` as an **append-only**
       per-session log, written to at session end (or continuously, matching
       your existing "write immediately, don't batch" transcript philosophy)
-- [ ] 8.2.3 — Implement `memory/topics/*.md` as **curated** files, updated
+- [x] 8.2.3 — Implement `memory/topics/*.md` as **curated** files, updated
       deliberately (not automatically dumped) when a genuinely recurring
       pattern or important decision emerges
-- [ ] 8.2.4 — Implement `memory/preferences.md` as a single small file for
+- [x] 8.2.4 — Implement `memory/preferences.md` as a single small file for
       your personal preferences, separate from project facts
-- [ ] 8.2.5 — Add a memory-read step at session start: load `INDEX.md` (and
+- [x] 8.2.5 — Add a memory-read step at session start: load `INDEX.md` (and
       only `INDEX.md`) into context for whichever mode is active. Topic files
       are fetched on demand only if the index points to something relevant
       to the current task
-- [ ] 8.2.6 — Add a manual memory-write path: a way for the human (or
+- [x] 8.2.6 — Add a manual memory-write path: a way for the human (or
       Coder/Reviewer, with human confirmation) to explicitly add an entry to
       a topic file — this is the manual path that Phase 9's `/learn` command
       will later build on top of, but it should work standalone first
 
 ### 8.3 Tests
 
-- [ ] 8.3.1 — **Test:** confirm `INDEX.md` alone is what gets loaded at
+- [x] 8.3.1 — **Test:** confirm `INDEX.md` alone is what gets loaded at
       session start, and that topic files are only pulled in when the index
       or task explicitly points to them
-- [ ] 8.3.2 — **Test:** run several sessions, confirm daily logs accumulate
+- [x] 8.3.2 — **Test:** run several sessions, confirm daily logs accumulate
       correctly without ever being edited/overwritten (append-only, same
       discipline as your JSONL transcript)
-- [ ] 8.3.3 — **Test:** confirm the manual topic-file write path works
+- [x] 8.3.3 — **Test:** confirm the manual topic-file write path works
       correctly and doesn't corrupt existing entries in that file
 
 **Checkpoint:** memory storage works — index, topics, daily log, manual
@@ -196,41 +196,41 @@ non-goals list at the end of this document).
 
 ### 9.1 Design — auto-extract, but never auto-promote
 
-- [ ] 9.1.1 — At the end of every session (or every completed task, if
+- [x] 9.1.1 — At the end of every session (or every completed task, if
       finer granularity proves useful), run a lightweight extraction pass
       over that session's transcript: look specifically for **Reviewer
       objections that were later resolved** (Workflow 1 §6.3 — the
       propose→object→revise cycle) and for any explicit correction the human
       gave (a human message that changed Coder's direction mid-task)
-- [ ] 9.1.2 — Write each extracted item as a **raw entry in the daily log**
+- [x] 9.1.2 — Write each extracted item as a **raw entry in the daily log**
       (`memory/daily/<date>.md`, Phase 8.2.2) automatically — this part is
       safe to fully automate, since the daily log is explicitly the raw,
       unfiltered, append-only layer
-- [ ] 9.1.3 — **Do NOT automatically promote extracted items into
+- [x] 9.1.3 — **Do NOT automatically promote extracted items into
       `topics/*.md` or `INDEX.md`.** This is the deliberate line that
       preserves the "small and curated beats comprehensive" principle from
       Phase 0/8.1
-- [ ] 9.1.4 — Implement a **`/learn` review command**: at a natural
+- [x] 9.1.4 — Implement a **`/learn` review command**: at a natural
       checkpoint (session end, or on demand), Triad surfaces a short,
       human-reviewable digest of newly extracted daily-log items — e.g.
       *"3 corrections logged this session. Promote any to a topic file?"* —
       and the human decides what (if anything) gets promoted, building
       directly on the manual write path from Phase 8.2.6
-- [ ] 9.1.5 — When something is promoted via `/learn`, write it to the
+- [x] 9.1.5 — When something is promoted via `/learn`, write it to the
       relevant `topics/*.md` file in the same curated style as existing
       manual entries — dated, concise, one clear statement of the lesson
 
 ### 9.2 Tests
 
-- [ ] 9.2.1 — **Test:** run a session with at least one Reviewer objection
+- [x] 9.2.1 — **Test:** run a session with at least one Reviewer objection
       that gets resolved and one human mid-task correction, confirm both are
       correctly auto-extracted into that day's daily log with accurate
       before/after context
-- [ ] 9.2.2 — **Test:** confirm `/learn` correctly surfaces only new/
+- [x] 9.2.2 — **Test:** confirm `/learn` correctly surfaces only new/
       unreviewed extracted items (not ones already promoted or already
       dismissed in a prior `/learn` pass), and that declining to promote an
       item doesn't delete it from the daily log
-- [ ] 9.2.3 — **Test:** confirm no code path exists that writes to
+- [x] 9.2.3 — **Test:** confirm no code path exists that writes to
       `topics/*.md` or `INDEX.md` without going through an explicit `/learn`
       human decision — this is a correctness invariant worth a real test,
       given how central it is to avoiding the documented failure mode from

@@ -17,6 +17,8 @@ import (
 	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
+	"github.com/kaiizer777/triad/internal/learn"
+	"github.com/kaiizer777/triad/internal/memory"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -145,6 +147,12 @@ type Loop struct {
 	// reads this field — not CurrentMode — so Orchestrator can redirect a
 	// single task to General or Triad without changing the session-level mode.
 	effectiveMode Mode
+
+	// Memory handles index, topics, preferences, and daily logs (Phase 8).
+	Memory *memory.Manager
+
+	// Learn handles self-learning active extraction and promotion (Phase 9).
+	Learn *learn.Service
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -172,13 +180,70 @@ func (l *Loop) SetSearchAPIKey(key string) {
 }
 
 // SetBrowser attaches a browser.Manager to the loop so that approved
-// browser_* tool calls can be executed. Pass nil to detach (and
-// disable browser tools for subsequent tool calls; the schema still
-// appears in the model, but calls will surface a "browser not
-// configured" error). The manager is owned by the caller — the loop
-// does not Close it on shutdown.
+// browser_* tool calls can be executed.
 func (l *Loop) SetBrowser(m *browser.Manager) {
 	l.Browser = m
+}
+
+// SetMemory attaches a memory.Manager and initializes learn.Service for the loop.
+func (l *Loop) SetMemory(m *memory.Manager) {
+	l.Memory = m
+	if m != nil {
+		s, _ := learn.NewService(m)
+		l.Learn = s
+	}
+}
+
+// AutoExtractLearnings triggers auto-extraction of candidate learnings from transcript entries into daily log.
+// NO code path in AutoExtractLearnings ever writes to topics/*.md or INDEX.md.
+func (l *Loop) AutoExtractLearnings() ([]learn.Item, error) {
+	if l.Memory == nil {
+		mgr, err := memory.NewManager(l.workDir)
+		if err != nil {
+			return nil, err
+		}
+		l.Memory = mgr
+	}
+	if l.Learn == nil {
+		svc, err := learn.NewService(l.Memory)
+		if err != nil {
+			return nil, err
+		}
+		l.Learn = svc
+	}
+	return l.Learn.AutoExtractAndLog(l.transcript.Entries(), time.Now())
+}
+
+// InitSessionMemory loads INDEX.md (and ONLY INDEX.md) into context at session start.
+func (l *Loop) InitSessionMemory() error {
+	if l.Memory == nil {
+		mgr, err := memory.NewManager(l.workDir)
+		if err != nil {
+			return fmt.Errorf("loop: failed to initialize memory manager: %w", err)
+		}
+		l.Memory = mgr
+	}
+
+	// Check if INDEX.md is already loaded in transcript to avoid duplicate injection
+	for _, e := range l.transcript.Entries() {
+		if e.Speaker == transcript.SpeakerSystem && strings.Contains(e.Content, "[Memory Index]") {
+			return nil
+		}
+	}
+
+	indexContent, err := l.Memory.LoadIndex()
+	if err != nil {
+		return fmt.Errorf("loop: failed to load INDEX.md at session start: %w", err)
+	}
+
+	sysEntry := transcript.Entry{
+		Speaker:   transcript.SpeakerSystem,
+		Type:      transcript.TypeMessage,
+		Content:   fmt.Sprintf("[Memory Index]: Loaded INDEX.md:\n%s", indexContent),
+		Timestamp: time.Now(),
+	}
+
+	return l.append(sysEntry)
 }
 
 // Run is the main blocking loop. It reads human tasks from taskChan and processes them
@@ -194,6 +259,9 @@ func (l *Loop) SetBrowser(m *browser.Manager) {
 // This means InputChan and taskChan should be wired to the same underlying channel.
 func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 	state := StateIdle
+
+	// Initialize session memory (load INDEX.md alone into context at start)
+	_ = l.InitSessionMemory()
 
 	for {
 		select {
@@ -388,6 +456,7 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 
 			if done {
 				state = StateIdle
+				_, _ = l.AutoExtractLearnings()
 			}
 			_ = state // prevent unused warning if future code doesn't read it
 		}
@@ -744,6 +813,9 @@ func (l *Loop) append(entry transcript.Entry) error {
 	}
 	if l.OnEntry != nil {
 		l.OnEntry(entry)
+	}
+	if l.Memory != nil {
+		_ = l.Memory.AppendDailyLog(entry.Timestamp, fmt.Sprintf("[%s] %s", entry.Speaker, entry.Content))
 	}
 	return nil
 }

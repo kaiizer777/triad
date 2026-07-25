@@ -16,7 +16,9 @@ import (
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
+	"github.com/kaiizer777/triad/internal/learn"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/memory"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -521,9 +523,21 @@ type Model struct {
 	browser *browser.Manager
 	searchAPIKey string
 
+	memory   *memory.Manager
+	learnSvc *learn.Service
+
 	width  int
 	height int
 	ready  bool
+}
+
+// SetMemory attaches a memory.Manager and initializes learn.Service for the TUI.
+func (m *Model) SetMemory(mem *memory.Manager) {
+	m.memory = mem
+	if mem != nil {
+		s, _ := learn.NewService(mem)
+		m.learnSvc = s
+	}
 }
 
 // NewModel initializes a new Model for the Bubbletea program.
@@ -877,9 +891,84 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return m.handleMode(args)
 	case "trace":
 		return m.handleTrace(), ""
+	case "learn":
+		return m.handleLearn(args)
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn).", name)
 	}
+}
+
+// handleLearn surfaces extracted learnings and handles human promotion/dismissal commands.
+func (m *Model) handleLearn(args string) (body string, errMsg string) {
+	if m.memory == nil {
+		mgr, err := memory.NewManager(m.workDir)
+		if err != nil {
+			return "", fmt.Sprintf("Failed to initialize memory manager: %v", err)
+		}
+		m.memory = mgr
+	}
+	if m.learnSvc == nil {
+		svc, err := learn.NewService(m.memory)
+		if err != nil {
+			return "", fmt.Sprintf("Failed to initialize learn service: %v", err)
+		}
+		m.learnSvc = svc
+	}
+
+	// Always run auto extraction pass over transcript first
+	_, _ = m.learnSvc.AutoExtractAndLog(m.transcript.Entries(), time.Now())
+
+	args = strings.TrimSpace(args)
+	if args == "" || args == "digest" || args == "list" {
+		unreviewed := m.learnSvc.GetUnreviewedItems()
+		return learn.FormatDigest(unreviewed), ""
+	}
+
+	if strings.HasPrefix(args, "promote-all") {
+		topic := strings.TrimSpace(strings.TrimPrefix(args, "promote-all"))
+		if topic == "" {
+			return "", "Usage: /learn promote-all <topic>"
+		}
+		count, err := m.learnSvc.PromoteAll(topic)
+		if err != nil {
+			return "", fmt.Sprintf("Failed to promote items to %q: %v", topic, err)
+		}
+		return fmt.Sprintf("[Self-Learning] Promoted %d item(s) to topic %q.", count, topic), ""
+	}
+
+	if args == "dismiss-all" {
+		count, err := m.learnSvc.DismissAll()
+		if err != nil {
+			return "", fmt.Sprintf("Failed to dismiss items: %v", err)
+		}
+		return fmt.Sprintf("[Self-Learning] Dismissed %d item(s). (Items remain intact in raw daily log.)", count), ""
+	}
+
+	if strings.HasPrefix(args, "promote ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(args, "promote"))
+		parts := strings.Fields(rest)
+		if len(parts) != 2 {
+			return "", "Usage: /learn promote <id> <topic>"
+		}
+		id, topic := parts[0], parts[1]
+		if err := m.learnSvc.Promote(id, topic); err != nil {
+			return "", fmt.Sprintf("Failed to promote item %s: %v", id, err)
+		}
+		return fmt.Sprintf("[Self-Learning] Promoted item %s to memory/topics/%s.md.", id, topic), ""
+	}
+
+	if strings.HasPrefix(args, "dismiss ") {
+		id := strings.TrimSpace(strings.TrimPrefix(args, "dismiss"))
+		if id == "" {
+			return "", "Usage: /learn dismiss <id>"
+		}
+		if err := m.learnSvc.Dismiss(id); err != nil {
+			return "", fmt.Sprintf("Failed to dismiss item %s: %v", id, err)
+		}
+		return fmt.Sprintf("[Self-Learning] Dismissed item %s. (Item remains intact in raw daily log.)", id), ""
+	}
+
+	return "", fmt.Sprintf("Unknown subcommand %q for /learn. Available: /learn, /learn promote <id> <topic>, /learn dismiss <id>, /learn promote-all <topic>, /learn dismiss-all.", args)
 }
 
 // handleTrace renders the session trace log using the tracelog package.
