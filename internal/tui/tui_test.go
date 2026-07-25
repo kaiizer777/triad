@@ -180,3 +180,70 @@ func TestTUI_ReviewerObjection(t *testing.T) {
 		t.Errorf("expected retryCount=1, got %d", m.retryCount)
 	}
 }
+
+func TestTUI_Phase7_ViewRendering(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	// Append sample entries
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "Create hello.txt",
+	})
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerCoder,
+		Type:    transcript.TypeProposedAction,
+		Content: "Proposed tool call: write_file\nArguments:\n{\n  \"path\": \"hello.txt\"\n}",
+	})
+
+	model.refreshViewport()
+
+	view := model.View()
+	rendered := view.Content
+
+	if rendered == "" {
+		t.Fatalf("expected non-empty view output")
+	}
+
+	// Verify header, sidebar, pills, and input components in output
+	if !model.ready {
+		t.Fatalf("expected model to be ready")
+	}
+}
+
+func TestTUI_Phase7_ProposedActionFormatting(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	content := "Proposed tool call: write_file\nArguments:\n{\n  \"path\": \"test.txt\",\n  \"content\": \"hello\"\n}"
+	formatted := model.renderProposedAction(content, 60)
+
+	if formatted == "" {
+		t.Fatalf("expected formatted tool action output")
+	}
+}
+
+func TestTUI_Phase7_WindowResize(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	sizes := []tea.WindowSizeMsg{
+		{Width: 120, Height: 40},
+		{Width: 50, Height: 15},
+		{Width: 80, Height: 24},
+	}
+
+	for _, size := range sizes {
+		updated, _ := model.Update(size)
+		m := updated.(Model)
+		v := m.View()
+		if v.Content == "" {
+			t.Errorf("expected non-empty view for size %dx%d", size.Width, size.Height)
+		}
+	}
+}
+

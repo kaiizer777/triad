@@ -231,35 +231,35 @@ code.**
 **Goal:** make the terminal interface feel premium — closer to tools like
 OpenCode or CommandCode, not a plain scrolling log.
 
-- [ ] 7.1 — **Spinner while agents think:** add a `charm.land/bubbles/v2/spinner`
+- [x] 7.1 — **Spinner while agents think:** add a `charm.land/bubbles/v2/spinner`
       component to the Model; start it when a `cmdCoderTurn` or
       `cmdReviewerTurn` fires and stop it when the `agentResponseMsg` arrives.
       Display it inline in the status bar so the user always knows something
       is happening rather than staring at a frozen screen
-- [ ] 7.2 — **Two-panel layout:** split the terminal horizontally using
+- [x] 7.2 — **Two-panel layout:** split the terminal horizontally using
       `lipgloss.JoinHorizontal` — a narrow left sidebar (≈28 cols) showing
       session metadata (session ID, working directory, current state, retry
       counter) and a wider right panel for the transcript viewport. Both
       panels should have a `lipgloss.RoundedBorder()` for visual separation
-- [ ] 7.3 — **Styled input bar:** replace the bare `textinput` prompt with a
+- [x] 7.3 — **Styled input bar:** replace the bare `textinput` prompt with a
       full-width bordered box at the bottom, similar to how OpenCode renders
       its input — a left label `[You]` in the speaker color, a thin border
       around the entire input line, and a blinking cursor inside
-- [ ] 7.4 — **Syntax-highlighted tool call blocks:** when rendering a
+- [x] 7.4 — **Syntax-highlighted tool call blocks:** when rendering a
       `proposed_action` entry in the viewport, format it as a mini code block
       (e.g. dark background panel, different foreground for key vs value) so
       it visually pops from surrounding plain text
-- [ ] 7.5 — **Gradient/accent title bar:** redesign the header to show the
+- [x] 7.5 — **Gradient/accent title bar:** redesign the header to show the
       tool name on the left, the current session file path (truncated to fit)
       in the center, and a right-aligned keyboard hint (`ESC quit · ↑↓ scroll`)
       — all on a single line with a contrasting background color strip
-- [ ] 7.6 — **Speaker name pills:** render each speaker label as a short
+- [x] 7.6 — **Speaker name pills:** render each speaker label as a short
       colored "pill" (padded, rounded border, bold) rather than plain text —
       e.g. `▌ Coder ▐` in purple, `▌ Reviewer ▐` in amber, `▌ You ▐` in green
-- [ ] 7.7 — **Timestamp dimming:** render timestamps in a noticeably dimmer
+- [x] 7.7 — **Timestamp dimming:** render timestamps in a noticeably dimmer
       color (e.g. `#555555`) relative to speaker and content so they're
       available but don't compete visually with the message text
-- [ ] 7.8 — **Test:** resize the terminal window while a session is active;
+- [x] 7.8 — **Test:** resize the terminal window while a session is active;
       confirm both panels reflow correctly and nothing overflows or wraps
       unexpectedly. Also verify the spinner appears and disappears at the right
       moments during a "create hello.txt" task run

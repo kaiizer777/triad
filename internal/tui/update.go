@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -23,27 +24,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		return m, spinCmd
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Vertical layout calculation:
-		// 1 line Header + 1 line Status + viewport + 1 line Input prompt + 1 margin = ~5 lines subtracted
-		vpHeight := msg.Height - 5
+		// Vertical layout: 1 line header + 1 line status + 3 lines input box = 5 lines subtracted
+		availHeight := msg.Height - 5
+		if availHeight < 1 {
+			availHeight = 1
+		}
+
+		// Calculate Sidebar and Viewport widths
+		sidebarWidth := 28
+		if msg.Width < 60 {
+			sidebarWidth = msg.Width / 3
+			if sidebarWidth < 15 {
+				sidebarWidth = 15
+			}
+		}
+
+		mainContainerWidth := msg.Width - sidebarWidth
+		if mainContainerWidth < 10 {
+			mainContainerWidth = 10
+		}
+
+		// Viewport inner dimensions (subtracting 2 for container borders)
+		vpWidth := mainContainerWidth - 2
+		if vpWidth < 1 {
+			vpWidth = 1
+		}
+		vpHeight := availHeight - 2
 		if vpHeight < 1 {
 			vpHeight = 1
 		}
 
 		if !m.ready {
-			m.viewport = viewport.New(viewport.WithWidth(msg.Width), viewport.WithHeight(vpHeight))
-			m.viewport.SetContent(m.renderTranscript())
+			m.viewport = viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))
 			m.ready = true
 		} else {
-			m.viewport.SetWidth(msg.Width)
+			m.viewport.SetWidth(vpWidth)
 			m.viewport.SetHeight(vpHeight)
-			m.viewport.SetContent(m.renderTranscript())
-			m.viewport.GotoBottom()
 		}
+		m.viewport.SetContent(m.renderTranscript())
+		m.viewport.GotoBottom()
 
 	case tea.KeyMsg:
 		switch msg.String() {
