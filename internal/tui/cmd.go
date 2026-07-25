@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -47,6 +48,35 @@ func cmdReviewerTurn(tr *transcript.Transcript, reviewer agent.AgentConfig, clie
 func cmdExecuteTool(workDir string, toolCall agent.ToolCall, commandTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		res, err := agent.ExecuteTool(workDir, toolCall, commandTimeout)
+		return toolResultMsg{
+			toolCall: toolCall,
+			result:   res,
+			err:      err,
+		}
+	}
+}
+
+// cmdExecuteBrowserTool runs an approved browser_* tool call
+// against the shared browser.Manager (docs/work2.md §4.2).
+// Like cmdExecuteTool and cmdSpawnSubagent, it returns a
+// toolResultMsg so the existing toolResultMsg handler in
+// update.go picks it up unchanged — no TUI-side special case
+// for the result.
+//
+// The manager is shared across all browser_* tool calls within a
+// session (matching a real human's single browser tab), so
+// navigate/click/type/get_text calls in sequence all see the
+// same page state. The manager's own mutex serialises them.
+func cmdExecuteBrowserTool(workDir string, bm *browser.Manager, toolCall agent.ToolCall) tea.Cmd {
+	return func() tea.Msg {
+		if bm == nil {
+			return toolResultMsg{
+				toolCall: toolCall,
+				result:   fmt.Sprintf("ERROR: %s approved but no browser.Manager is configured on the TUI", toolCall.Function.Name),
+				err:      fmt.Errorf("browser tool %q approved but no browser.Manager is configured", toolCall.Function.Name),
+			}
+		}
+		res, err := bm.ExecuteTool(workDir, toolCall.Function.Name, toolCall.Function.Arguments)
 		return toolResultMsg{
 			toolCall: toolCall,
 			result:   res,

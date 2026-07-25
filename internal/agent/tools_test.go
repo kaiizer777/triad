@@ -279,8 +279,11 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
-	if len(tools) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(tools))
+	// 5 base tools (write_file, read_file, run_command, task_complete,
+	// spawn_subagent) + 5 browser_* tools (navigate, click, type,
+	// get_text, screenshot) added in docs/work2.md §4.2.
+	if len(tools) != 10 {
+		t.Fatalf("expected 10 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -296,15 +299,25 @@ func TestCoderTools_JSONShape(t *testing.T) {
 		if tool.Function.Parameters.Type != "object" {
 			t.Errorf("tool %q: parameters.type must be 'object', got %q", tool.Function.Name, tool.Function.Parameters.Type)
 		}
-		// task_complete intentionally has zero required parameters.
-		if len(tool.Function.Parameters.Required) == 0 && tool.Function.Name != "task_complete" {
+		// task_complete, browser_get_text, and browser_screenshot
+		// intentionally have zero required parameters (the latter
+		// two default to reading the page body / taking a viewport
+		// screenshot).
+		if len(tool.Function.Parameters.Required) == 0 &&
+			tool.Function.Name != "task_complete" &&
+			tool.Function.Name != "browser_get_text" &&
+			tool.Function.Name != "browser_screenshot" {
 			t.Errorf("tool %q: must have at least one required parameter", tool.Function.Name)
 		}
 	}
 
-	for _, required := range []string{"write_file", "read_file", "run_command", "task_complete", "spawn_subagent"} {
-		if !names[required] {
-			t.Errorf("expected tool %q to be present", required)
+	required := []string{
+		"write_file", "read_file", "run_command", "task_complete", "spawn_subagent",
+		"browser_navigate", "browser_click", "browser_type", "browser_get_text", "browser_screenshot",
+	}
+	for _, name := range required {
+		if !names[name] {
+			t.Errorf("expected tool %q to be present", name)
 		}
 	}
 }

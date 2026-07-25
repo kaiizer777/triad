@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
@@ -470,6 +471,14 @@ type Model struct {
 	// May be empty (no commands/ dir) but should never be nil.
 	commands *commands.Registry
 
+	// browser is the long-lived Playwright manager for browser_*
+	// tool calls (docs/work2.md §4.2). nil means browser tools
+	// are unavailable; approved browser_* calls will surface a
+	// "browser not configured" error rather than crashing. Set
+	// via SetBrowser after NewModel — the manager is owned by
+	// the caller and not closed by the TUI.
+	browser *browser.Manager
+
 	width  int
 	height int
 	ready  bool
@@ -520,6 +529,21 @@ func NewModel(
 
 	m.RestoreSessionState()
 	return m
+}
+
+// SetBrowser attaches a browser.Manager to the TUI so that approved
+// browser_* tool calls can be executed. Pass nil to detach (and
+// disable browser tools for subsequent tool calls; the schema still
+// appears in the model, but calls will surface a "browser not
+// configured" error). The manager is owned by the caller — the TUI
+// does not Close it on shutdown.
+//
+// The same manager should be passed to the loop via loop.SetBrowser
+// so that the headless path (Phase 4 tests, future --headless flag)
+// and the TUI path share the same browser state when running in
+// the same process.
+func (m *Model) SetBrowser(bm *browser.Manager) {
+	m.browser = bm
 }
 
 // RestoreSessionState evaluates existing transcript entries and sets initial state, status, and Cmd.

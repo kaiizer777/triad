@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -274,13 +275,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.activeToolCall != nil {
 					tc := *m.activeToolCall
-					// spawn_subagent is special-cased: cmdExecuteTool
-					// doesn't know how to run a subagent (it doesn't
-					// have the subagent's client / session dir / parent
-					// config). The TUI dispatches it via
-					// cmdSpawnSubagent, which runs the subagent in the
-					// background and emits a toolResultMsg the same
-					// shape cmdExecuteTool would.
+					// spawn_subagent and browser_* are special-cased:
+					// cmdExecuteTool doesn't know how to run a
+					// subagent (no client / session dir / parent
+					// config) or a browser tool (no Manager). The TUI
+					// dispatches them via cmdSpawnSubagent and
+					// cmdExecuteBrowserTool respectively, which run in
+					// the background and emit a toolResultMsg the same
+					// shape cmdExecuteTool would. All other tools
+					// fall through to the normal executor.
 					if tc.Function.Name == "spawn_subagent" {
 						m.statusMessage = "Running subagent..."
 						return m, cmdSpawnSubagent(
@@ -291,6 +294,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.commandTimeout,
 							tc,
 						)
+					}
+					if browser.IsBrowserTool(tc.Function.Name) {
+						m.statusMessage = fmt.Sprintf("Executing browser tool %q...", tc.Function.Name)
+						return m, cmdExecuteBrowserTool(m.workDir, m.browser, tc)
 					}
 					m.statusMessage = fmt.Sprintf("Executing approved tool %q...", tc.Function.Name)
 					return m, cmdExecuteTool(m.workDir, tc, m.commandTimeout)

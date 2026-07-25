@@ -143,6 +143,109 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	// Browser tools (docs/work2.md §4.2). These are structured,
+	// DOM-level browser control — not raw screenshot-based computer
+	// use. They share one long-lived Chromium process owned by the
+	// loop / TUI, so multiple tool calls within a session reuse the
+	// same page (a click after a navigate operates on the navigated
+	// page, just like a human would). Every browser_* call still
+	// goes through the same propose→Reviewer→execute approval loop
+	// as file/shell tools — Reviewer sees "Coder wants to navigate
+	// to https://api.example.com/docs" exactly the same way it sees
+	// a write_file diff, and approves or objects the same way.
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_navigate",
+			Description: "Navigate the shared browser page to a URL (http or https only). Subsequent browser_click / browser_type / browser_get_text / browser_screenshot calls operate on the page this call loaded. Returns the final URL after any redirects, the HTTP status, and the page title. Use browser_get_text to read the page body — this tool does not return page content.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"url": {
+						Type:        "string",
+						Description: "The URL to load. Must be an http:// or https:// URL with a non-empty host. file://, javascript:, and data: URLs are rejected.",
+					},
+				},
+				Required: []string{"url"},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_click",
+			Description: "Click the first element matching the given CSS / text / Playwright selector on the current page. Waits for the element to be visible before clicking. Use browser_navigate first if the page isn't loaded yet.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"selector": {
+						Type:        "string",
+						Description: "CSS selector, text=... selector, or other Playwright-supported selector syntax identifying the element to click. Examples: 'button.submit', 'text=Sign in', '#login-form input[name=password]'.",
+					},
+				},
+				Required: []string{"selector"},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_type",
+			Description: "Clear the input element matching selector and type text into it. Equivalent to clicking the field and typing — replaces any existing value. To append or type into a contenteditable element, prefer using a more specific Playwright selector or a separate action.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"selector": {
+						Type:        "string",
+						Description: "CSS / text / Playwright selector identifying the input element (e.g. 'input[name=email]', '#search-box', 'textarea#message').",
+					},
+					"text": {
+						Type:        "string",
+						Description: "The text to type. Pass a single space to leave the field visually empty but technically non-empty; an empty string is rejected to avoid accidental clears.",
+					},
+				},
+				Required: []string{"selector", "text"},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_get_text",
+			Description: "Read the visible text content of the first element matching the given selector (or of the whole page body if selector is empty / 'body'). Useful for scraping a specific element after navigation — e.g. confirming a form submitted, reading a confirmation message, or pulling a single value out of a page. Long results are truncated.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"selector": {
+						Type:        "string",
+						Description: "CSS / text / Playwright selector for the element to read. Defaults to 'body' (the whole visible page text) if omitted. Examples: 'h1', '.error-message', 'div#result span.value'.",
+					},
+				},
+				Required: []string{},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_screenshot",
+			Description: "Capture a PNG screenshot of the current page. Use sparingly — text-based tools (browser_get_text, browser_navigate's status/title) are usually enough to verify a page loaded, and screenshots bloat the transcript. Pass a `path` to write the PNG to a file (recommended for full-page captures); omit `path` to receive the PNG base64-encoded in the result, capped to 512KB.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"path": {
+						Type:        "string",
+						Description: "Optional. Project-relative file path to write the PNG to (e.g. 'screenshots/after-login.png'). If omitted, the PNG is returned base64-encoded inline (capped to 512KB; larger screenshots fail with a clear error).",
+					},
+					"full_page": {
+						Type:        "boolean",
+						Description: "Optional. Set to true to capture the entire scrollable page rather than just the current viewport. Default is false (viewport-only, faster, smaller).",
+					},
+				},
+				Required: []string{},
+			},
+		},
+	},
 }
 
 // CoderTools returns the full list of tool schemas for the Coder agent.

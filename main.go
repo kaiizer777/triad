@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
@@ -152,6 +153,21 @@ func main() {
 
 	// --- Create TUI Model ---
 	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
+
+	// --- Browser manager (docs/work2.md §4.2) ---
+	// The TUI owns the long-lived Playwright process. Browser launch
+	// is lazy — the first browser_navigate call will trigger it —
+	// so creating the manager here is cheap and never fails. If
+	// the Chromium binary isn't installed, that surfaces as a clear
+	// error on the first browser_* tool call rather than crashing
+	// at startup.
+	browserMgr := browser.NewManager()
+	model.SetBrowser(browserMgr)
+	defer func() {
+		if err := browserMgr.Close(); err != nil {
+			logger.L().Warn("browser: failed to close cleanly", "error", err.Error())
+		}
+	}()
 
 	// --- Run Bubbletea program ---
 	p := tea.NewProgram(model)

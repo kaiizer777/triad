@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -70,6 +71,17 @@ type Loop struct {
 	// immediately — both agents see it on their very next API call.
 	// nil is safe — drainInput() is a no-op when InputChan is nil.
 	InputChan <-chan string
+
+	// Browser is the long-lived Playwright manager for the browser_*
+	// tool calls. It is set via SetBrowser after construction; nil
+	// means browser tools are unavailable and any approved browser_*
+	// tool call will surface a clear error rather than crashing the
+	// session. Browser tool calls are routed through this manager in
+	// runReviewCycle, the same way spawn_subagent is — they go
+	// through the same propose→Reviewer→execute approval loop as
+	// write_file / run_command, just with a different executor
+	// (docs/work2.md §4.2).
+	Browser *browser.Manager
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -88,6 +100,16 @@ func New(
 		workDir:    workDir,
 		MaxRetries: DefaultMaxRetries,
 	}
+}
+
+// SetBrowser attaches a browser.Manager to the loop so that approved
+// browser_* tool calls can be executed. Pass nil to detach (and
+// disable browser tools for subsequent tool calls; the schema still
+// appears in the model, but calls will surface a "browser not
+// configured" error). The manager is owned by the caller — the loop
+// does not Close it on shutdown.
+func (l *Loop) SetBrowser(m *browser.Manager) {
+	l.Browser = m
 }
 
 // Run is the main blocking loop. It reads human tasks from taskChan and processes them
@@ -297,18 +319,23 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 
 			// Execute the approved tool call.
 			//
-			// spawn_subagent is special-cased: ExecuteTool doesn't know
-			// how to run a subagent (it doesn't have the subagent's
-			// client / session dir / parent config). The loop
-			// intercepts it here and runs the subagent itself, then
-			// synthesises an action_result entry the same way
-			// ExecuteTool's normal path would. All other tools go
-			// through agent.ExecuteTool unchanged.
+			// spawn_subagent and browser_* are special-cased:
+			// ExecuteTool doesn't know how to run a subagent (it
+			// doesn't have the subagent's client / session dir /
+			// parent config) or a browser tool (it doesn't have the
+			// browser.Manager). The loop intercepts them here and
+			// runs them itself, then synthesises an action_result
+			// entry the same way ExecuteTool's normal path would.
+			// All other tools go through agent.ExecuteTool
+			// unchanged.
 			var result string
 			var execErr error
-			if toolCall.Function.Name == "spawn_subagent" {
+			switch {
+			case toolCall.Function.Name == "spawn_subagent":
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
-			} else {
+			case browser.IsBrowserTool(toolCall.Function.Name):
+				result, execErr = l.runBrowserTool(toolCall)
+			default:
 				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
 			}
 			resultContent := result
@@ -542,6 +569,31 @@ func (l *Loop) runSpawnSubagent(ctx context.Context, toolCall agent.ToolCall) (s
 		header = fmt.Sprintf("Subagent %s (truncated, %d turns): ", id, res.Turns)
 	}
 	return header + res.Summary, nil
+}
+
+// runBrowserTool is the headless loop's handler for approved
+// browser_* tool calls (docs/work2.md §4.2). It is structurally
+// similar to runSpawnSubagent — the tool has long-lived state
+// (the Chromium process / shared page) that ExecuteTool doesn't
+// have, so the loop owns that state and dispatches the call here.
+//
+// If no browser manager is configured on the loop, the call
+// surfaces a clear "browser not configured" error rather than
+// crashing — same defensive pattern as the other special-cased
+// tools.
+//
+// The manager is shared across all tool calls within a session
+// (just like a real human's single browser tab), so multiple
+// navigate/click/type/get_text calls in sequence all see the
+// same page state. The manager's own mutex serialises the calls.
+func (l *Loop) runBrowserTool(toolCall agent.ToolCall) (string, error) {
+	if !browser.IsBrowserTool(toolCall.Function.Name) {
+		return "", fmt.Errorf("runBrowserTool: %q is not a browser tool (this is a bug — caller should have gated on IsBrowserTool)", toolCall.Function.Name)
+	}
+	if l.Browser == nil {
+		return "", fmt.Errorf("browser tool %q approved but no browser.Manager is configured on the loop; restart Triad with a browser-capable configuration", toolCall.Function.Name)
+	}
+	return l.Browser.ExecuteTool(l.workDir, toolCall.Function.Name, toolCall.Function.Arguments)
 }
 
 // autoCommit is the headless equivalent of the TUI's maybeAutoCommit.
