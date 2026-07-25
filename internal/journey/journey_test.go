@@ -76,14 +76,14 @@ func TestGetJourneyEntries_MixMainAndTwin(t *testing.T) {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
 
-	// Verify chronological order (oldest first)
-	if entries[0].EntryID != 1 || entries[0].Type != CommitTypeMain {
+	// Verify order (newest first: entry 3, entry 2, entry 1)
+	if entries[0].EntryID != 3 || entries[0].Type != CommitTypeMain {
 		t.Errorf("entry 0 mismatch: %+v", entries[0])
 	}
 	if entries[1].EntryID != 2 || entries[1].Type != CommitTypeTwin || entries[1].TwinID != "sub_123" {
 		t.Errorf("entry 1 mismatch: %+v", entries[1])
 	}
-	if entries[2].EntryID != 3 || entries[2].Type != CommitTypeMain {
+	if entries[2].EntryID != 1 || entries[2].Type != CommitTypeMain {
 		t.Errorf("entry 2 mismatch: %+v", entries[2])
 	}
 
@@ -135,6 +135,46 @@ func TestRenderASCII_ZeroAndNonZero(t *testing.T) {
 	}
 	if !strings.Contains(ascii, "a1b2c3d") || !strings.Contains(ascii, "e5f6g7h") {
 		t.Errorf("missing hashes in ascii output: %s", ascii)
+	}
+}
+
+func TestRenderSidebarTimeline(t *testing.T) {
+	// Zero state
+	zeroOut := RenderSidebarTimeline(nil, 30)
+	if !strings.Contains(zeroOut, "No Triad commit history") {
+		t.Errorf("expected zero state notice, got: %s", zeroOut)
+	}
+
+	// Non-zero state
+	entries := []JourneyEntry{
+		{
+			Hash:       "a1b2c3d",
+			AuthorDate: time.Now(),
+			Subject:    "[triad] entry #1: main task",
+			Intent:     "main task feature implementation step",
+			EntryID:    1,
+			Type:       CommitTypeMain,
+		},
+		{
+			Hash:       "e5f6g7h",
+			AuthorDate: time.Now(),
+			Subject:    "[triad] entry #2: [triad:twin #t1] twin work",
+			Intent:     "subagent twin work task",
+			EntryID:    2,
+			TwinID:     "t1",
+			Type:       CommitTypeTwin,
+		},
+	}
+
+	sbOut := RenderSidebarTimeline(entries, 30)
+	if !strings.Contains(sbOut, "MAIN") || !strings.Contains(sbOut, "TWIN:#t1") {
+		t.Errorf("missing badges in sidebar output: %s", sbOut)
+	}
+	if !strings.Contains(sbOut, "a1b2c3d") || !strings.Contains(sbOut, "e5f6g7h") {
+		t.Errorf("missing hashes in sidebar output: %s", sbOut)
+	}
+	if !strings.Contains(sbOut, "│ ") {
+		t.Errorf("missing connecting graph lines in sidebar output: %s", sbOut)
 	}
 }
 

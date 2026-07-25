@@ -1422,6 +1422,9 @@ func TestTUI_JourneyCommand(t *testing.T) {
 	// Test /journey on zero commits
 	updated, _ := model.Update(humanInputMsg{content: "/journey"})
 	m := updated.(Model)
+	if !m.showJourney {
+		t.Fatalf("expected m.showJourney to be true after /journey command")
+	}
 	entries := m.transcript.Entries()
 	if len(entries) == 0 {
 		t.Fatalf("expected transcript entry for /journey command")
@@ -1429,6 +1432,19 @@ func TestTUI_JourneyCommand(t *testing.T) {
 	lastEntry := entries[len(entries)-1]
 	if !strings.Contains(lastEntry.Content, "No Triad commit history") {
 		t.Errorf("expected zero commit notice in transcript, got: %s", lastEntry.Content)
+	}
+
+	// Verify sidebar view in journey mode contains COMMIT JOURNEY
+	sbView := m.renderSidebar(32, 30)
+	if !strings.Contains(sbView, "COMMIT JOURNEY") {
+		t.Errorf("expected sidebar view to contain COMMIT JOURNEY header, got: %s", sbView)
+	}
+
+	// Test /journey toggle off
+	updatedOff, _ := m.Update(humanInputMsg{content: "/journey"})
+	mOff := updatedOff.(Model)
+	if mOff.showJourney {
+		t.Fatalf("expected m.showJourney to be false after second /journey command")
 	}
 
 	// Test /journey --export

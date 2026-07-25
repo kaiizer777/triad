@@ -492,6 +492,10 @@ type Model struct {
 	// executed action.
 	gitDisabled bool
 
+	showJourney     bool
+	journeyViewport viewport.Model
+	journeyEntries  []journey.JourneyEntry
+
 	spinner     spinner.Model
 	viewport    viewport.Model
 	sysViewport viewport.Model
@@ -1080,18 +1084,20 @@ func (m *Model) handleSummary() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// reloadJourneyEntries queries git log once and caches entries in memory.
+func (m *Model) reloadJourneyEntries() {
+	entries, _ := journey.GetJourneyEntries(m.workDir, nil)
+	m.journeyEntries = entries
+	if m.ready {
+		vw := max(10, m.journeyViewport.Width())
+		m.journeyViewport.SetContent(journey.RenderSidebarTimeline(m.journeyEntries, vw))
+	}
+}
+
 // handleJourney renders or exports the session's commit journey timeline.
 func (m *Model) handleJourney(args string) (body string, errMsg string) {
-	entries := m.transcript.Entries()
-	entryIDs := make(map[int]bool, len(entries))
-	for _, e := range entries {
-		entryIDs[e.ID] = true
-	}
-
-	journeyEntries, err := journey.GetJourneyEntries(m.workDir, entryIDs)
-	if err != nil {
-		return "", fmt.Sprintf("/journey failed: %v", err)
-	}
+	m.reloadJourneyEntries()
+	journeyEntries := m.journeyEntries
 
 	args = strings.TrimSpace(args)
 	if args == "--export" || args == "export" || strings.HasPrefix(args, "--export ") {
@@ -1103,10 +1109,30 @@ func (m *Model) handleJourney(args string) (body string, errMsg string) {
 		if err != nil {
 			return "", fmt.Sprintf("/journey export failed: %v", err)
 		}
-		return fmt.Sprintf("[Commit Journey] Exported visual HTML report with %d commit(s) to %s.", len(journeyEntries), outPath), ""
+		m.showJourney = true
+		return fmt.Sprintf("[Commit Journey] Exported visual HTML report with %d commit(s) to %s. Displaying timeline in left panel.", len(journeyEntries), outPath), ""
 	}
 
-	return journey.RenderASCII(journeyEntries), ""
+	if args == "off" || args == "hide" || args == "close" {
+		m.showJourney = false
+		return "Commit Journey view closed. Showing Session Overview in left panel.", ""
+	}
+
+	if args == "on" || args == "show" {
+		m.showJourney = true
+	} else {
+		m.showJourney = !m.showJourney
+	}
+
+	if !m.showJourney {
+		return "Session Overview displayed in left panel.", ""
+	}
+
+	if len(journeyEntries) == 0 {
+		return "Commit Journey view activated in left panel. No Triad commit history recorded yet for this session.", ""
+	}
+
+	return fmt.Sprintf("Commit Journey view activated in left panel (%d commit(s)). Enter /journey again to toggle overview.", len(journeyEntries)), ""
 }
 
 

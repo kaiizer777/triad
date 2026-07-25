@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -215,6 +216,10 @@ func (m Model) renderSidebar(width int, height int) string {
 	}
 
 	rule := m.styles.SidebarRule.Render(strings.Repeat("─", innerWidth))
+
+	if m.showJourney {
+		return m.renderJourneySidebar(width, height, innerWidth, innerHeight, rule)
+	}
 
 	var sb strings.Builder
 
@@ -428,6 +433,65 @@ func (m Model) renderSystemLogs() string {
 		}
 	}
 	return sb.String()
+}
+
+// renderJourneySidebar renders the Commit Journey view filling the entire left card.
+func (m Model) renderJourneySidebar(width, height, innerWidth, innerHeight int, rule string) string {
+	var sb strings.Builder
+
+	sb.WriteString(m.styles.SidebarHeader.Render("▸ COMMIT JOURNEY"))
+	sb.WriteString("\n")
+	sb.WriteString(rule)
+	jEntries := m.journeyEntries
+
+	mainCount := 0
+	twinCount := 0
+	for _, e := range jEntries {
+		if e.Type == journey.CommitTypeTwin {
+			twinCount++
+		} else {
+			mainCount++
+		}
+	}
+
+	statsStr := fmt.Sprintf("%d Commits (%d Main · %d Twin)", len(jEntries), mainCount, twinCount)
+	sb.WriteString(m.styles.SidebarValue.Render(truncateLine(statsStr, innerWidth)))
+	sb.WriteString("\n")
+	sb.WriteString(rule)
+
+	headerText := sb.String()
+	headerLines := strings.Split(strings.TrimRight(headerText, "\n"), "\n")
+
+	footerHint := m.styles.SidebarSubHeader.Render("▸ [/journey toggle]")
+	footerLines := []string{rule, footerHint}
+
+	availVpHeight := max(3, innerHeight-len(headerLines)-len(footerLines))
+
+	m.journeyViewport.SetWidth(innerWidth)
+	m.journeyViewport.SetHeight(availVpHeight)
+	m.journeyViewport.SetContent(journey.RenderSidebarTimeline(jEntries, innerWidth))
+
+	vpView := clipLines(m.journeyViewport.View(), availVpHeight)
+	sysLines := strings.Split(vpView, "\n")
+
+	var finalLines []string
+	finalLines = append(finalLines, headerLines...)
+	finalLines = append(finalLines, sysLines...)
+	finalLines = append(finalLines, footerLines...)
+
+	if len(finalLines) > innerHeight {
+		finalLines = finalLines[:innerHeight]
+	} else {
+		for len(finalLines) < innerHeight {
+			finalLines = append(finalLines, "")
+		}
+	}
+
+	padded := strings.Join(finalLines, "\n")
+	return m.styles.SidebarContainer.
+		Width(width).
+		Height(height).
+		Render(padded)
 }
 
 

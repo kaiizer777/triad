@@ -86,10 +86,8 @@ func GetJourneyEntries(workDir string, validEntryIDs map[int]bool) ([]JourneyEnt
 		isoDate := parts[1]
 		subject := parts[2]
 
-		// Must begin with [triad] marker or contain [triad:twin
-		if !strings.HasPrefix(subject, gitcommit.CommitSubjectPrefix) && !strings.Contains(subject, "[triad:twin") {
-			continue
-		}
+		// All commits in git history are included in the commit journey.
+		// Distinguish twin subagent commits vs main commits based on subject tag.
 
 		t, parseErr := time.Parse(time.RFC3339, isoDate)
 		if parseErr != nil {
@@ -125,11 +123,7 @@ func GetJourneyEntries(workDir string, validEntryIDs map[int]bool) ([]JourneyEnt
 		})
 	}
 
-	// git log returns newest first. Reverse slice so history is chronological (oldest first).
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
-	}
-
+	// git log returns newest first (new to old order).
 	return entries, nil
 }
 
@@ -203,6 +197,104 @@ func RenderASCII(entries []JourneyEntry) string {
 	}
 
 	return sb.String()
+}
+
+// RenderSidebarTimeline builds a compact, beautifully formatted ASCII git timeline
+// designed specifically for sidebars or constrained horizontal widths.
+func RenderSidebarTimeline(entries []JourneyEntry, innerWidth int) string {
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	if len(entries) == 0 {
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8899B4")).
+			Italic(true)
+		return emptyStyle.Render(" No Triad commit history recorded\n yet for this repository/session.")
+	}
+
+	var (
+		hashStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#67E8F9")).Bold(true)
+		timeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5A7090")).Italic(true)
+		descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E8EDF5"))
+		lineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#253348"))
+
+		mainBadge = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(lipgloss.Color("#2563EB")).
+				Padding(0, 1)
+
+		twinBadge = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#080C14")).
+				Background(lipgloss.Color("#FCD34D")).
+				Padding(0, 1)
+
+		mainNodeMarker = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6")).Render("●")
+		twinNodeMarker = lipgloss.NewStyle().Foreground(lipgloss.Color("#FCD34D")).Render("◆")
+	)
+
+	wrapLine := func(text string, width int) []string {
+		if width <= 0 {
+			return []string{text}
+		}
+		wrapped := lipgloss.NewStyle().Width(width).Render(text)
+		return strings.Split(wrapped, "\n")
+	}
+
+	var sb strings.Builder
+	for i, e := range entries {
+		var badge string
+		var nodeMarker string
+
+		if e.Type == CommitTypeTwin {
+			tag := "TWIN"
+			if e.TwinID != "" {
+				tag = "TWIN:#" + e.TwinID
+			}
+			badge = twinBadge.Render(tag)
+			nodeMarker = twinNodeMarker
+		} else {
+			badge = mainBadge.Render("MAIN")
+			nodeMarker = mainNodeMarker
+		}
+
+		formattedTime := e.AuthorDate.Format("15:04")
+		entryStr := ""
+		if e.EntryID > 0 {
+			entryStr = fmt.Sprintf("#%d", e.EntryID)
+		}
+
+		// Row 1: NodeMarker Badge Hash Time EntryID
+		headerStr := fmt.Sprintf("%s %s %s %s %s",
+			nodeMarker,
+			badge,
+			hashStyle.Render(e.Hash),
+			timeStyle.Render(formattedTime),
+			timeStyle.Render(entryStr),
+		)
+		sb.WriteString(headerStr)
+		sb.WriteString("\n")
+
+		// Row 2+: │ wrapped intent
+		connLine := lineStyle.Render("│ ")
+		cleanIntent := strings.ReplaceAll(e.Intent, "\r", "")
+		cleanIntent = strings.ReplaceAll(cleanIntent, "\n", " ")
+		cleanIntent = strings.TrimSpace(cleanIntent)
+
+		maxDescW := max(5, innerWidth-3)
+		wrappedIntent := wrapLine(cleanIntent, maxDescW)
+		for _, wLine := range wrappedIntent {
+			sb.WriteString(connLine + descStyle.Render(wLine) + "\n")
+		}
+
+		if i < len(entries)-1 {
+			sb.WriteString(lineStyle.Render("│") + "\n")
+		}
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // RenderHTML generates a standalone HTML document containing a responsive, modern timeline of the commit journey.

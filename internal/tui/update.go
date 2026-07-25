@@ -15,6 +15,7 @@ import (
 	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
+	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -96,10 +97,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.ready {
 			m.viewport = viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))
 			m.sysViewport = viewport.New(viewport.WithWidth(max(10, sidebarWidth-4)), viewport.WithHeight(8))
+			m.journeyViewport = viewport.New(viewport.WithWidth(max(10, sidebarWidth-4)), viewport.WithHeight(10))
 			m.ready = true
+			m.reloadJourneyEntries()
 		} else {
 			m.viewport.SetWidth(vpWidth)
 			m.viewport.SetHeight(vpHeight)
+			m.sysViewport.SetWidth(max(10, sidebarWidth-4))
+			m.journeyViewport.SetWidth(max(10, sidebarWidth-4))
 		}
 		m.viewport.SetContent(m.renderTranscript())
 		m.viewport.GotoBottom()
@@ -643,10 +648,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.syncAutocompleteState()
 
 	// Update viewport components for scrolling keypresses
-	var vpCmd, sysCmd tea.Cmd
+	var vpCmd, sysCmd, jCmd tea.Cmd
 	m.viewport, vpCmd = m.viewport.Update(msg)
 	m.sysViewport, sysCmd = m.sysViewport.Update(msg)
-	cmds = append(cmds, vpCmd, sysCmd)
+	m.journeyViewport, jCmd = m.journeyViewport.Update(msg)
+	cmds = append(cmds, vpCmd, sysCmd, jCmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -689,6 +695,9 @@ func (m *Model) refreshViewport() {
 	m.viewport.GotoBottom()
 	m.sysViewport.SetContent(m.renderSystemLogs())
 	m.sysViewport.GotoBottom()
+	if m.showJourney {
+		m.journeyViewport.SetContent(journey.RenderSidebarTimeline(m.journeyEntries, max(10, m.journeyViewport.Width())))
+	}
 }
 
 // gitDisabledSentinel is the special return value from maybeAutoCommit that
@@ -782,6 +791,7 @@ func (m *Model) maybeAutoCommit(toolCall agent.ToolCall, resultEntryID int) stri
 		return ""
 	}
 	if res.Hash != "" {
+		m.reloadJourneyEntries()
 		return fmt.Sprintf("auto-commit %s: %s", res.Hash, intent)
 	}
 	return ""
