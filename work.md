@@ -77,11 +77,14 @@ the single biggest lever for reliability (§0.2).
       (including fragile, layout-tied ones) with no guidance, or whether
       there's already a preference toward stable selectors
 - [ ] 1.2 — Update Coder's system prompt (the one used when browser tools
-      are available) to explicitly prefer role/accessible-name-based
-      targeting over CSS classes or positional selectors — e.g. instruct it
-      to target role/name-based or text-content-based selectors first,
-      falling back to CSS only when nothing else identifies the element
-      uniquely
+      are available) to follow the confirmed 2026 fallback chain, in order:
+      **role+accessible-name first → visible text/label second → CSS
+      class/attribute only as a last resort, never positional/nth-child**.
+      This is Playwright's own documented recommendation ("prioritize
+      user-visible attributes and explicit contracts such as role-based
+      locators"), not just a general best practice — instruct Coder to
+      follow this exact order rather than picking whichever selector type
+      comes to mind first
 - [ ] 1.3 — If Playwright-go's locator API supports role-based queries
       (verify current API surface — don't assume feature parity with the
       JS/Python Playwright libraries, since Go bindings sometimes lag),
@@ -152,17 +155,25 @@ timeout — no fixed sleeps anywhere in the browser tool implementation.
 gets invoked to recover from a detected, concrete failure, not to re-plan
 continuously. This is the core "robustness" feature of this whole document.
 
-- [ ] 3.1 — Detect selector failures precisely: when a proposed
-      `browser_click`/`browser_type`/`browser_get_text` selector matches zero
-      elements (or ambiguously matches multiple), capture this as a
-      specific, typed failure — not a generic error string
+- [ ] 3.1 — Detect selector failures precisely, as **two distinct failure
+      types**, not one generic bucket: (a) zero matches — the selector found
+      nothing, and (b) ambiguous match — the selector matched more than one
+      element (Playwright's own locators are strict by default and throw a
+      "strict mode violation" on this exact case, so this is a real,
+      commonly-hit failure mode worth handling separately, not folding into
+      the zero-match case)
 - [ ] 3.2 — On a detected selector failure, before simply surfacing an error
       back to Coder to start over, attempt one cheap, deterministic
-      recovery pass first: re-query the page for elements with similar
+      recovery pass first — the recovery differs by failure type from 3.1:
+      for **zero matches**, re-query the page for elements with similar
       text/role/aria-label to what was originally requested (a lightweight
       version of the "selector fallback" pattern used in production
-      self-healing browser frameworks) — this is plain DOM inspection code,
-      not a model call
+      self-healing browser frameworks); for **ambiguous matches**, attempt
+      to narrow automatically using available context (e.g. chain/filter by
+      visible text or nearby container, mirroring Playwright's own
+      `.filter()`/`.and()` disambiguation pattern) before giving up and
+      asking the model. Both recovery paths here are plain DOM inspection
+      code, not a model call
 - [ ] 3.3 — Only if the deterministic recovery pass in 3.2 also fails,
       invoke Coder specifically to reconsider *this one failed step* —
       giving it the current page's relevant text/structure and the original
@@ -179,13 +190,18 @@ continuously. This is the core "robustness" feature of this whole document.
       Workflow 1 §4.3, so a genuinely broken page doesn't spin indefinitely
 - [ ] 3.6 — **Test:** deliberately break a selector Coder would reasonably
       propose (e.g. rename a button's visible text slightly), confirm the
-      deterministic recovery pass (3.2) catches simple cases without ever
-      calling the model
-- [ ] 3.7 — **Test:** break a selector badly enough that deterministic
+      deterministic recovery pass (3.2) catches simple zero-match cases
+      without ever calling the model
+- [ ] 3.7 — **Test:** deliberately create an ambiguous-match case (e.g. two
+      buttons with the same accessible name in different sections), confirm
+      the strict-mode-violation failure is detected as its own type and the
+      filter/narrow-based recovery from 3.2 resolves it without a model call
+      where the page structure makes disambiguation possible
+- [ ] 3.8 — **Test:** break a selector badly enough that deterministic
       recovery fails, confirm the model-assisted recovery (3.3) is invoked
       exactly once, produces a corrected proposal, and that proposal still
       goes through Reviewer
-- [ ] 3.8 — **Test:** confirm the cap from 3.5 triggers cleanly on a
+- [ ] 3.9 — **Test:** confirm the cap from 3.5 triggers cleanly on a
       genuinely unrecoverable case (element truly doesn't exist on the
       page) rather than looping
 
@@ -231,7 +247,7 @@ decision, not an accidental side effect of the shared-page design.
 
 ---
 
-## Phase 5 — Multi-Tab / Multi-Page Support (If Actually Needed)
+## Phase 5 — Multi-Tab / Multi-Page Support 
 
 **Goal:** revisit the "one shared page, not a new page per tool call"
 decision from Workflow 2 §4.3, now that real usage may call for juggling
@@ -282,6 +298,12 @@ Phase 5 (Multi-Tab Support)      ← only if actually needed, skip otherwise
   usage rather than the illustrative "2" used in this document
 - Revisit whether Phase 5 is ever actually needed — treated as optional/
   conditional rather than assumed required
+- Watch for Coder incorrectly "fixing" a role-based locator failure by
+  suggesting the target page's markup should have an ARIA role added to it
+  — this masks a real markup/accessibility issue rather than fixing the
+  actual problem, and only makes sense when Coder is editing the page's own
+  source (not simply automating an existing, unrelated page it doesn't
+  control)
 
 ## Explicit Non-Goals for This Phase
 
