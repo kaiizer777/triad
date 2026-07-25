@@ -36,9 +36,11 @@ func (m Model) View() tea.View {
 	}
 
 	sidebarWidth := 0
-	if width >= 80 {
+	if width >= 75 {
 		sidebarWidth = 32
-		if width < 110 {
+		if width >= 120 {
+			sidebarWidth = 36
+		} else if width < 95 {
 			sidebarWidth = 28
 		}
 	}
@@ -300,11 +302,20 @@ func (m Model) renderSidebar(width int, height int) string {
 		sb.WriteString(row2)
 	}
 
-	clipped := clipLines(sb.String(), innerHeight)
+	lines := strings.Split(sb.String(), "\n")
+	if len(lines) > innerHeight {
+		lines = lines[:innerHeight]
+	} else {
+		for len(lines) < innerHeight {
+			lines = append(lines, "")
+		}
+	}
+	padded := strings.Join(lines, "\n")
+
 	return m.styles.SidebarContainer.
 		Width(innerWidth).
 		Height(innerHeight).
-		Render(clipped)
+		Render(padded)
 }
 
 // renderPipelineDock builds a 4-step visual pipeline tracker:
