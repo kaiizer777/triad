@@ -1,5 +1,5 @@
 {
-  "name": "triad",
+  "name": "@kaiizer777/triad",
   "version": "1.0.0",
   "description": "Multi-agent CLI/TUI built with Go and Bubbletea",
   "main": "bin/triad.js",

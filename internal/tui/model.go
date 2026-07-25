@@ -28,6 +28,7 @@ type Styles struct {
 	SidebarContainer   lipgloss.Style
 	SidebarHeader      lipgloss.Style
 	SidebarSubHeader   lipgloss.Style
+	SidebarRule        lipgloss.Style
 	SidebarLabel       lipgloss.Style
 	SidebarValue       lipgloss.Style
 	SidebarBadgeIdle   lipgloss.Style
@@ -50,6 +51,7 @@ type Styles struct {
 	ReviewerMessageBar lipgloss.Style
 	ApprovedBadge      lipgloss.Style
 	ObjectionBadge     lipgloss.Style
+	EntryDivider       lipgloss.Style
 
 	// Markdown Formatting
 	MdBold       lipgloss.Style
@@ -66,10 +68,11 @@ type Styles struct {
 	ToolCallNum    lipgloss.Style
 
 	// Input & Status Bar
-	InputContainer lipgloss.Style
-	InputPill      lipgloss.Style
-	InputPrompt    lipgloss.Style
-	InputHint      lipgloss.Style
+	InputContainer  lipgloss.Style
+	InputPill       lipgloss.Style
+	InputPrompt     lipgloss.Style
+	InputHint       lipgloss.Style
+	InputSeparator  lipgloss.Style
 
 	// Pipeline Dock
 	PipelineStepActive  lipgloss.Style
@@ -78,12 +81,14 @@ type Styles struct {
 	PipelineArrow       lipgloss.Style
 	PipelineDock        lipgloss.Style
 
-	ViewportContainer lipgloss.Style
-	EntryContent      lipgloss.Style
-	ActionResult      lipgloss.Style
-	ErrorContent      lipgloss.Style
-	StatusBar         lipgloss.Style
-	SpinnerStyle      lipgloss.Style
+	ViewportContainer  lipgloss.Style
+	RightCardContainer lipgloss.Style
+	EntryContent       lipgloss.Style
+	ActionResult       lipgloss.Style
+	ActionResultBar    lipgloss.Style
+	ErrorContent       lipgloss.Style
+	StatusBar          lipgloss.Style
+	SpinnerStyle       lipgloss.Style
 
 	// Welcome screen
 	WelcomeTitle lipgloss.Style
@@ -176,6 +181,9 @@ func DefaultStyles() Styles {
 		SidebarSubHeader: lipgloss.NewStyle().
 			Foreground(muted),
 
+		SidebarRule: lipgloss.NewStyle().
+			Foreground(border),
+
 		SidebarLabel: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(textDim),
@@ -242,7 +250,7 @@ func DefaultStyles() Styles {
 			BorderForeground(blueMd).
 			Background(blueBg).
 			Foreground(textPrimary).
-			Padding(0, 2),
+			Padding(0, 1),
 
 		YouMessageBar: lipgloss.NewStyle().
 			Foreground(blueLt).
@@ -271,6 +279,9 @@ func DefaultStyles() Styles {
 			BorderForeground(red).
 			Background(redBg).
 			Padding(0, 2),
+
+		EntryDivider: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1A2535")),
 
 		// ── Markdown Formatting ───────────────────────────────────────
 		MdBold: lipgloss.NewStyle().
@@ -318,8 +329,6 @@ func DefaultStyles() Styles {
 
 		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(blueMd).
 			Background(obsidianAlt).
 			Padding(0, 1),
 
@@ -334,8 +343,11 @@ func DefaultStyles() Styles {
 			Foreground(cyanLt),
 
 		InputHint: lipgloss.NewStyle().
-			Foreground(muted).
+			Foreground(mutedSoft).
 			Italic(true),
+
+		InputSeparator: lipgloss.NewStyle().
+			Foreground(borderSoft),
 
 		// ── Pipeline Dock Steps ───────────────────────────────────────
 		PipelineStepActive: lipgloss.NewStyle().
@@ -363,10 +375,13 @@ func DefaultStyles() Styles {
 			Foreground(textDim).
 			Padding(0, 1),
 
-		// ── Transcript Viewport ───────────────────────────────────────
-		ViewportContainer: lipgloss.NewStyle().
+		// ── Right Panel & Viewport ────────────────────────────────────
+		RightCardContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(border).
+			Background(obsidian),
+
+		ViewportContainer: lipgloss.NewStyle().
 			Background(obsidian),
 
 		EntryContent: lipgloss.NewStyle().
@@ -374,6 +389,9 @@ func DefaultStyles() Styles {
 
 		ActionResult: lipgloss.NewStyle().
 			Foreground(textDim),
+
+		ActionResultBar: lipgloss.NewStyle().
+			Foreground(muted),
 
 		ErrorContent: lipgloss.NewStyle().
 			Bold(true).

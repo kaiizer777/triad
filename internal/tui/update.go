@@ -33,19 +33,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Fixed header & footer lines:
-		// Header (1) + PipelineDock (1) + Status (1) + InputBar (3) = 6 lines
-		availHeight := msg.Height - 6
-		if availHeight < 1 {
-			availHeight = 1
+		bodyHeight := msg.Height - 1
+		if bodyHeight < 1 {
+			bodyHeight = 1
 		}
 
 		// Responsive sidebar width:
-		// Hide sidebar on narrow terminals (< 75 cols)
+		// Hide sidebar on narrow terminals (< 80 cols)
 		var sidebarWidth int
-		if msg.Width < 75 {
+		if msg.Width < 80 {
 			sidebarWidth = 0
-		} else if msg.Width < 100 {
+		} else if msg.Width < 110 {
 			sidebarWidth = 28
 		} else {
 			sidebarWidth = 32
@@ -56,12 +54,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mainContainerWidth = 10
 		}
 
-		// Viewport inner dimensions using exact style frame sizes
-		vpWidth := max(1, mainContainerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
-		vpHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
+		rightCardHorizFrame := m.styles.RightCardContainer.GetHorizontalFrameSize()
+		rightCardVertFrame := m.styles.RightCardContainer.GetVerticalFrameSize()
 
-		// Input box width
-		inputContainerContentWidth := max(1, msg.Width-m.styles.InputContainer.GetHorizontalFrameSize())
+		rightCardInnerWidth := max(1, mainContainerWidth-rightCardHorizFrame)
+		rightCardInnerHeight := max(1, bodyHeight-rightCardVertFrame)
+
+		// Viewport inner dimensions using exact style frame sizes:
+		// Layout budget inside RightCard: Pipeline (1) + Status (1) + Separator (1) + Input (1) = 4 lines reserved
+		vpWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
+		vpHeight := max(1, rightCardInnerHeight-4)
+
+		// Input box width based on rightCardInnerWidth
+		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
 		inputWidth := inputContainerContentWidth - 30
 		if inputWidth < 10 {
 			inputWidth = 10
