@@ -295,8 +295,8 @@ func TestOrchestrator_AllCasesProduceRoutingDecisionEntry(t *testing.T) {
 			name:            "middle",
 			task:            "improve the caching layer to handle concurrent writes better",
 			wantTier:        "middle",
-			wantTargetMode:  "triad",
-			wantAutoProceed: false, // middle = human confirmed (or not yet confirmed in this test)
+			wantTargetMode:  "twin", // §6.10: middle-tier now proposes "twin" not "triad"
+			wantAutoProceed: false,  // middle = human confirmed (or not yet confirmed in this test)
 			// No coder/reviewer — middle tier doesn't start active cycle before confirm.
 		},
 	}
@@ -394,12 +394,26 @@ func TestOrchestrator_MiddleConfirmResolvesRoutingDecision(t *testing.T) {
 	}()
 	_ = l.Run(ctx, taskChan)
 
-	// routing_decision entry must now be present (appended on confirm)
-	assertRoutingDecision(t, entries, "middle", "triad", false)
+	// routing_decision entry must now be present (appended on confirm).
+	// §6.10: target_mode is now "twin" (the confirmed proposed mode) rather than "triad".
+	assertRoutingDecision(t, entries, "middle", "twin", false)
 
 	// Coder must have been called (active cycle ran after confirmation)
 	if mc.calls["Coder"] == 0 {
 		t.Error("4.10 FAIL: Coder was not called after human confirmed middle-tier routing")
+	}
+}
+
+// TestMiddleTierRouting_ProposesTwin verifies that the middle-tier Orchestrator
+// message mentions "Twin Subagent pair" (§6.10), replacing the Phase 4 stand-in
+// that previously said "full Triad".
+func TestMiddleTierRouting_ProposesTwin(t *testing.T) {
+	msg := loop.OrchestratorMessage(loop.TierMiddle, "medium complexity reason", "twin")
+	if !strings.Contains(msg, "Twin Subagent pair") {
+		t.Errorf("§6.10: expected Orchestrator middle-tier message to mention 'Twin Subagent pair', got: %q", msg)
+	}
+	if strings.Contains(msg, "full Triad") {
+		t.Errorf("§6.10: Orchestrator middle-tier message still says 'full Triad' (should say 'Twin Subagent pair'): %q", msg)
 	}
 }
 

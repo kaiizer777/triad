@@ -249,6 +249,25 @@ func TestExecuteTool_SpawnSubagentMustBeIntercepted(t *testing.T) {
 	}
 }
 
+// TestExecuteTool_SpawnTwinSubagentMustBeIntercepted verifies the same
+// interception contract for spawn_twin_subagent (§6.9): the twin runner
+// also needs caller context that ExecuteTool doesn't have.
+func TestExecuteTool_SpawnTwinSubagentMustBeIntercepted(t *testing.T) {
+	_, err := ExecuteTool(t.TempDir(), ToolCall{
+		Function: ToolCallFunction{
+			Name:      "spawn_twin_subagent",
+			Arguments: `{"task":"implement feature x"}`,
+		},
+	}, 0)
+	if err == nil {
+		t.Fatal("expected error when spawn_twin_subagent reaches ExecuteTool directly, got nil")
+	}
+	if !strings.Contains(err.Error(), "intercepted by the caller") {
+		t.Errorf("§6.9: expected 'intercepted by the caller' in error, got: %v", err)
+	}
+}
+
+
 // TestExecuteTool_MalformedArguments verifies that a completely unparseable JSON
 // argument string does NOT crash the session (no Go error returned). Instead,
 // ExecuteTool returns a "System: malformed..." result string that the TUI can
@@ -279,10 +298,10 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
-	// 5 base tools (write_file, read_file, run_command, task_complete,
-	// spawn_subagent) + 5 browser_* tools + 1 web_search tool.
-	if len(tools) != 11 {
-		t.Fatalf("expected 11 tools, got %d", len(tools))
+	// 6 base tools (write_file, read_file, run_command, task_complete,
+	// spawn_subagent, spawn_twin_subagent) + 5 browser_* tools + 1 web_search tool.
+	if len(tools) != 12 {
+		t.Fatalf("expected 12 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -311,7 +330,7 @@ func TestCoderTools_JSONShape(t *testing.T) {
 	}
 
 	required := []string{
-		"write_file", "read_file", "run_command", "task_complete", "spawn_subagent",
+		"write_file", "read_file", "run_command", "task_complete", "spawn_subagent", "spawn_twin_subagent",
 		"browser_navigate", "browser_click", "browser_type", "browser_get_text", "browser_screenshot",
 	}
 	for _, name := range required {

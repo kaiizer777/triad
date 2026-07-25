@@ -19,6 +19,7 @@ import (
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
+	"github.com/kaiizer777/triad/internal/twinsubagent"
 )
 
 // SessionState represents whether the loop is waiting for work or actively processing a task.
@@ -478,6 +479,8 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			switch {
 			case toolCall.Function.Name == "spawn_subagent":
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
+			case toolCall.Function.Name == "spawn_twin_subagent":
+				result, execErr = l.runSpawnTwinSubagent(ctx, toolCall)
 			case browser.IsBrowserTool(toolCall.Function.Name):
 				result, execErr = l.runBrowserTool(toolCall)
 			case toolCall.Function.Name == "web_search":
@@ -626,6 +629,8 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			switch {
 			case toolCall.Function.Name == "spawn_subagent":
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
+			case toolCall.Function.Name == "spawn_twin_subagent":
+				result, execErr = l.runSpawnTwinSubagent(ctx, toolCall)
 			case browser.IsBrowserTool(toolCall.Function.Name):
 				result, execErr = l.runBrowserTool(toolCall)
 			case toolCall.Function.Name == "web_search":
@@ -862,6 +867,82 @@ func (l *Loop) runSpawnSubagent(ctx context.Context, toolCall agent.ToolCall) (s
 	header := fmt.Sprintf("Subagent %s: ", id)
 	if res.Truncated {
 		header = fmt.Sprintf("Subagent %s (truncated, %d turns): ", id, res.Turns)
+	}
+	return header + res.Summary, nil
+}
+
+// runSpawnTwinSubagent is the headless loop's handler for approved
+// spawn_twin_subagent tool calls (work.md §6.9). It decodes the tool-call
+// arguments, logs a start-of-spawn entry to the MAIN transcript (§6.15 —
+// implemented here as the minimum viable visibility fix), runs the twin pair
+// to completion (or its turn cap), and returns a one-line summary attributed
+// to the twin pair.
+//
+// The twin pair's own full transcript lives at <sessionDir>/twins/<id>.jsonl
+// and is never seen by the parent loop or Reviewer — only the final summary
+// bubbles up as a single action_result entry. The twin pair's internal
+// propose→review→execute loop, mini-Reviewer no-tool invariant, depth guard,
+// turn cap, and clarify phase are all enforced by the twinsubagent package.
+//
+// Attribution: the returned summary is prefixed with the twin pair's ID so
+// the action_result entry in the main transcript is clearly twin-attributed
+// (e.g. "[Twin:add-rate-limiting]: <summary>") without needing a separate
+// speaker field — matches the §6.9 contract of a single action_result entry.
+func (l *Loop) runSpawnTwinSubagent(ctx context.Context, toolCall agent.ToolCall) (string, error) {
+	var args agent.SpawnSubagentArgs // reuse same {task, context} structure
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return "", fmt.Errorf("spawn_twin_subagent: failed to parse arguments: %w", err)
+	}
+	if strings.TrimSpace(args.Task) == "" {
+		return "", fmt.Errorf("spawn_twin_subagent: required argument 'task' is missing or empty")
+	}
+
+	// Session dir: twin transcripts land at <sessionDir>/twins/<id>.jsonl,
+	// physically separate from single-subagent transcripts (<sessionDir>/subagents/).
+	sessionDir := filepath.Dir(l.transcript.FilePath())
+	if sessionDir == "" || sessionDir == "." {
+		sessionDir = filepath.Join(l.workDir, "sessions")
+	}
+
+	runner, err := twinsubagent.NewRunner(
+		l.client,
+		l.workDir,
+		sessionDir,
+		agent.DefaultCommandTimeout,
+		0, // use DefaultMaxTurns
+	)
+	if err != nil {
+		return "", fmt.Errorf("spawn_twin_subagent: %w", err)
+	}
+
+	id := subagent.NewID() // reuse the same ID generator for consistent id format
+
+	// §6.15 (minimum viable fix) — log start-of-spawn to the MAIN transcript
+	// immediately, before the twin pair runs. If the twin pair hangs or burns
+	// rate limit silently, the main transcript at least records that a twin was
+	// spawned and what task it was given. Full cross-agent observability is Phase 7.
+	_ = l.append(transcript.Entry{
+		Speaker:   transcript.SpeakerSystem,
+		Type:      transcript.TypeMessage,
+		Content:   fmt.Sprintf("[System]: Twin subagent started for task: %s (id: %s, transcript: %s)", args.Task, id, runner.TranscriptPath(id)),
+		Timestamp: time.Now(),
+	})
+
+	res, runErr := runner.Run(ctx, id, args.Task, args.Context, l.coder)
+	if runErr != nil {
+		if res.Summary != "" {
+			return fmt.Sprintf("[twin %s partial] %s\n\nerror: %v", id, res.Summary, runErr), runErr
+		}
+		return "", runErr
+	}
+
+	// §6.9 — return a single summary string attributed to the twin pair.
+	// The caller appends this as an action_result entry. The attribution
+	// ("[Twin:<id>]: ...") is embedded in the content so the main
+	// transcript reader can identify twin work at a glance.
+	header := fmt.Sprintf("[%s]: ", twinsubagent.SummaryAttributionLabel(id))
+	if res.Truncated {
+		header = fmt.Sprintf("[%s] (truncated, %d turns, treat as low-confidence): ", twinsubagent.SummaryAttributionLabel(id), res.Turns)
 	}
 	return header + res.Summary, nil
 }

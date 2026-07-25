@@ -143,6 +143,36 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			// spawn_twin_subagent is the medium-complexity routing tool (work.md §Phase 6).
+			// It spawns an isolated mini-Triad (mini-Coder + mini-Reviewer pair) that
+			// runs its own private propose→review→execute loop and returns only a
+			// summary to the parent. Use this for tasks that are too complex for
+			// a single-agent reply (General Chat) but not critical enough to require
+			// full main-session Triad oversight. The twin pair has a hard turn cap
+			// and cannot itself spawn further subagents or twin pairs (depth stops
+			// at one level, §6.8). The Orchestrator routes medium-complexity tasks
+			// here after human confirmation.
+			Name:        "spawn_twin_subagent",
+			Description: "Spawn an isolated twin-subagent pair (mini-Coder + mini-Reviewer) to handle a medium-complexity task. The pair runs its own private propose→review→execute loop with a hard turn cap and returns only a single summary. Use for tasks that are clearly scoped to code changes but too complex for General Chat. The pair cannot spawn nested subagents — depth stops at one level.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"task": {
+						Type:        "string",
+						Description: "A focused description of what the twin pair should implement or fix. Be specific — the twin pair has no access to the parent session transcript.",
+					},
+					"context": {
+						Type:        "string",
+						Description: "Optional bounded context for the twin pair (relevant code excerpts, file paths, prior decisions). Keep this tight — the twin pair's context window is small.",
+					},
+				},
+				Required: []string{"task"},
+			},
+		},
+	},
 	// Browser tools (docs/work2.md §4.2). These are structured,
 	// DOM-level browser control — not raw screenshot-based computer
 	// use. They share one long-lived Chromium process owned by the
@@ -547,6 +577,11 @@ func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (s
 		// clear, debuggable error rather than silently falling through
 		// to the "unknown tool" default.
 		execErr = fmt.Errorf("ExecuteTool: spawn_subagent must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
+	case "spawn_twin_subagent":
+		// Same interception contract as spawn_subagent — the twin runner
+		// needs the parent loop's client, session dir, and Coder config.
+		// If this reaches ExecuteTool directly the caller forgot to intercept.
+		execErr = fmt.Errorf("ExecuteTool: spawn_twin_subagent must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
 	case "web_search":
 		apiKey := os.Getenv("FIRECRAWL_API_KEY")
 		if apiKey == "" {

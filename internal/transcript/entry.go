@@ -16,6 +16,15 @@ const (
 	// "Subagent:<id>") represent the summary that the parent loop
 	// bubbled up after the subagent finished. See docs/work2.md §3.
 	SpeakerSubagent = "Subagent"
+
+	// SpeakerTwin is the speaker prefix used for twin subagent entries.
+	// The twin pair's own isolated transcript uses "Twin:<id>" as the
+	// speaker for mini-Coder messages (mini-Reviewer uses SpeakerReviewer
+	// in that transcript). Entries appearing in the MAIN transcript with
+	// Speaker="Twin:<id>" represent the single summary that the twin pair
+	// returns to the Orchestrator after completing (or hitting the turn
+	// cap). See work.md §Phase 6.
+	SpeakerTwin = "Twin"
 )
 
 // Entry types

@@ -112,88 +112,74 @@ ready.
 
 ---
 
-## Phase 4 — Orchestrator Routing Logic
+## Phase 7 — Observability
 
-**Goal:** give Orchestrator mode actual judgment — this is where the
-`orchestrator` placeholder from Phase 1.2.5 gets replaced with real routing.
-Twin subagents (Phase 6) don't exist yet — for this phase, "route to twin
-subagent" can simply route to Triad as a stand-in, with the real twin-pair
-behavior arriving in Phase 6.
+**Goal:** give yourself one place to see what actually happened across the
+main session, Orchestrator's routing decisions, and any twin subagents —
+before this becomes a real problem rather than a theoretical one. This phase
+exists specifically because Phase 6 introduces a second, nested layer of
+agent activity that the main transcript alone doesn't fully surface (beyond
+the minimum start/completion logging added in 6.14-6.15).
 
-- [x] 4.1 — Orchestrator receives the task first whenever `current_mode ==
-      orchestrator` (the default)
-- [x] 4.2 — Orchestrator **always states its routing reasoning out loud** in
-      the transcript before acting — e.g. `"[Orchestrator]: This looks like
-      a one-line typo fix — routing to General Chat."` — this is not
-      optional, it's the traceability mitigation from Phase 0 and must never
-      be skipped, even on "obvious" auto-proceed cases
-- [x] 4.3 — **Auto-proceed, no human confirmation needed**, only at the two
-      extremes:
-      - Genuinely trivial (single-file typo/rename/one-liner, no
-        architectural or security surface) → routes to **General Chat**
-        immediately
-      - Genuinely critical (touches auth, payments, deletion, matches any
-        existing hook blocklist pattern from Workflow 2 §3.2.3, or anything
-        Orchestrator itself flags as high-risk) → routes to **Triad**
-        immediately, since more oversight is never the wrong default
-- [x] 4.4 — **For everything in the genuine middle** → Orchestrator **must
-      ask the human to confirm or override** before proceeding: `"[
-      Orchestrator]: I'd route this to a twin-subagent pair — proceed, or
-      would you prefer full Triad instead?"` (routes to Triad directly for
-      now, per this phase's stand-in note above, until Phase 6 lands)
-- [x] 4.5 — Log every routing decision (auto or confirmed) as its own
-      transcript entry type, e.g. `Type: "routing_decision"`, containing:
-      the task, the complexity judgment, the target mode, and whether it was
-      auto-proceeded or human-confirmed
-- [x] 4.6 — Wire the clarify step from Phase 3 in *before* Orchestrator's
-      routing judgment — clarify ambiguity first, then route, not the other
-      way around
-- [x] 4.7 — **Test:** give Orchestrator a clearly trivial task, confirm it
-      auto-routes to General Chat with a logged, stated reason
-- [x] 4.8 — **Test:** give Orchestrator a clearly critical task (e.g.
-      something matching the hook blocklist), confirm it auto-routes to
-      Triad with a logged, stated reason
-- [x] 4.9 — **Test:** give Orchestrator a genuinely ambiguous-complexity
-      task, confirm it stops and asks for confirmation rather than silently
-      picking
-- [x] 4.10 — **Test:** confirm every routing decision (all three cases
-      above) produces a `routing_decision` transcript entry with accurate
-      contents
+### Why this phase exists (not folded into Phase 6)
 
+Multi-agent research is blunt that debugging nested/parallel agent activity
+without dedicated tracing is close to impossible after the fact — you can't
+reconstruct "which agent did what, in what order, across which isolated
+transcripts" from scattered logs alone. Rather than bolt a partial version of
+this onto Phase 6's already-full scope, it gets its own phase, built right
+after Twin Subagent exists (so there's real nested activity to observe) and
+before Commit Journey (Phase 10), since `/journey` is a git-focused view, not
+a cross-agent-activity view, and shouldn't be your only debugging tool.
 
-**Checkpoint:** Orchestrator mode now makes real, logged, traceable routing
-decisions, correctly auto-proceeding at the extremes and confirming with you
-in the middle. It still routes "medium" tasks to full Triad as a stand-in —
-Phase 6 replaces that stand-in with real twin-subagent behavior.
+### 7.1 Design
 
----
+- [ ] 7.1.1 — Define a single, unified **trace log** distinct from both the
+      main JSONL transcript and any per-twin transcript — e.g.
+      `sessions/traces/<session-id>.jsonl` — that records one entry per
+      significant cross-agent event: routing decisions (Phase 4.5), twin
+      subagent spawn/complete (Phase 6.15 plus a matching completion entry),
+      clarify-phase triggers (Phase 3), and any hook/blocklist interventions
+      (Workflow 2 §3.2.3). This is intentionally a thinner, flatter log than
+      the full transcripts — built for scanning across agents, not reading
+      one agent's full reasoning
+- [ ] 7.1.2 — Each trace entry should include: timestamp, which
+      agent/mode/twin-id it concerns, event type, and a short one-line
+      description — enough to reconstruct the sequence of what happened
+      without needing to open every individual transcript file
+- [ ] 7.1.3 — Implement a `/trace` slash command (same Go-backed pattern as
+      `/summary`/`/journey`) that renders the current session's trace log in
+      the TUI — a flat, chronological list across all agents/modes/twins,
+      answering "what actually happened, in order, across everything" in one
+      view
+- [ ] 7.1.4 — Wire trace-log writes into the existing emission points rather
+      than duplicating logic: Phase 4.5's routing-decision logging, Phase
+      6.15's twin-spawn logging (plus its natural completion counterpart),
+      Phase 3's clarify triggers, and Workflow 2's hook interventions should
+      all also write one line to the trace log, not just their own existing
+      transcript/log
+- [ ] 7.1.5 — Keep this deliberately lightweight — this is not a new
+      database, not OpenTelemetry, not a metrics/dashboard system. It's a
+      flat, append-only, human-readable file-based trace, consistent with
+      every other part of Triad's design philosophy
 
-## Phase 5 — Rubric for Orchestrator's Judgment (Refinement Pass)
+### 7.2 Tests
 
-**Goal:** this phase exists because Phase 4's "genuinely trivial" /
-"genuinely critical" / "genuine middle" judgment needs concrete criteria, not
-just vibes — this was flagged as an open item and deserves its own focused
-pass rather than being bolted onto Phase 4's already-full scope.
+- [ ] 7.2.1 — **Test:** run a task that goes through Orchestrator routing,
+      triggers a clarify round, and spawns a twin subagent; confirm `/trace`
+      shows all three events in correct chronological order in one place
+- [ ] 7.2.2 — **Test:** confirm a twin subagent's start (6.15) and completion
+      both appear as distinct, matched entries in the trace log, so a
+      stuck/slow twin is visibly identifiable (started, never completed) just
+      from `/trace` output
+- [ ] 7.2.3 — **Test:** confirm the trace log stays flat and scannable even
+      after several sessions — this is meant to be the fast, first place you
+      look when something seems off, not something you need to grep through
+      like the full transcripts
 
-- [ ] 5.1 — Draft a short, concrete rubric Orchestrator's system prompt can
-      apply consistently — e.g. file count touched, whether the task matches
-      existing hook blocklist patterns (Workflow 2 §3.2.3), whether it's a
-      new feature vs. a one-line fix, whether it touches auth/payment/
-      deletion code paths
-- [ ] 5.2 — Update Orchestrator's system prompt to reference this rubric
-      explicitly rather than leaving the judgment fully open-ended
-- [ ] 5.3 — Re-run Phase 4's tests (4.7-4.9) against a wider set of real or
-      realistic tasks spanning the full trivial→critical range, and
-      specifically probe the middle ground with tasks intentionally designed
-      to be ambiguous under the rubric
-- [ ] 5.4 — **Test:** confirm the rubric produces consistent routing on
-      repeated runs of the same or very similar task — inconsistency here is
-      exactly the non-deterministic-routing risk flagged in Phase 0, so
-      treat repeat-run drift as a real bug to investigate, not noise
-
-**Checkpoint:** Orchestrator's routing judgment now follows a documented,
-testable rubric instead of an unconstrained model guess, and you've
-confirmed it's reasonably consistent on repeated similar inputs.
-
+**Checkpoint:** you have one command (`/trace`) that shows a chronological,
+cross-agent view of what happened in a session — routing decisions, clarify
+triggers, and twin-subagent lifecycles — without needing to manually piece
+it together from separate transcript files.
 
 ---

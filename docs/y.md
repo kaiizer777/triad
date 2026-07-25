@@ -124,3 +124,194 @@ depends on it.
 
 **Checkpoint:** both existing modes now ask batched clarifying questions
 upfront on ambiguous tasks, using one shared, reusable clarify step.
+
+
+
+
+## Phase 4 — Orchestrator Routing Logic
+
+**Goal:** give Orchestrator mode actual judgment — this is where the
+`orchestrator` placeholder from Phase 1.2.5 gets replaced with real routing.
+Twin subagents (Phase 6) don't exist yet — for this phase, "route to twin
+subagent" can simply route to Triad as a stand-in, with the real twin-pair
+behavior arriving in Phase 6.
+
+- [x] 4.1 — Orchestrator receives the task first whenever `current_mode ==
+      orchestrator` (the default)
+- [x] 4.2 — Orchestrator **always states its routing reasoning out loud** in
+      the transcript before acting — e.g. `"[Orchestrator]: This looks like
+      a one-line typo fix — routing to General Chat."` — this is not
+      optional, it's the traceability mitigation from Phase 0 and must never
+      be skipped, even on "obvious" auto-proceed cases
+- [x] 4.3 — **Auto-proceed, no human confirmation needed**, only at the two
+      extremes:
+      - Genuinely trivial (single-file typo/rename/one-liner, no
+        architectural or security surface) → routes to **General Chat**
+        immediately
+      - Genuinely critical (touches auth, payments, deletion, matches any
+        existing hook blocklist pattern from Workflow 2 §3.2.3, or anything
+        Orchestrator itself flags as high-risk) → routes to **Triad**
+        immediately, since more oversight is never the wrong default
+- [x] 4.4 — **For everything in the genuine middle** → Orchestrator **must
+      ask the human to confirm or override** before proceeding: `"[
+      Orchestrator]: I'd route this to a twin-subagent pair — proceed, or
+      would you prefer full Triad instead?"` (routes to Triad directly for
+      now, per this phase's stand-in note above, until Phase 6 lands)
+- [x] 4.5 — Log every routing decision (auto or confirmed) as its own
+      transcript entry type, e.g. `Type: "routing_decision"`, containing:
+      the task, the complexity judgment, the target mode, and whether it was
+      auto-proceeded or human-confirmed
+- [x] 4.6 — Wire the clarify step from Phase 3 in *before* Orchestrator's
+      routing judgment — clarify ambiguity first, then route, not the other
+      way around
+- [x] 4.7 — **Test:** give Orchestrator a clearly trivial task, confirm it
+      auto-routes to General Chat with a logged, stated reason
+- [x] 4.8 — **Test:** give Orchestrator a clearly critical task (e.g.
+      something matching the hook blocklist), confirm it auto-routes to
+      Triad with a logged, stated reason
+- [x] 4.9 — **Test:** give Orchestrator a genuinely ambiguous-complexity
+      task, confirm it stops and asks for confirmation rather than silently
+      picking
+- [x] 4.10 — **Test:** confirm every routing decision (all three cases
+      above) produces a `routing_decision` transcript entry with accurate
+      contents
+
+
+**Checkpoint:** Orchestrator mode now makes real, logged, traceable routing
+decisions, correctly auto-proceeding at the extremes and confirming with you
+in the middle. It still routes "medium" tasks to full Triad as a stand-in —
+Phase 6 replaces that stand-in with real twin-subagent behavior.
+
+---
+
+## Phase 5 — Rubric for Orchestrator's Judgment (Refinement Pass)
+
+**Goal:** this phase exists because Phase 4's "genuinely trivial" /
+"genuinely critical" / "genuine middle" judgment needs concrete criteria, not
+just vibes — this was flagged as an open item and deserves its own focused
+pass rather than being bolted onto Phase 4's already-full scope.
+
+- [x] 5.1 — Draft a short, concrete rubric Orchestrator's system prompt can
+      apply consistently — e.g. file count touched, whether the task matches
+      existing hook blocklist patterns (Workflow 2 §3.2.3), whether it's a
+      new feature vs. a one-line fix, whether it touches auth/payment/
+      deletion code paths
+- [x] 5.2 — Update Orchestrator's system prompt to reference this rubric
+      explicitly rather than leaving the judgment fully open-ended
+- [x] 5.3 — Re-run Phase 4's tests (4.7-4.9) against a wider set of real or
+      realistic tasks spanning the full trivial→critical range, and
+      specifically probe the middle ground with tasks intentionally designed
+      to be ambiguous under the rubric
+- [x] 5.4 — **Test:** confirm the rubric produces consistent routing on
+      repeated runs of the same or very similar task — inconsistency here is
+      exactly the non-deterministic-routing risk flagged in Phase 0, so
+      treat repeat-run drift as a real bug to investigate, not noise
+
+**Checkpoint:** Orchestrator's routing judgment now follows a documented,
+testable rubric instead of an unconstrained model guess, and you've
+confirmed it's reasonably consistent on repeated similar inputs.
+
+
+
+
+
+## Phase 6 — Twin Subagent
+
+**Goal:** the most novel piece of this whole document — an isolated mini-
+Triad (mini-Coder + mini-Reviewer pair with their own private approval
+loop). Deliberately saved for its own phase, after Orchestrator's routing
+(Phase 4-5) is stable, since it's the highest-risk piece and benefits from
+everything around it already working.
+
+- [x] 6.1 — Define a new `TwinSubagent` construct, distinct from the
+      existing single `Subagent` (Workflow 2 §4): it spawns **two** agents
+      together — a mini-Coder and a mini-Reviewer — not one
+- [x] 6.2 — The twin pair gets its **own isolated transcript**
+      (`sessions/twins/<id>.jsonl`), separate from both the main session
+      transcript and from regular single-subagent transcripts
+      (`sessions/subagents/`)
+- [x] 6.3 — Orchestrator's handoff to the twin pair is **exactly one
+      message** — the task description, optionally with the same bounded
+      `context` string pattern used by `spawn_subagent` (Workflow 2 §4.2.2).
+      Do not hand over the full main-session transcript
+- [x] 6.4 — Once spawned, the mini-Coder and mini-Reviewer run **their own
+      private propose→review→execute loop**, reusing the existing
+      `internal/loop` approval-cycle logic (Workflow 1 §6.3) against their
+      own isolated transcript — this is not new loop logic, it's the same
+      loop pointed at a different transcript file
+- [x] 6.5 — **The mini-Reviewer preserves the core invariant**: no tool
+      access, ever, same as main-session Reviewer (Workflow 1 §6.2). Mini-
+      Coder gets the same tool set as main Coder (file, shell, browser,
+      spawn_subagent — but see 6.8 on nesting limits)
+- [x] 6.6 — Wire the Phase 3 clarify step in immediately after the twin
+      pair receives Orchestrator's one-message handoff, before their own
+      loop starts
+- [x] 6.7 — The twin pair's own auto-commit behavior (Workflow 2 §2) should
+      still fire on their executed actions. Commit messages should be
+      distinguishable from main-session commits (e.g. `[triad:twin #<id>]`
+      prefix) so the commit journey (Phase 10) can visually distinguish
+      twin-subagent work from main-loop work
+- [x] 6.8 — **Recursion/nesting guard**: a twin subagent's mini-Coder must
+      NOT be allowed to spawn another twin subagent or another single
+      subagent. Depth stops at one level, same reasoning as the existing
+      single-subagent depth guard (Workflow 2 §4.2.6)
+- [x] 6.9 — When the twin pair's Reviewer and Coder agree the task is
+      complete, produce **one summary** and append it to the **main**
+      session transcript as a single `action_result`-style entry attributed
+      to the twin pair (e.g. `Speaker: "Twin:add-rate-limiting"`) — same
+      summary-only-return principle as the existing single-subagent pattern
+- [x] 6.10 — Replace Phase 4's "route medium tasks to Triad as a stand-in"
+      with real twin-subagent routing now that this construct exists
+- [x] 6.11 — **Test:** give Orchestrator a genuinely medium-complexity task,
+      confirm it proposes the twin-subagent route, confirm on approval the
+      twin pair runs its own full propose→review→execute cycle privately,
+      and confirm only a clean summary lands in the main transcript
+- [x] 6.12 — **Test:** confirm a twin subagent's mini-Reviewer genuinely has
+      no tool access (attempt to provoke a tool call from it and confirm
+      it's rejected/impossible at the config level, not just by prompt)
+- [x] 6.13 — **Test:** confirm the depth guard — attempt to have a twin
+      pair's mini-Coder call `spawn_subagent` or spawn a nested twin, confirm
+      it's blocked
+- [x] 6.14 — **Hard cap on twin-subagent turns.** Add a turn/time cap on the
+      twin pair's private propose→review→execute loop, similar in spirit to
+      the existing loop-guard cap from Workflow 1 §4.3 — added here
+      specifically because of the confirmed 15x token-overhead finding from
+      Phase 0: an uncapped twin subagent on a free-tier, rate-limited model
+      is the single highest-risk failure mode in this entire document, and
+      it's cheaper to cap it now than to discover the problem after a stuck
+      twin pair silently exhausts your daily rate limit
+- [x] 6.15 — **Log twin-subagent start, not just completion.** Append a
+      transcript entry to the **main** session the moment a twin pair is
+      spawned (not only when its summary returns) — e.g. `"[System]: Twin
+      subagent started for task: <description>"`. Right now the main
+      transcript only sees a twin pair's *result*; if a twin pair hangs,
+      loops, or burns rate limit silently, there's currently no visibility
+      from the main session until it eventually returns or hits the cap from
+      6.14. This is the minimum viable fix; full cross-agent observability
+      is Phase 7
+- [x] 6.16 — **Test:** confirm the turn cap from 6.14 actually triggers on a
+      deliberately unresolvable twin-pair disagreement, and that hitting it
+      surfaces cleanly to the main session rather than hanging silently
+- [x] 6.17 — **Test:** confirm the start-of-twin log entry from 6.15
+      appears in the main transcript immediately on spawn, well before the
+      twin pair's eventual summary arrives
+
+### Suggested package structure for Phases 1-6
+
+```
+internal/
+├── orchestrator/
+│   ├── orchestrator.go     # routing judgment, complexity/severity logic
+│   ├── routing_log.go      # routing_decision transcript entry handling
+│   └── mode.go             # current_mode state, /mode command logic
+├── twinsubagent/
+│   └── twinsubagent.go     # isolated mini-Triad spawn, transcript, summary
+└── clarify/
+    └── clarify.go          # shared clarify-phase logic, reused by all modes
+```
+
+**Checkpoint:** the full Orchestrator layer is complete — modes, mismatch
+notices, clarify phase, routing judgment with a real rubric, and twin
+subagents all working together, with a hard turn cap and start-of-spawn
+logging in place as the minimum safety net. This is the single largest
+chunk of Workflow 3; take a real break before Phase 7.

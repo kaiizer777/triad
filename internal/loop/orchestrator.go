@@ -22,7 +22,7 @@ const (
 type orchestratorConfirm struct {
 	task     string // the original task text
 	tier     string // always TierMiddle
-	proposed string // the mode we proposed ("triad" for now; Phase 6 will use "twin")
+	proposed string // the mode proposed: "twin" (§6.10) for medium; was "triad" in Phase 4 stand-in
 }
 
 // ClassifyTask inspects a task description and returns one of the three routing
@@ -151,9 +151,11 @@ func OrchestratorMessage(tier, reason, targetMode string) string {
 	case TierCritical:
 		return fmt.Sprintf("[Orchestrator]: This looks like a critical task (%s) — routing to Triad for full oversight.", reason)
 	default:
-		// Middle tier — Orchestrator proposes and asks for confirmation.
+		// Middle tier — Orchestrator proposes Twin Subagent and asks for confirmation.
+		// §6.10: "twin" replaces the Phase 4 Triad stand-in for medium tasks.
 		return fmt.Sprintf(
-			"[Orchestrator]: I'd route this to full Triad (medium complexity — %s). "+
+			"[Orchestrator]: I'd route this to a Twin Subagent pair (medium complexity — %s). "+
+				"The twin pair runs its own private propose→review→execute loop and returns only a summary. "+
 				"Proceed, or would you prefer to override the mode? (reply to confirm, or use /mode to override)",
 			reason,
 		)
@@ -232,7 +234,8 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 		// then set pendingOrchestratorConfirm and return waitingForConfirm=true.
 		// The routing_decision entry will be appended when the human confirms
 		// (with auto_proceeded=false to record it was human-confirmed).
-		msg := OrchestratorMessage(tier, reason, string(ModeTriad))
+		// §6.10: proposed is now "twin" (Twin Subagent pair) instead of "triad".
+		msg := OrchestratorMessage(tier, reason, "twin")
 		if appendErr := l.append(transcript.Entry{
 			Speaker:   transcript.SpeakerSystem,
 			Type:      transcript.TypeMessage,
@@ -244,7 +247,7 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 		l.pendingOrchestratorConfirm = &orchestratorConfirm{
 			task:     task,
 			tier:     TierMiddle,
-			proposed: string(ModeTriad),
+			proposed: "twin",
 		}
 		return "", true, nil
 	}
@@ -254,12 +257,18 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 // round. It appends the routing_decision entry (with auto_proceeded=false) and
 // returns the effective mode to use. Any non-empty reply is treated as "proceed".
 // If the reply is a /mode override, the active mode is set accordingly.
+//
+// §6.10: When the confirmed mode is "twin", the effectiveMode returned is
+// ModeTriad but the loop's runActiveCycle will detect the twin routing because
+// the task is picked up from the pendingOrchestratorConfirm. In practice the
+// Orchestrator's Coder — running under ModeTriad here — will propose
+// spawn_twin_subagent as its first action, which runSpawnTwinSubagent handles.
 func (l *Loop) resolveOrchestratorConfirm(reply string) (effectiveMode Mode, err error) {
 	confirm := l.pendingOrchestratorConfirm
 	l.pendingOrchestratorConfirm = nil
 
 	// Check if the human overrode the mode via /mode command.
-	targetMode := Mode(confirm.proposed) // default: Triad
+	targetMode := Mode(confirm.proposed) // default: twin (§6.10) — treated as Triad below
 	lowerReply := strings.ToLower(strings.TrimSpace(reply))
 	if strings.HasPrefix(lowerReply, "/mode ") {
 		modeStr := strings.TrimPrefix(lowerReply, "/mode ")
@@ -286,6 +295,14 @@ func (l *Loop) resolveOrchestratorConfirm(reply string) (effectiveMode Mode, err
 		Timestamp: time.Now(),
 	}); appendErr != nil {
 		return "", appendErr
+	}
+
+	// §6.10: "twin" is not a real Mode constant (the loop uses ModeTriad for
+	// medium tasks — the Orchestrator's Coder, running under Triad, proposes
+	// spawn_twin_subagent as its action). Map it to ModeTriad here so the
+	// loop's effectiveMode switch works correctly.
+	if targetMode == "twin" {
+		targetMode = ModeTriad
 	}
 
 	return targetMode, nil
