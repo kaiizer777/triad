@@ -98,6 +98,14 @@ type Styles struct {
 	WelcomeTitle lipgloss.Style
 	WelcomeSub   lipgloss.Style
 	WelcomeTip   lipgloss.Style
+
+	// Autocomplete Overlay
+	AutocompleteBox     lipgloss.Style
+	AutocompleteHeader  lipgloss.Style
+	AutocompleteItemSel lipgloss.Style
+	AutocompleteItem    lipgloss.Style
+	AutocompleteDesc    lipgloss.Style
+	AutocompleteBadge   lipgloss.Style
 }
 
 // DefaultStyles returns an ultra-premium obsidian dark palette with glowing accents,
@@ -421,6 +429,33 @@ func DefaultStyles() Styles {
 		WelcomeTip: lipgloss.NewStyle().
 			Foreground(mutedSoft).
 			Italic(true),
+
+		// ── Autocomplete Overlay ──────────────────────────────────────
+		AutocompleteBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(violetMd).
+			Background(obsidianAlt).
+			Padding(0, 1),
+
+		AutocompleteHeader: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(violetLt),
+
+		AutocompleteItemSel: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(cyanLt).
+			Background(surfaceHigh),
+
+		AutocompleteItem: lipgloss.NewStyle().
+			Foreground(textDim),
+
+		AutocompleteDesc: lipgloss.NewStyle().
+			Foreground(mutedSoft).
+			Italic(true),
+
+		AutocompleteBadge: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(violetLt),
 	}
 }
 
@@ -441,6 +476,12 @@ type Model struct {
 	plainTextTurns int // consecutive Coder plain-text turns with no tool call
 	statusMessage  string
 	initialCmd     tea.Cmd
+
+	// Autocomplete state for live slash-command dropdown
+	autocompleteActive bool
+	autocompleteIndex  int
+	autocompleteCmds   []commands.Command
+	dismissedInput     string
 
 	// lastCoderMessage is the most recent plain-text message Coder sent
 	// before proposing an action. Captured so the auto-commit message

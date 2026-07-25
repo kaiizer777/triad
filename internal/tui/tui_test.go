@@ -665,7 +665,7 @@ func TestTUI_Undo_RevertsLastCommit(t *testing.T) {
 	if !strings.Contains(last.Content, "/undo") || !strings.Contains(strings.ToLower(last.Content), "revert") {
 		t.Errorf("expected /undo revert summary, got: %q", last.Content)
 	}
-	// And the original [triad] commit should still be in git log —
+	// And the original [triad] commit should still be in history —
 	// we used `git revert` (preserves history), not `git reset` (destroys it).
 	logCmd := exec.Command("git", "log", "--pretty=%s", "-n", "10") //nolint:gosec
 	logCmd.Dir = dir
@@ -675,5 +675,221 @@ func TestTUI_Undo_RevertsLastCommit(t *testing.T) {
 	}
 }
 
+func setupAutocompleteTestModel(t *testing.T) (Model, func()) {
+	dir := t.TempDir()
+	cmdDir := filepath.Join(dir, "commands")
+	if err := os.MkdirAll(cmdDir, 0755); err != nil {
+		t.Fatalf("setup cmdDir: %v", err)
+	}
 
+	cmdFiles := map[string]string{
+		"plan.md":   "---\ntarget: coder\ndescription: Ask Coder to produce a plan only\n---\nPropose a step-by-step plan for: {{args}}\n",
+		"status.md": "---\ntarget: system\ndescription: Check current session status\n---\nShow status\n",
+		"strict.md": "---\ntarget: coder\ndescription: Enforce strict safety gates\n---\nStrict instructions: {{args}}\n",
+		"undo.md":   "---\ntarget: system\ndescription: Undo last action\n---\nUndo action\n",
+	}
+	for name, content := range cmdFiles {
+		if err := os.WriteFile(filepath.Join(cmdDir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write cmd %s: %v", name, err)
+		}
+	}
 
+	reg, err := commands.Load(cmdDir)
+	if err != nil {
+		t.Fatalf("Load commands: %v", err)
+	}
+
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, reg)
+	return model, cleanup
+}
+
+func TestTUI_Autocomplete_Filtering(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// 1. Typing '/' opens popup with all 4 commands
+	m := typeString(model, "/")
+	if !m.autocompleteActive {
+		t.Fatalf("expected autocompleteActive to be true on '/'")
+	}
+	if len(m.autocompleteCmds) != 4 {
+		t.Fatalf("expected 4 commands on '/', got %d", len(m.autocompleteCmds))
+	}
+	if m.autocompleteCmds[0].Name != "plan" || m.autocompleteCmds[3].Name != "undo" {
+		t.Errorf("unexpected command order: %+v", m.autocompleteCmds)
+	}
+
+	// 2. Typing 'p' narrows to [plan]
+	m = typeString(m, "p")
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 1 || m.autocompleteCmds[0].Name != "plan" {
+		t.Fatalf("expected 1 match ('plan') on '/p', got %v", m.autocompleteCmds)
+	}
+
+	// 3. Clear and type '/s' narrows to [status, strict]
+	m.input.SetValue("")
+	m = typeString(m, "/s")
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 2 {
+		t.Fatalf("expected 2 matches ('status', 'strict') on '/s', got %d", len(m.autocompleteCmds))
+	}
+	if m.autocompleteCmds[0].Name != "status" || m.autocompleteCmds[1].Name != "strict" {
+		t.Errorf("unexpected commands on '/s': %+v", m.autocompleteCmds)
+	}
+
+	// 4. Type 'tr' -> '/str' narrows to [strict]
+	m = typeString(m, "tr")
+	if !m.autocompleteActive || len(m.autocompleteCmds) != 1 || m.autocompleteCmds[0].Name != "strict" {
+		t.Fatalf("expected 1 match ('strict') on '/str', got %v", m.autocompleteCmds)
+	}
+}
+
+func TestTUI_Autocomplete_Navigation(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// Type '/s' -> matches [status, strict], initial index 0
+	m := typeString(model, "/s")
+	if m.autocompleteIndex != 0 {
+		t.Fatalf("expected initial autocompleteIndex to be 0, got %d", m.autocompleteIndex)
+	}
+
+	// Press Down arrow -> index becomes 1 (strict)
+	up, _ := m.Update(makeKeyMsg("down"))
+	m = up.(Model)
+	if m.autocompleteIndex != 1 {
+		t.Fatalf("expected autocompleteIndex 1 after Down, got %d", m.autocompleteIndex)
+	}
+
+	// Press Down arrow again -> index wraps to 0 (status)
+	up, _ = m.Update(makeKeyMsg("down"))
+	m = up.(Model)
+	if m.autocompleteIndex != 0 {
+		t.Fatalf("expected autocompleteIndex 0 after wrapping Down, got %d", m.autocompleteIndex)
+	}
+
+	// Press Up arrow -> index wraps to 1 (strict)
+	up, _ = m.Update(makeKeyMsg("up"))
+	m = up.(Model)
+	if m.autocompleteIndex != 1 {
+		t.Fatalf("expected autocompleteIndex 1 after Up, got %d", m.autocompleteIndex)
+	}
+}
+
+func TestTUI_Autocomplete_AcceptanceAndExpansion(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// 1. Test Tab acceptance
+	m := typeString(model, "/pl")
+	if !m.autocompleteActive {
+		t.Fatalf("expected autocompleteActive true on '/pl'")
+	}
+	up, _ := m.Update(makeKeyMsg("tab"))
+	m = up.(Model)
+	if m.autocompleteActive {
+		t.Errorf("expected autocompleteActive false after Tab")
+	}
+	if m.input.Value() != "/plan " {
+		t.Errorf("expected input '/plan ', got %q", m.input.Value())
+	}
+
+	// Submit input via Enter
+	up, cmd := m.Update(makeKeyMsg("enter"))
+	m = up.(Model)
+	if cmd == nil {
+		t.Fatalf("expected non-nil Cmd after submitting '/plan '")
+	}
+	// Process humanInputMsg generated by Enter
+	msg := cmd()
+	up, _ = m.Update(msg)
+	m = up.(Model)
+
+	entries := m.transcript.Entries()
+	if len(entries) == 0 {
+		t.Fatalf("expected transcript entry after submitting expanded slash command")
+	}
+	last := entries[len(entries)-1]
+	if last.Speaker != transcript.SpeakerYou || !strings.Contains(last.Content, "Propose a step-by-step plan for:") {
+		t.Errorf("expected expanded plan template in transcript, got: %+v", last)
+	}
+
+	// 2. Test Enter acceptance on dropdown selection
+	m.input.SetValue("")
+	m = typeString(m, "/st") // matches status, strict
+	// Down arrow to select strict (index 1)
+	up, _ = m.Update(makeKeyMsg("down"))
+	m = up.(Model)
+	// Press Enter to accept suggestion
+	up, _ = m.Update(makeKeyMsg("enter"))
+	m = up.(Model)
+	if m.autocompleteActive {
+		t.Errorf("expected autocompleteActive false after Enter suggestion acceptance")
+	}
+	if m.input.Value() != "/strict " {
+		t.Errorf("expected input '/strict ', got %q", m.input.Value())
+	}
+}
+
+func TestTUI_Autocomplete_DismissalOnEscAndNonMatching(t *testing.T) {
+	model, cleanup := setupAutocompleteTestModel(t)
+	defer cleanup()
+
+	// 1. Dismissal on Escape
+	m := typeString(model, "/p")
+	if !m.autocompleteActive {
+		t.Fatalf("expected autocompleteActive true on '/p'")
+	}
+	up, cmd := m.Update(makeKeyMsg("esc"))
+	m = up.(Model)
+	if cmd != nil {
+		t.Errorf("Esc when autocomplete is active should NOT produce Quit Cmd, got: %v", cmd)
+	}
+	if m.autocompleteActive {
+		t.Errorf("expected autocompleteActive false after Esc")
+	}
+
+	// 2. Dismissal on non-matching input
+	m.input.SetValue("")
+	m = typeString(m, "/xyz")
+	if m.autocompleteActive {
+		t.Errorf("expected autocompleteActive false on non-matching input '/xyz'")
+	}
+
+	// 3. Dismissal when input no longer starts with '/'
+	m.input.SetValue("")
+	m = typeString(m, "hello")
+	if m.autocompleteActive {
+		t.Errorf("expected autocompleteActive false on non-slash input 'hello'")
+	}
+}
+
+func makeKeyMsg(str string) tea.KeyPressMsg {
+	switch str {
+	case "down":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
+	case "up":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
+	case "tab":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})
+	case "enter":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+	case "esc":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc})
+	default:
+		if len(str) == 1 {
+			r := rune(str[0])
+			return tea.KeyPressMsg(tea.Key{Code: r, Text: str})
+		}
+		return tea.KeyPressMsg(tea.Key{Text: str})
+	}
+}
+
+// helper to simulate typing characters one by one into the model
+func typeString(m Model, s string) Model {
+	for _, r := range s {
+		str := string(r)
+		updated, _ := m.Update(makeKeyMsg(str))
+		m = updated.(Model)
+	}
+	return m
+}

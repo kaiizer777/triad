@@ -98,6 +98,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 
 	case tea.KeyMsg:
+		if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.autocompleteActive = false
+				m.dismissedInput = m.input.Value()
+				return m, nil
+			case "up":
+				m.autocompleteIndex--
+				if m.autocompleteIndex < 0 {
+					m.autocompleteIndex = len(m.autocompleteCmds) - 1
+				}
+				return m, nil
+			case "down":
+				m.autocompleteIndex++
+				if m.autocompleteIndex >= len(m.autocompleteCmds) {
+					m.autocompleteIndex = 0
+				}
+				return m, nil
+			case "tab", "enter":
+				if m.autocompleteIndex >= 0 && m.autocompleteIndex < len(m.autocompleteCmds) {
+					selected := m.autocompleteCmds[m.autocompleteIndex]
+					newVal := "/" + selected.Name + " "
+					m.input.SetValue(newVal)
+					m.input.CursorEnd()
+					m.autocompleteActive = false
+					m.dismissedInput = newVal
+					return m, nil
+				}
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
@@ -105,6 +138,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.input.Focused() {
 				val := strings.TrimSpace(m.input.Value())
 				m.input.SetValue("")
+				m.autocompleteActive = false
+				m.dismissedInput = ""
 				if val != "" {
 					return m, func() tea.Msg { return humanInputMsg{content: val} }
 				}
@@ -413,12 +448,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.input, inputCmd = m.input.Update(msg)
 	cmds = append(cmds, inputCmd)
 
+	m.syncAutocompleteState()
+
 	// Update viewport component for scrolling keypresses
 	var vpCmd tea.Cmd
 	m.viewport, vpCmd = m.viewport.Update(msg)
 	cmds = append(cmds, vpCmd)
 
 	return m, tea.Batch(cmds...)
+}
+
+// syncAutocompleteState evaluates the textinput value and updates live slash-command autocomplete state.
+func (m *Model) syncAutocompleteState() {
+	val := m.input.Value()
+	if !strings.HasPrefix(val, "/") {
+		m.autocompleteActive = false
+		m.autocompleteCmds = nil
+		m.autocompleteIndex = 0
+		m.dismissedInput = ""
+		return
+	}
+
+	if val == m.dismissedInput {
+		return
+	}
+	m.dismissedInput = ""
+
+	query := val[1:]
+	matches := m.commands.Filter(query)
+	if len(matches) == 0 {
+		m.autocompleteActive = false
+		m.autocompleteCmds = nil
+		m.autocompleteIndex = 0
+		return
+	}
+
+	m.autocompleteActive = true
+	m.autocompleteCmds = matches
+	if m.autocompleteIndex < 0 || m.autocompleteIndex >= len(matches) {
+		m.autocompleteIndex = 0
+	}
 }
 
 // refreshViewport updates the content in the viewport and auto-scrolls to the bottom.

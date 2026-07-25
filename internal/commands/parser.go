@@ -145,6 +145,45 @@ func (r *Registry) Count() int {
 	return len(r.commands)
 }
 
+// List returns all registered commands in name-sorted order.
+func (r *Registry) List() []Command {
+	if r == nil {
+		return nil
+	}
+	names := r.Names()
+	out := make([]Command, 0, len(names))
+	for _, name := range names {
+		if cmd, ok := r.commands[name]; ok {
+			out = append(out, cmd)
+		}
+	}
+	return out
+}
+
+// Filter returns all registered commands matching the given prefix (case-insensitive),
+// sorted by command name. If prefix is empty or "/", all commands are returned.
+func (r *Registry) Filter(prefix string) []Command {
+	if r == nil {
+		return nil
+	}
+	prefix = strings.TrimPrefix(prefix, "/")
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+
+	all := r.List()
+	if prefix == "" {
+		return all
+	}
+
+	var matched []Command
+	for _, cmd := range all {
+		if strings.HasPrefix(strings.ToLower(cmd.Name), prefix) {
+			matched = append(matched, cmd)
+		}
+	}
+	return matched
+}
+
+
 // Expand renders the command's body template with the given arguments.
 // {{args}} is replaced verbatim with `args` (which may be empty).
 // All other occurrences of {{args}} are also replaced — we don't error

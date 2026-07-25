@@ -56,11 +56,20 @@ func (m Model) View() tea.View {
 	rightCardInnerWidth := max(1, mainContainerWidth-rightCardHorizFrame)
 	rightCardInnerHeight := max(1, bodyHeight-rightCardVertFrame)
 
+	var popup string
+	popupHeight := 0
+	if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
+		popup = m.renderAutocompletePopup(rightCardInnerWidth)
+		if popup != "" {
+			popupHeight = lipgloss.Height(popup)
+		}
+	}
+
 	// Fixed bottom rows that must ALWAYS be visible:
 	// Pipeline Dock (1) + Status Bar (1) + Input Separator (1) + Input Row (1) = 4 rows pinned at bottom.
-	// Viewport gets whatever remains above them.
+	// Plus optional Autocomplete Popup height when active.
 	const bottomRows = 4
-	vpContentHeight := max(1, rightCardInnerHeight-bottomRows)
+	vpContentHeight := max(1, rightCardInnerHeight-bottomRows-popupHeight)
 	vpContentWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 
 	m.viewport.SetWidth(vpContentWidth)
@@ -79,13 +88,24 @@ func (m Model) View() tea.View {
 	// Clip ONLY the scrollable viewport portion — never the pinned bottom dock.
 	scrollableArea := clipLines(vpContainer, vpContentHeight)
 
-	// Pin bottom: pipeline + status + input are always rendered last, never clipped.
-	bottomDock := lipgloss.JoinVertical(
-		lipgloss.Left,
-		pipelineDock,
-		statusBar,
-		inputBar,
-	)
+	// Pin bottom: pipeline + status + (popup if active) + input are always rendered last, never clipped.
+	var bottomDock string
+	if popup != "" {
+		bottomDock = lipgloss.JoinVertical(
+			lipgloss.Left,
+			pipelineDock,
+			statusBar,
+			popup,
+			inputBar,
+		)
+	} else {
+		bottomDock = lipgloss.JoinVertical(
+			lipgloss.Left,
+			pipelineDock,
+			statusBar,
+			inputBar,
+		)
+	}
 
 	rightCardContent := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -815,6 +835,62 @@ func truncateLine(s string, maxLen int) string {
 	sb.WriteString("...")
 	sb.WriteString("\x1b[0m")
 	return sb.String()
+}
+
+// renderAutocompletePopup renders a filtered dropdown of matching slash commands.
+func (m Model) renderAutocompletePopup(width int) string {
+	if !m.autocompleteActive || len(m.autocompleteCmds) == 0 {
+		return ""
+	}
+
+	frameHoriz := m.styles.AutocompleteBox.GetHorizontalFrameSize()
+	innerWidth := max(10, width-frameHoriz)
+
+	var sb strings.Builder
+	header := m.styles.AutocompleteHeader.Render("▸ COMMAND SUGGESTIONS")
+	sb.WriteString(header)
+	sb.WriteString("\n")
+
+	maxVisible := 5
+	cmds := m.autocompleteCmds
+	if len(cmds) > maxVisible {
+		cmds = cmds[:maxVisible]
+	}
+
+	for i, cmd := range cmds {
+		var line string
+		nameStr := "/" + cmd.Name
+		descStr := cmd.Description
+		badgeStr := fmt.Sprintf("[%s]", cmd.Target)
+
+		badge := m.styles.AutocompleteBadge.Render(badgeStr)
+		badgeW := lipgloss.Width(badge)
+
+		if i == m.autocompleteIndex {
+			prefix := "▸ "
+			name := m.styles.AutocompleteItemSel.Render(nameStr)
+			nameW := lipgloss.Width(nameStr) + 2
+			descW := max(0, innerWidth-nameW-badgeW-3)
+			desc := m.styles.AutocompleteDesc.Render(truncateLine(descStr, descW))
+
+			line = lipgloss.JoinHorizontal(lipgloss.Top, prefix, name, " ", badge, " ", desc)
+		} else {
+			prefix := "  "
+			name := m.styles.AutocompleteItem.Render(nameStr)
+			nameW := lipgloss.Width(nameStr) + 2
+			descW := max(0, innerWidth-nameW-badgeW-3)
+			desc := m.styles.AutocompleteDesc.Render(truncateLine(descStr, descW))
+
+			line = lipgloss.JoinHorizontal(lipgloss.Top, prefix, name, " ", badge, " ", desc)
+		}
+		sb.WriteString(truncateLine(line, innerWidth))
+		if i < len(cmds)-1 {
+			sb.WriteString("\n")
+		}
+	}
+
+	boxW := max(0, width-frameHoriz)
+	return m.styles.AutocompleteBox.Width(boxW).Render(sb.String())
 }
 
 func wrapText(text string, width int) []string {

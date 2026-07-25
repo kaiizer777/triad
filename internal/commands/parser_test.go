@@ -238,4 +238,56 @@ func TestRegistry_NilSafe(t *testing.T) {
 	if got := r.Count(); got != 0 {
 		t.Errorf("nil Count: got %d, want 0", got)
 	}
+	if got := r.List(); got != nil {
+		t.Errorf("nil List: got %v, want nil", got)
+	}
+	if got := r.Filter("p"); got != nil {
+		t.Errorf("nil Filter: got %v, want nil", got)
+	}
 }
+
+func TestRegistry_Filter(t *testing.T) {
+	dir := t.TempDir()
+	body := []byte("---\ntarget: coder\ndescription: desc\n---\nbody\n")
+	for _, name := range []string{"plan", "status", "strict", "undo"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), body, 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Empty prefix or "/" returns all sorted
+	all := reg.Filter("")
+	if len(all) != 4 || all[0].Name != "plan" || all[3].Name != "undo" {
+		t.Errorf("Filter(\"\"): unexpected results %+v", all)
+	}
+	slashAll := reg.Filter("/")
+	if len(slashAll) != 4 {
+		t.Errorf("Filter(\"/\"): expected 4 results, got %d", len(slashAll))
+	}
+
+	// Prefix filtering
+	pMatches := reg.Filter("p")
+	if len(pMatches) != 1 || pMatches[0].Name != "plan" {
+		t.Errorf("Filter(\"p\"): got %v", pMatches)
+	}
+
+	sMatches := reg.Filter("s")
+	if len(sMatches) != 2 || sMatches[0].Name != "status" || sMatches[1].Name != "strict" {
+		t.Errorf("Filter(\"s\"): got %v", sMatches)
+	}
+
+	strMatches := reg.Filter("/STR") // case insensitive and leading slash handling
+	if len(strMatches) != 1 || strMatches[0].Name != "strict" {
+		t.Errorf("Filter(\"/STR\"): got %v", strMatches)
+	}
+
+	noMatches := reg.Filter("xyz")
+	if len(noMatches) != 0 {
+		t.Errorf("Filter(\"xyz\"): expected 0 matches, got %d", len(noMatches))
+	}
+}
+

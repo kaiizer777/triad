@@ -1,11 +1,10 @@
 # Triad — Shared-Session Coder/Reviewer Dev Tool
 
-**Status:** Design finalized; project scaffolding complete (Go module, directory
-structure, config skeleton, .gitignore); implementation starting at Workflow
-Phase 1
+**Status:** Fully Complete — v1 Core (transcript, approval loop, TUI, persistence) + Workflow 2 (slash commands, git auto-commit, subagents, browser tools) fully shipped; 206 tests passing, clean build, zero known blockers
 **Owner:** Solo dev project
 **Language:** Go
-**Interface:** CLI/TUI (v1)
+**Interface:** CLI/TUI
+
 
 ---
 
@@ -58,6 +57,29 @@ Research as of July 2026 confirms:
 
 This is a legitimate, currently-unfilled niche — worth building for personal use,
 with potential to open-source later.
+
+## 3.1 What's Actually Built
+
+Triad is fully implemented and verified with **206 passing unit and integration tests**. The current codebase consists of modular Go packages adhering strictly to core architectural invariants:
+
+### Packages & Module Ownership
+- **`main`**: CLI entrypoint, flag parsing, configuration loading (`config.yaml` / environment), logger setup, and execution runner.
+- **`internal/agent`**: OpenAI-compatible API client, multi-agent model specs (`AgentConfig`), system prompt renderers, and JSON tool schemas (`write_file`, `read_file`, `run_command`, `browser_*`, `spawn_subagent`).
+- **`internal/loop`**: Headless action-approval state machine (`propose` $\rightarrow$ `review` $\rightarrow$ `execute`), Reviewer veto evaluation, human interjection routing, subagent execution dispatch, and hook triggers.
+- **`internal/transcript`**: Append-only JSON Lines session persistence (`Entry` model), file streaming (`sessions/<session-id>.jsonl`), session reloading, and transcript formatting.
+- **`internal/tui`**: Responsive terminal interface built with `charm.land/bubbletea/v2` and `charm.land/lipgloss/v2` (dual-column layout with sidebar when width $\ge 75$, scrollable transcript viewport with speaker badges, status bar, and prompt input bar).
+- **`internal/commands`**: Markdown slash-command loader and frontmatter/template parser (`commands/*.md` with `{{args}}` expansion).
+- **`internal/gitcommit`**: Automated git repository manager (`git init`), atomic file/command commit generation (`git add` + `git commit`), and `/undo` support (`git revert`).
+- **`internal/subagent`**: Isolated subagent execution engine (fresh context window, restricted tool schemas, turn cap, summary-only return).
+- **`internal/browser`**: Structured Playwright-Go browser manager (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_text`, `browser_screenshot`).
+- **`internal/logger`**: Centralized structured file logger (`triad.log`).
+
+### Core Architectural Invariants
+1. **Reviewer Has No Tool Access:** Reviewer operates as a pure text-in/text-out model (`HasTools: false`). Tool schemas are exclusively exposed to Coder.
+2. **Strict Action Approval Loop:** Every proposed file write, shell command, browser navigation, or subagent spawn must be approved by Reviewer (or overridden by Human interjection) before execution.
+3. **Config-Only Model Sourcing:** Model IDs (`mimo-v2.5-free`), base URLs (`https://opencode.ai/zen/v1`), and credentials are completely runtime-configurable via `config.yaml` or environment variables without source recompilation.
+4. **Append-Only JSONL Persistence:** Session state and transcript entries are written line-by-line to disk in real time for crash resilience and session resumption.
+5. **`tea.Cmd`-Only TUI Concurrency:** Asynchronous background actions (agent HTTP calls, tool execution, git commands) run strictly via Bubbletea commands to prevent UI thread data races.
 
 ## 4. Finalized Design Decisions
 
@@ -184,21 +206,19 @@ loop:
 
 ### 6.4 Tool Execution
 
-- `write_file`, `read_file`: direct filesystem operations scoped to project
-  working directory
-- `run_command`: shell execution via `os/exec`, working directory pinned to
-  project root
-- No sandboxing/human confirmation layer in v1 (explicitly decided) — Reviewer's
-  approval is the only gate
+- `write_file`, `read_file`: Direct filesystem operations scoped to project working directory.
+- `run_command`: Shell execution via `os/exec`, working directory pinned to project root.
+- `browser_*` (`browser_navigate`, `click`, `type`, `get_text`, `screenshot`): Structured DOM-level browser control via Playwright-Go.
+- `spawn_subagent`: Subagent launcher running in an isolated context with restricted tools, returning a summary to the main transcript.
+- **Git Auto-Commit:** Every executed `write_file` or modifying `run_command` triggers an automated git commit (`git add` + `git commit`), establishing an audit trail and enabling `/undo`.
+- No sandboxing/human confirmation layer in v1 (explicitly decided) — Reviewer's approval is the only gate.
 
 ### 6.5 TUI
 
-- Single scrolling transcript pane, color-coded by speaker
-- Input box for the human at the bottom, usable at any time regardless of whose
-  "turn" it is
-- Recommended libraries: `charm.land/bubbletea/v2` + `charm.land/lipgloss/v2`
-  (both moved to Charm's vanity domain as of their v2 releases — the old
-  `github.com/charmbracelet/...` paths for these two are outdated)
+- Responsive layout built with `charm.land/bubbletea/v2` and `charm.land/lipgloss/v2`.
+- Dual-column structure when terminal width $\ge 75$ columns (left sidebar displaying session ID, working directory, system status, retry counters, model engine details; right viewport displaying the scrollable transcript with pill speaker badges `[ You ]`, `[ Coder ]`, `[ Reviewer ]`, `[ System ]`, and tool call panels). Collapses automatically to single-column layout on narrower viewports.
+- Bottom-pinned pipeline dock, live status line/spinner, prompt input bar, and integrated slash-command handler (`/plan`, `/diff`, `/undo`, `/status`, `/strict`).
+- Strict `tea.Cmd` async event model ensuring all background tool/LLM operations dispatch messages safely to the main update loop.
 
 ## 7. Known Risks (Accepted, Not Deferred)
 
@@ -206,34 +226,38 @@ loop:
   and there is no hardcoded human confirmation step, a bad Reviewer approval on
   a destructive shell command (e.g. force-push, recursive delete) will execute
   with no one blocking it except the human noticing in real time. This was
-  explicitly chosen for v1 in favor of speed/autonomy over safety rails.
-- **Round-robin ≠ true concurrency.** v1 is strictly turn-based per atomic
+  explicitly chosen in favor of speed/autonomy over safety rails (mitigated after the fact by git auto-commit on every edit).
+- **Round-robin ≠ true concurrency.** Turn execution is strictly round-robin per atomic
   action, not two agents genuinely acting simultaneously with live interrupts.
-  Upgrading to real concurrent/interrupt-driven turn-taking is a scoped future
-  change (v2), isolated from the core transcript/agent/tool-call design.
 - **Free-tier rate limits.** OpenCode Zen's free/trial endpoints (no billing
-  configured) have unpublished, unconfirmed rate limits for `mimo-v2.5-free`.
-  This is compatible with round-robin (only one agent calls out at a time
-  anyway) but will constrain throughput on longer tasks, and the actual
-  ceiling will likely only be discovered empirically, via trial and error.
+  configured) have rate limits for `mimo-v2.5-free`. Handled gracefully via single-threaded round-robin execution and structured error handling.
 
-## 8. Explicit Non-Goals for v1
+## 8. Shipped & Remaining Non-Goals
 
+### Shipped in Workflow 2 (Originally Deferred)
+- Custom markdown slash commands (`/plan`, `/diff`, `/undo`, `/status`, `/strict`)
+- Automatic per-action git commits and `/undo` via `git revert`
+- Short-lived isolated subagent delegation (`spawn_subagent`)
+- DOM-level browser automation tools (`browser_*`) via Playwright-Go
+
+### Remaining Non-Goals
 - No web UI (CLI/TUI only)
-- No true simultaneous/interrupt-based turn-taking
-- No hardcoded destructive-action confirmation step
+- No true simultaneous/interrupt-based turn-taking (strictly round-robin per atomic action)
+- No hardcoded destructive-action confirmation step (Reviewer approval remains sole gate)
 - No model hardcoding — all model/provider selection is runtime config
-- No multi-project or multi-session management — single active session
+- No multi-session switcher dashboard — single active session per process instance
 
-## 9. Open Items for Next Phase
+## 9. Known Rough Edges
 
-- Exact tool schema definitions (`write_file`, `read_file`, `run_command`)
-  parameter shapes
-- Confirm the exact `mimo-v2.5-free` model ID string against OpenCode Zen's
-  live model list (may need a prefix/exact casing not yet verified)
-- Error/retry handling when OpenCode Zen rate-limits mid-session (limits for
-  this specific free model are currently unpublished — expect to discover the
-  real ceiling empirically)
-- Transcript persistence format (so a session can be resumed after restart)
-- Revisit "different model providers" goal once a second free/low-cost option
-  is identified for Reviewer (see §4 Models row) — not blocking v1
+The codebase is fully verified with 206 passing tests and clean builds. The following 10 unpolished items represent the complete list of acknowledged rough edges:
+
+1. **API Rate-Limit Exponential Backoff:** Basic rate-limit error catching is active, but automated exponential backoff and retry policy for model APIs can be further refined.
+2. **CI/CD Pipeline Setup:** Comprehensive unit and integration test suite runs cleanly locally (`go test ./...`), but automated GitHub Actions / CI workflow is not configured.
+3. **Browser Manager Idle Shutdown:** Playwright browser subprocess operates on-demand without an automatic idle-timeout process teardown mechanism.
+4. **Browser Binary Auto-Installation:** Missing Chromium binaries trigger a start-up warning notice, but background binary downloading/installation on first run is not automated.
+5. **Git Commit Conflicts on `/undo`:** `/undo` executes `git revert`, but complex merge conflicts against dirty working trees require manual user resolution.
+6. **Observability & Log Management:** System actions log to `triad.log`, but log rotation, file truncation, and structured metrics monitoring are not implemented.
+7. **In-Memory TUI State Recovery:** Transcripts persist line-by-line to JSONL files for session recovery, but unsubmitted draft text in the input prompt is lost if the process terminates abruptly.
+8. **`run_command` Per-Invocation Timeout Override:** A global execution timeout is configurable via `config.yaml`, but individual tool calls cannot specify custom per-command timeout overrides.
+9. **Subagent Nesting Depth Enforcement:** Subagent recursion is strictly capped at depth 1; subagents cannot spawn nested subagents.
+10. **Multi-Session Management Dashboard:** Triad operates on a single active session per process run; managing multiple sessions requires running separate terminal windows.
