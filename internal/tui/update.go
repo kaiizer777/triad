@@ -40,11 +40,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Calculate Sidebar and Viewport widths
-		sidebarWidth := 28
-		if msg.Width < 60 {
+		sidebarWidth := 30
+		if msg.Width < 70 {
 			sidebarWidth = msg.Width / 3
-			if sidebarWidth < 15 {
-				sidebarWidth = 15
+			if sidebarWidth < 18 {
+				sidebarWidth = 18
 			}
 		}
 

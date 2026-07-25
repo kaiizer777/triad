@@ -247,3 +247,38 @@ func TestTUI_Phase7_WindowResize(t *testing.T) {
 	}
 }
 
+func TestTUI_Phase7_PipelineDock(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	dock := model.renderPipelineDock(100)
+	if dock == "" {
+		t.Fatalf("expected non-empty pipeline dock string")
+	}
+}
+
+func TestTUI_Phase7_Badges(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerReviewer,
+		Type:    transcript.TypeMessage,
+		Content: "APPROVED: looks good to go",
+	})
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerReviewer,
+		Type:    transcript.TypeMessage,
+		Content: "OBJECTION: unsafe action detected",
+	})
+
+	model.refreshViewport()
+	rendered := model.renderTranscript()
+	if rendered == "" {
+		t.Fatalf("expected non-empty transcript output with badges")
+	}
+}
+
+
