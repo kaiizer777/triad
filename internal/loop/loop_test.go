@@ -428,8 +428,14 @@ func TestMidCycleInterjection(t *testing.T) {
 	inputChan <- "wait, name it baz.txt instead"
 	l.InputChan = inputChan
 
-	taskChan := make(chan string, 1)
+	// Phase 3 (clarify): the original task "create a file" is bare-action
+	// ambiguous, so the loop will surface a clarify round before starting
+	// the active cycle. Send a /proceed on taskChan as the second message
+	// to unblock the loop, then the pre-loaded InputChan interjection will
+	// be drained during the active cycle.
+	taskChan := make(chan string, 2)
 	taskChan <- "create a file"
+	taskChan <- "/proceed"
 	close(taskChan)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -515,7 +521,10 @@ func newLoopInRepo(t *testing.T, mc *mockClient, workDir string) (*loop.Loop, *t
 	coderCfg := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewerCfg := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 	l := loop.New(tr, coderCfg, reviewerCfg, mc, workDir)
-	taskChan := make(chan string, 1)
+	// Buffered for two messages so tests using the Phase 3 clarify
+	// step can enqueue both the original task and a /proceed reply
+	// without blocking.
+	taskChan := make(chan string, 2)
 	return l, tr, taskChan
 }
 
@@ -635,7 +644,15 @@ func TestAutoCommit_RunCommandMultiFile(t *testing.T) {
 	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Done."}})
 
 	l, _, taskChan := newLoopInRepo(t, mc, workDir)
-	if err := runLoop(t, l, taskChan, "modify and create files"); err != nil {
+	// Phase 3 (clarify): "modify and create files" is bare-action
+	// ambiguous. Send /proceed on taskChan as the second message
+	// to unblock the active cycle.
+	taskChan <- "modify and create files"
+	taskChan <- "/proceed"
+	close(taskChan)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := l.Run(ctx, taskChan); err != nil {
 		t.Fatalf("runLoop: %v", err)
 	}
 
@@ -788,6 +805,11 @@ func TestSpawnSubagent_FullLoop(t *testing.T) {
 		Text: "APPROVED. Done.",
 	}})
 
+	// Phase 3 (clarify): "find existing auth handler" mentions
+	// "auth" which triggers the sensitive-surface clarification
+	// signal. The test sends a /proceed on taskChan as the second
+	// message to unblock the active cycle.
+
 	// Subagent mock responses. The subagent's name is "Subagent:<id>"
 	// — since we don't know the ID ahead of time, the mock's lookup
 	// by exact name won't match. Instead, we register a response for
@@ -838,8 +860,9 @@ func TestSpawnSubagent_FullLoop(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	taskChan := make(chan string, 1)
+	taskChan := make(chan string, 2)
 	taskChan <- "find existing auth handler"
+	taskChan <- "/proceed"
 	close(taskChan)
 
 	if err := l.Run(ctx, taskChan); err != nil {

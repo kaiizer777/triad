@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/browser"
+	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -162,6 +163,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case humanInputMsg:
+		// Phase 3 (clarify): handle the /proceed slash command as a
+		// first-class signal BEFORE the slash-command lookup, so the
+		// user can say "/proceed" or "proceed" interchangeably to
+		// unblock a pending clarification round. We do not register
+		// /proceed in the slash-command registry because the registry
+		// is markdown-template based (not appropriate for a runtime
+		// state change) and we want this to work in TUI mode only.
+		trimmed := strings.TrimSpace(msg.content)
+		if strings.HasPrefix(trimmed, "/proceed") {
+			// Treat as a regular "proceed" text message — the
+			// clarify-reply branch below will pick it up.
+			msg.content = "proceed"
+		}
+
 		// Slash command detection: if the input begins with "/", try to look
 		// it up as a registered command before treating it as a plain message.
 		// Per docs/work2.md §1.2.5: only the leading "/" matters — the rest
@@ -203,6 +218,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		_ = m.transcript.Append(entry)
 		m.refreshViewport()
+
+		// --- Clarify phase (Phase 3, docs/x.md §Phase 3) ---
+		//
+		// Same shared step as the headless loop. If we have a
+		// pending clarify round, this submission is a REPLY
+		// (answers or a proceed signal). Treat the proceed case
+		// explicitly so the System note records the best-guess
+		// interpretation; otherwise the reply is just acked and
+		// we fall through to the active cycle.
+		//
+		// Otherwise (no pending round), this is a fresh task.
+		// Assess it. If ambiguous, append a single batched
+		// System entry, set pendingClarify, and return to idle
+		// without firing a Coder turn — the same shape the
+		// headless loop uses.
+		//
+		// We skip the clarify step entirely when the input was a
+		// slash command that got expanded (cmdHandled): the human
+		// already committed to a deliberate workflow by typing the
+		// command, so a "are you sure you meant X?" interruption
+		// would be obnoxious. The original slash command was
+		// unambiguous by construction; the expanded text just
+		// happens to contain trigger keywords.
+		if !cmdHandled && m.pendingClarify != nil {
+			if clarify.IsProceedCommand(msg.content) {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   clarify.FormatProceedNote(*m.pendingClarify),
+					Timestamp: time.Now(),
+				})
+				m.pendingClarify = nil
+				m.refreshViewport()
+				// Fall through to start the active cycle below.
+			} else {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   "[System]: Clarification received — proceeding.",
+					Timestamp: time.Now(),
+				})
+				m.pendingClarify = nil
+				m.refreshViewport()
+				// Fall through to start the active cycle below.
+			}
+		} else if !cmdHandled {
+			batch := clarify.AssessAmbiguity(msg.content)
+			if batch.NeedsClarification {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   clarify.FormatClarifyBlock(batch),
+					Timestamp: time.Now(),
+				})
+				stored := batch
+				m.pendingClarify = &stored
+				m.sessionState = loop.StateIdle
+				m.statusMessage = "Clarifying questions pending. Answer them, or type /proceed to use defaults."
+				m.refreshViewport()
+				return m, nil
+			}
+			// Task is unambiguous — proceed to the active cycle
+			// below without emitting any extra System note
+			// (would be noisy on every clear task).
+		}
 
 		if m.sessionState == loop.StateIdle {
 			m.sessionState = loop.StateActive

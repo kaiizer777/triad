@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/browser"
+	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
@@ -495,6 +496,16 @@ type Model struct {
 
 	// currentMode holds the top-level orchestration mode (orchestrator | general | triad).
 	currentMode loop.Mode
+
+	// pendingClarify holds a non-nil Batch when the most recent
+	// user submission triggered a clarification round (Phase 3,
+	// docs/x.md §Phase 3). While non-nil, the next user message
+	// is treated as a clarification REPLY (or a /proceed signal)
+	// rather than a fresh task — and the loop does NOT fire a
+	// Coder turn until either a proceed signal or a real answer
+	// is received. Mirrors internal/loop.Loop.pendingClarify for
+	// the TUI path so both share the same shared clarify step.
+	pendingClarify *clarify.Batch
 
 	// commands holds the slash command registry loaded at startup.
 	// May be empty (no commands/ dir) but should never be nil.

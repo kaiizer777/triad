@@ -15,6 +15,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/browser"
+	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -114,6 +115,19 @@ type Loop struct {
 
 	// SearchAPIKey holds the Firecrawl API key used by the web_search tool.
 	SearchAPIKey string
+
+	// pendingClarify is the most recent clarify.Batch we asked the
+	// human about. When non-nil, the next human message is treated
+	// as a clarification reply (or a proceed signal) rather than a
+	// fresh task — the loop does not re-clarify the reply itself,
+	// and a proceed signal unblocks the task with the stated
+	// best-guess interpretation. Cleared on proceed, on
+	// non-proceed reply, and at the end of every active cycle.
+	//
+	// Phase 3 (docs/x.md §Phase 3): shared by General Chat and
+	// Triad. Orchestrator and Twin Subagent wire into the same
+	// step in their own phases.
+	pendingClarify *clarify.Batch
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -194,6 +208,79 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 					Content:   note,
 					Timestamp: time.Now(),
 				})
+			}
+
+			// --- Clarify phase (Phase 3) ---
+			//
+			// If we have a pending clarify round, this message is a
+			// REPLY to it (answers or a proceed signal) — process
+			// the reply without re-clarifying.
+			//
+			// Otherwise, this is a fresh task. Assess it: if it's
+			// ambiguous, append a single batched System entry
+			// asking the questions, set pendingClarify, and DO
+			// NOT start the active cycle. The loop returns to
+			// the top of Run, waits for the human's reply, and
+			// re-enters this branch with pendingClarify set.
+			if l.pendingClarify != nil {
+				if clarify.IsProceedCommand(msg) {
+					// "just proceed" / /proceed — record the
+					// best-guess interpretation in the
+					// transcript and unblock the active cycle
+					// using the original task (the first
+					// entry of the pending round).
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   clarify.FormatProceedNote(*l.pendingClarify),
+						Timestamp: time.Now(),
+					})
+					l.pendingClarify = nil
+					// Fall through to the active cycle below.
+				} else {
+					// Real answers (or any non-proceed reply).
+					// The human's reply is already in the
+					// transcript as a [You] entry; record a
+					// short System ack so the next agent
+					// turn sees the answers were received,
+					// then continue with the active cycle.
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   "[System]: Clarification received — proceeding.",
+						Timestamp: time.Now(),
+					})
+					l.pendingClarify = nil
+					// Fall through to the active cycle below.
+				}
+			} else {
+				// Fresh task — run the shared clarify step.
+				batch := clarify.AssessAmbiguity(msg)
+				if batch.NeedsClarification {
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   clarify.FormatClarifyBlock(batch),
+						Timestamp: time.Now(),
+					})
+					// Stash the batch for the next message.
+					// IMPORTANT: we capture by value into the
+					// pointer field. The next message will be
+					// processed as a reply (or proceed), not
+					// re-clarified.
+					stored := batch
+					l.pendingClarify = &stored
+					// Stay idle until the human replies or
+					// says "proceed". We deliberately do
+					// NOT consume the active cycle here.
+					continue
+				}
+				// Task is unambiguous — proceed. We do NOT
+				// emit a System note for this case (the
+				// transcript would be noisy on every clear
+				// task); the doc only requires the entry
+				// when there was an actual clarification
+				// round or a proceed signal.
 			}
 
 			state = StateActive

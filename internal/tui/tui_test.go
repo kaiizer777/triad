@@ -75,7 +75,7 @@ func TestTUI_HumanInput(t *testing.T) {
 	defer cleanup()
 
 	// Handle human input message
-	updated, cmd := model.Update(humanInputMsg{content: "Create a test file"})
+	updated, cmd := model.Update(humanInputMsg{content: "Create a test file at tests/example_test.go"})
 	m := updated.(Model)
 
 	if cmd == nil {
@@ -87,7 +87,7 @@ func TestTUI_HumanInput(t *testing.T) {
 		t.Fatalf("expected 1 transcript entry, got %d", len(entries))
 	}
 
-	if entries[0].Speaker != transcript.SpeakerYou || entries[0].Content != "Create a test file" {
+	if entries[0].Speaker != transcript.SpeakerYou || entries[0].Content != "Create a test file at tests/example_test.go" {
 		t.Errorf("unexpected entry content: %+v", entries[0])
 	}
 }
@@ -468,7 +468,7 @@ func TestTUI_SlashCommand_PlainMessageStillWorks(t *testing.T) {
 	defer cleanup()
 
 	// A non-slash message should pass through untouched and trigger Coder turn.
-	updated, cmd := model.Update(humanInputMsg{content: "add a webhook handler"})
+	updated, cmd := model.Update(humanInputMsg{content: "Add a webhook handler in internal/webhooks/stripe.go"})
 	m := updated.(Model)
 
 	if cmd == nil {
@@ -478,7 +478,7 @@ func TestTUI_SlashCommand_PlainMessageStillWorks(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
-	if entries[0].Content != "add a webhook handler" {
+	if entries[0].Content != "Add a webhook handler in internal/webhooks/stripe.go" {
 		t.Errorf("plain message content was modified: %q", entries[0].Content)
 	}
 }
@@ -745,6 +745,10 @@ func TestTUI_SlashCommand_TriggersCoderTurnWhenIdle(t *testing.T) {
 	defer cleanup()
 
 	// Session starts in idle; /plan (target: coder) should kick a Coder turn.
+	// Note: Phase 3 (clarify) deliberately skips clarification for slash-command
+	// expansions — the human has already committed to a deliberate workflow
+	// by typing the command, so a "are you sure?" interruption would be
+	// obnoxious. The expanded text just happens to contain trigger keywords.
 	updated, cmd := model.Update(humanInputMsg{content: "/plan refactor auth"})
 	m := updated.(Model)
 
