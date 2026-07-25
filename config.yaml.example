@@ -1,0 +1,4 @@
+# OpenCode Zen Configuration for Triad
+base_url: "https://opencode.ai/zen/v1"
+api_key: "YOUR_OPENCODE_API_KEY"
+model: "mimo-v2.5-free"
