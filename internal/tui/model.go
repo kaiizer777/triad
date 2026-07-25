@@ -847,12 +847,61 @@ func (m *Model) handleSystemCommand(name string) (body string, errMsg string) {
 	switch name {
 	case "status":
 		return m.describeSession(), ""
+	case "summary":
+		return m.handleSummary(), ""
 	case "undo":
 		return m.handleUndo(), ""
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /undo).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo).", name)
 	}
 }
+
+// handleSummary renders a local, git-based report of changes made during the
+// current session. It queries git log and git show --stat scoped to commits
+// created by Triad during the current session, with no LLM calls required.
+func (m *Model) handleSummary() string {
+	entries := m.transcript.Entries()
+	entryIDs := make(map[int]bool, len(entries))
+	var currentTask string
+	for _, e := range entries {
+		entryIDs[e.ID] = true
+		if e.Speaker == transcript.SpeakerYou && e.Type == transcript.TypeMessage && currentTask == "" {
+			currentTask = e.Content
+		}
+	}
+
+	summary, err := gitcommit.GetSessionSummary(m.workDir, entryIDs)
+	if err != nil {
+		return fmt.Sprintf("/summary failed: %v", err)
+	}
+
+	if summary.CommitCount == 0 {
+		return "Nothing committed yet this session."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Session Summary\n")
+	task := strings.TrimSpace(currentTask)
+	if task != "" {
+		const maxTaskLen = 120
+		if len(task) > maxTaskLen {
+			task = task[:maxTaskLen] + "..."
+		}
+		fmt.Fprintf(&sb, "  Task: %s\n", task)
+	}
+	fmt.Fprintf(&sb, "  Commits made: %d\n", summary.CommitCount)
+	if len(summary.FilesTouched) > 0 {
+		fmt.Fprintf(&sb, "  Files touched (%d):\n", len(summary.FilesTouched))
+		for _, f := range summary.FilesTouched {
+			fmt.Fprintf(&sb, "    - %s\n", f)
+		}
+	} else {
+		sb.WriteString("  Files touched: none\n")
+	}
+	fmt.Fprintf(&sb, "  Lines changed: +%d / -%d\n", summary.LinesAdded, summary.LinesRemoved)
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 
 // handleUndo reverts the most recent [triad] auto-commit and returns a
 // human-readable summary suitable for a System transcript entry. On

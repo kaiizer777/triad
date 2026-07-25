@@ -455,3 +455,91 @@ func TestFormatBody(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// /summary tests
+// ---------------------------------------------------------------------------
+
+func TestGetSessionSummary_ZeroCommits(t *testing.T) {
+	dir := makeRepo(t)
+
+	summary, err := gitcommit.GetSessionSummary(dir, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary.CommitCount != 0 {
+		t.Errorf("expected 0 commits, got %d", summary.CommitCount)
+	}
+	if len(summary.FilesTouched) != 0 {
+		t.Errorf("expected 0 files touched, got %d", len(summary.FilesTouched))
+	}
+}
+
+func TestGetSessionSummary_TaggedCommits(t *testing.T) {
+	dir := makeRepo(t)
+
+	writeFile(t, dir, "a.txt", "line1\nline2\n")
+	msg1 := gitcommit.CommitMessage{EntryID: 1, Intent: "add a.txt", ToolName: "write_file"}
+	res1, err := gitcommit.CommitAction(dir, []string{"a.txt"}, msg1)
+	if err != nil || res1.Hash == "" {
+		t.Fatalf("CommitAction 1 failed: %v", err)
+	}
+
+	writeFile(t, dir, "b.txt", "hello world\n")
+	msg2 := gitcommit.CommitMessage{EntryID: 2, Intent: "add b.txt", ToolName: "write_file"}
+	res2, err := gitcommit.CommitAction(dir, []string{"b.txt"}, msg2)
+	if err != nil || res2.Hash == "" {
+		t.Fatalf("CommitAction 2 failed: %v", err)
+	}
+
+	validIDs := map[int]bool{1: true, 2: true}
+	summary, err := gitcommit.GetSessionSummary(dir, validIDs)
+	if err != nil {
+		t.Fatalf("GetSessionSummary failed: %v", err)
+	}
+
+	if summary.CommitCount != 2 {
+		t.Errorf("CommitCount: got %d, want 2", summary.CommitCount)
+	}
+	if len(summary.FilesTouched) != 2 || summary.FilesTouched[0] != "a.txt" || summary.FilesTouched[1] != "b.txt" {
+		t.Errorf("FilesTouched: got %v, want [a.txt b.txt]", summary.FilesTouched)
+	}
+	if summary.LinesAdded < 3 {
+		t.Errorf("LinesAdded: got %d, expected at least 3", summary.LinesAdded)
+	}
+}
+
+func TestGetSessionSummary_MixedRepo(t *testing.T) {
+	dir := makeRepo(t)
+
+	// Manual non-Triad commit
+	writeFile(t, dir, "manual.txt", "user manual work\n")
+	cmd := exec.Command("git", "add", "manual.txt")
+	cmd.Dir = dir
+	_ = cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "user manual commit")
+	cmd.Dir = dir
+	_ = cmd.Run()
+
+	// Triad commit
+	writeFile(t, dir, "triad.txt", "triad work\n")
+	msg := gitcommit.CommitMessage{EntryID: 5, Intent: "add triad.txt", ToolName: "write_file"}
+	_, err := gitcommit.CommitAction(dir, []string{"triad.txt"}, msg)
+	if err != nil {
+		t.Fatalf("CommitAction failed: %v", err)
+	}
+
+	validIDs := map[int]bool{5: true}
+	summary, err := gitcommit.GetSessionSummary(dir, validIDs)
+	if err != nil {
+		t.Fatalf("GetSessionSummary failed: %v", err)
+	}
+
+	if summary.CommitCount != 1 {
+		t.Errorf("CommitCount: got %d, want 1", summary.CommitCount)
+	}
+	if len(summary.FilesTouched) != 1 || summary.FilesTouched[0] != "triad.txt" {
+		t.Errorf("FilesTouched: got %v, want [triad.txt]", summary.FilesTouched)
+	}
+}
+

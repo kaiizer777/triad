@@ -268,10 +268,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Timestamp: time.Now(),
 			}
 			_ = m.transcript.Append(proposedEntry)
-			// Capture the proposed entry's ID so the auto-commit
-			// for the executed action can reference it. The
-			// transcript assigns IDs synchronously inside Append.
-			m.lastProposedEntryID = proposedEntry.ID
+			entries := m.transcript.Entries()
+			if len(entries) > 0 {
+				m.lastProposedEntryID = entries[len(entries)-1].ID
+			}
 			m.refreshViewport()
 			m.statusMessage = fmt.Sprintf("Reviewer inspecting proposed action %q...", toolCall.Function.Name)
 			return m, cmdReviewerTurn(m.transcript, m.reviewer, m.client)
@@ -410,6 +410,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Timestamp: time.Now(),
 		}
 		_ = m.transcript.Append(resultEntry)
+		var resultEntryID int
+		entries := m.transcript.Entries()
+		if len(entries) > 0 {
+			resultEntryID = entries[len(entries)-1].ID
+		}
 
 		// Auto-commit on every executed edit (docs/work2.md §2.2).
 		// Only acts on successful write_file / run_command; reads and
@@ -417,7 +422,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// never reach this code path, so they can't touch git either.
 		var commitNote string
 		if msg.err == nil && !m.gitDisabled {
-			commitNote = m.maybeAutoCommit(msg.toolCall, resultEntry.ID)
+			commitNote = m.maybeAutoCommit(msg.toolCall, resultEntryID)
 			if commitNote == gitDisabledSentinel {
 				m.gitDisabled = true
 				commitNote = "Auto-commit disabled for this session: " +

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/commands"
+	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -346,6 +347,13 @@ description: Print session status
 
 (show session status)
 `,
+		"summary.md": `---
+target: system
+description: Render a local git-based report of changes made in the current session
+---
+
+(show session summary)
+`,
 		"undo.md": `---
 target: system
 description: Revert last [triad] auto-commit
@@ -516,6 +524,181 @@ func TestTUI_SlashCommand_StatusIsSystem(t *testing.T) {
 	}
 	if !strings.Contains(entries[1].Content, "implement foo") {
 		t.Errorf("/status should report current task, got: %q", entries[1].Content)
+	}
+}
+
+func TestTUI_SlashCommand_SummaryZeroCommits(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// /summary on zero commits session
+	updated, cmd := model.Update(humanInputMsg{content: "/summary"})
+	m := updated.(Model)
+
+	if cmd != nil {
+		t.Errorf("/summary should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].Speaker != transcript.SpeakerSystem {
+		t.Errorf("/summary should produce a System entry, got %q", entries[0].Speaker)
+	}
+	if !strings.Contains(entries[0].Content, "Nothing committed yet this session") {
+		t.Errorf("expected 'Nothing committed yet this session', got: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_SlashCommand_SummaryWithCommits(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping")
+	}
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = model.workDir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=NUL", "GIT_CONFIG_SYSTEM=NUL")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "--local", "user.email", "test@example.com")
+	run("config", "--local", "user.name", "Triad Test")
+	run("commit", "--allow-empty", "-q", "-m", "initial")
+
+	// 1. Task message
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "Build authentication module",
+	})
+
+	// 2. Add an action result and auto-commit
+	actionRes := transcript.Entry{
+		Speaker: transcript.SpeakerSystem,
+		Type:    transcript.TypeActionResult,
+		Content: "File write_file written",
+	}
+	_ = model.transcript.Append(actionRes)
+	trEntries := model.transcript.Entries()
+	actionResID := trEntries[len(trEntries)-1].ID
+
+	filePath := filepath.Join(model.workDir, "auth.go")
+	if err := os.WriteFile(filePath, []byte("package auth\nfunc Login() {}\n"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	msg := gitcommit.CommitMessage{
+		EntryID:     actionResID,
+		Intent:      "add auth.go",
+		ToolName:    "write_file",
+		SessionPath: model.transcript.FilePath(),
+	}
+	res, err := gitcommit.CommitAction(model.workDir, []string{"auth.go"}, msg)
+	if err != nil || res.Hash == "" {
+		t.Fatalf("CommitAction failed: %v", err)
+	}
+
+	// 3. Issue /summary
+	updated, cmd := model.Update(humanInputMsg{content: "/summary"})
+	m := updated.(Model)
+
+	if cmd != nil {
+		t.Errorf("/summary should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	entries := m.transcript.Entries()
+	last := entries[len(entries)-1]
+	if last.Speaker != transcript.SpeakerSystem {
+		t.Errorf("expected System entry, got %q", last.Speaker)
+	}
+	if !strings.Contains(last.Content, "Session Summary") {
+		t.Errorf("expected 'Session Summary' header, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "Build authentication module") {
+		t.Errorf("expected task description, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "Commits made: 1") {
+		t.Errorf("expected 'Commits made: 1', got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "auth.go") {
+		t.Errorf("expected 'auth.go' in files touched, got: %q", last.Content)
+	}
+}
+
+func TestTUI_SlashCommand_SummaryMixedRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping")
+	}
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = model.workDir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=NUL", "GIT_CONFIG_SYSTEM=NUL")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "--local", "user.email", "test@example.com")
+	run("config", "--local", "user.name", "Triad Test")
+	run("commit", "--allow-empty", "-q", "-m", "initial")
+
+	// Manual user commit
+	manualFile := filepath.Join(model.workDir, "user_manual.txt")
+	_ = os.WriteFile(manualFile, []byte("manual content\n"), 0644)
+	run("add", "user_manual.txt")
+	run("commit", "-m", "user manual commit")
+
+	// Triad commit
+	actionRes := transcript.Entry{
+		Speaker: transcript.SpeakerSystem,
+		Type:    transcript.TypeActionResult,
+		Content: "File write_file written",
+	}
+	_ = model.transcript.Append(actionRes)
+	trEntries := model.transcript.Entries()
+	actionResID := trEntries[len(trEntries)-1].ID
+
+	triadFile := filepath.Join(model.workDir, "triad_file.go")
+	_ = os.WriteFile(triadFile, []byte("package main\n"), 0644)
+	msg := gitcommit.CommitMessage{
+		EntryID:  actionResID,
+		Intent:   "add triad_file.go",
+		ToolName: "write_file",
+	}
+	_, err := gitcommit.CommitAction(model.workDir, []string{"triad_file.go"}, msg)
+	if err != nil {
+		t.Fatalf("CommitAction failed: %v", err)
+	}
+
+	// Issue /summary
+	updated, _ := model.Update(humanInputMsg{content: "/summary"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	last := entries[len(entries)-1]
+	if !strings.Contains(last.Content, "Commits made: 1") {
+		t.Errorf("expected 1 Triad commit counted in mixed repo, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "triad_file.go") {
+		t.Errorf("expected triad_file.go in report, got: %q", last.Content)
+	}
+	if strings.Contains(last.Content, "user_manual.txt") {
+		t.Errorf("user_manual.txt should NOT be in Triad summary report, got: %q", last.Content)
 	}
 }
 

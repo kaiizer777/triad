@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/kaiizer777/triad/internal/logger"
@@ -506,3 +508,166 @@ func NormalizePath(workDir, relPath string) string {
 	relPath = strings.TrimPrefix(relPath, "./")
 	return relPath
 }
+
+// ---------------------------------------------------------------------------
+// /summary support
+// ---------------------------------------------------------------------------
+
+// SessionSummary contains statistics about Triad auto-commits made in a session.
+type SessionSummary struct {
+	CommitCount  int
+	FilesTouched []string
+	LinesAdded   int
+	LinesRemoved int
+}
+
+var (
+	reInsertions = regexp.MustCompile(`(\d+)\s+insertion`)
+	reDeletions  = regexp.MustCompile(`(\d+)\s+deletion`)
+)
+
+// GetSessionSummary walks git history in workDir to collect statistics on
+// commits made by Triad. If validEntryIDs is non-empty, only commits whose
+// subject includes an entry ID in validEntryIDs are included. If validEntryIDs
+// is empty/nil, all commits with the Triad subject prefix are included.
+func GetSessionSummary(workDir string, validEntryIDs map[int]bool) (SessionSummary, error) {
+	if !IsRepo(workDir) {
+		return SessionSummary{}, nil
+	}
+
+	logCmd := exec.Command("git", "log", "--pretty=%H %s") //nolint:gosec
+	logCmd.Dir = workDir
+	var out bytes.Buffer
+	logCmd.Stdout = &out
+	logCmd.Stderr = &out
+	if err := logCmd.Run(); err != nil {
+		return SessionSummary{}, fmt.Errorf("gitcommit: git log failed in %q: %w (output: %s)", workDir, err, out.String())
+	}
+
+	prefix := CommitSubjectPrefix + " entry #"
+	var matchingHashes []string
+
+	for _, line := range strings.Split(out.String(), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		sp := strings.IndexByte(line, ' ')
+		if sp <= 0 {
+			continue
+		}
+		hash := line[:sp]
+		subject := strings.TrimSpace(line[sp+1:])
+
+		if !strings.HasPrefix(subject, prefix) {
+			continue
+		}
+
+		if len(validEntryIDs) > 0 {
+			entryID, ok := parseTriadEntryID(subject)
+			if !ok || !validEntryIDs[entryID] {
+				continue
+			}
+		}
+
+		matchingHashes = append(matchingHashes, hash)
+	}
+
+	if len(matchingHashes) == 0 {
+		return SessionSummary{}, nil
+	}
+
+	filesMap := make(map[string]bool)
+	var totalAdded, totalRemoved int
+
+	for _, hash := range matchingHashes {
+		showCmd := exec.Command("git", "show", "--stat", "--format=", hash) //nolint:gosec
+		showCmd.Dir = workDir
+		var showOut bytes.Buffer
+		showCmd.Stdout = &showOut
+		showCmd.Stderr = &showOut
+		if err := showCmd.Run(); err != nil {
+			continue
+		}
+
+		lines := strings.Split(showOut.String(), "\n")
+		for _, l := range lines {
+			l = strings.TrimRight(l, "\r")
+			pipeIdx := strings.IndexByte(l, '|')
+			if pipeIdx > 0 {
+				pathPart := l[:pipeIdx]
+				cleanedPath := cleanStatPath(pathPart)
+				if cleanedPath != "" {
+					filesMap[cleanedPath] = true
+				}
+			}
+
+			if strings.Contains(l, "changed") || strings.Contains(l, "insertion") || strings.Contains(l, "deletion") {
+				ins, del := parseStatSummaryLine(l)
+				totalAdded += ins
+				totalRemoved += del
+			}
+		}
+	}
+
+	filesTouched := make([]string, 0, len(filesMap))
+	for f := range filesMap {
+		filesTouched = append(filesTouched, f)
+	}
+	sort.Strings(filesTouched)
+
+	return SessionSummary{
+		CommitCount:  len(matchingHashes),
+		FilesTouched: filesTouched,
+		LinesAdded:   totalAdded,
+		LinesRemoved: totalRemoved,
+	}, nil
+}
+
+func parseTriadEntryID(subject string) (int, bool) {
+	prefix := CommitSubjectPrefix + " entry #"
+	if !strings.HasPrefix(subject, prefix) {
+		return 0, false
+	}
+	rest := subject[len(prefix):]
+	var id int
+	n, err := fmt.Sscanf(rest, "%d", &id)
+	if err != nil || n != 1 {
+		return 0, false
+	}
+	return id, true
+}
+
+func cleanStatPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if idx := strings.Index(p, "=>"); idx != -1 {
+		openBrace := strings.IndexByte(p, '{')
+		closeBrace := strings.IndexByte(p, '}')
+		if openBrace != -1 && closeBrace != -1 && openBrace < idx && idx < closeBrace {
+			prefix := p[:openBrace]
+			suffix := p[closeBrace+1:]
+			newPart := strings.TrimSpace(p[idx+2 : closeBrace])
+			p = prefix + newPart + suffix
+		} else {
+			p = strings.TrimSpace(p[idx+2:])
+		}
+	} else if idx := strings.Index(p, "->"); idx != -1 {
+		p = strings.TrimSpace(p[idx+2:])
+	}
+	return filepath.ToSlash(p)
+}
+
+func parseStatSummaryLine(line string) (int, int) {
+	var ins, del int
+	if m := reInsertions.FindStringSubmatch(line); len(m) > 1 {
+		_, _ = fmt.Sscanf(m[1], "%d", &ins)
+	}
+	if m := reDeletions.FindStringSubmatch(line); len(m) > 1 {
+		_, _ = fmt.Sscanf(m[1], "%d", &del)
+	}
+	return ins, del
+}
+
