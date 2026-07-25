@@ -223,7 +223,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.activeToolCall != nil {
 					tc := *m.activeToolCall
 					m.statusMessage = fmt.Sprintf("Executing approved tool %q...", tc.Function.Name)
-					return m, cmdExecuteTool(m.workDir, tc)
+					return m, cmdExecuteTool(m.workDir, tc, m.commandTimeout)
 				}
 
 				m.sessionState = loop.StateIdle

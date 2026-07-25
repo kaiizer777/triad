@@ -268,24 +268,24 @@ OpenCode or CommandCode, not a plain scrolling log.
 
 **Goal:** killing and restarting the process doesn't lose the session.
 
-- [ ] 8.1 — On startup, check for an existing transcript file matching the
+- [x] 8.1 — On startup, check for an existing transcript file matching the
       current/most-recent session ID; if found, `LoadFromFile` it instead of
       starting with an empty `Transcript`
-- [ ] 8.2 — Ensure every `Append` (from Phase 1.3) is already writing to disk
+- [x] 8.2 — Ensure every `Append` (from Phase 1.3) is already writing to disk
       immediately — confirm this still holds true now that Phase 6 has
       rewired the loop into `tea.Cmd`s, since it's easy to accidentally batch
       writes when restructuring
-- [ ] 8.3 — On resume, correctly restore session state: if the loaded
+- [x] 8.3 — On resume, correctly restore session state: if the loaded
       transcript's last entries show a completed task, resume in **idle**
       state; if they show a task mid-flight (e.g. last entry was a
       `proposed_action` with no matching `action_result` yet), decide and
       implement a clear resume behavior (simplest: re-prompt Reviewer with the
       existing pending action, rather than guessing what should happen next)
-- [ ] 8.4 — **Test:** start a task, let it get partway through (a couple of
+- [x] 8.4 — **Test:** start a task, let it get partway through (a couple of
       approved actions), forcibly kill the process (`Ctrl+C` or `kill`),
       restart, and confirm both the full transcript history and the
       idle/active state are correctly restored
-- [ ] 8.5 — **Test:** repeat 8.4 but kill the process specifically *between* a
+- [x] 8.5 — **Test:** repeat 8.4 but kill the process specifically *between* a
       `proposed_action` entry and its `action_result` — this is the edge case
       most likely to be handled wrong on first attempt
 
@@ -294,22 +294,22 @@ OpenCode or CommandCode, not a plain scrolling log.
 **Goal:** make the tool trustworthy enough to actually use daily, not just
 demoable.
 
-- [ ] 9.1 — Handle OpenCode Zen rate-limit responses (HTTP 429) with
+- [x] 9.1 — Handle OpenCode Zen rate-limit responses (HTTP 429) with
       exponential backoff and retry, rather than crashing or silently
       dropping the request. Limits for `mimo-v2.5-free` aren't clearly
       published — log the full response headers/body the first several times
       you hit a 429, since they may reveal the actual ceiling (e.g. a
       `Retry-After` header)
-- [ ] 9.2 — Handle malformed or partial `tool_calls` JSON from the model
+- [x] 9.2 — Handle malformed or partial `tool_calls` JSON from the model
       gracefully — open/free models are less reliable at strict schema
       adherence than frontier closed models. On a malformed tool call, surface
       a clear error back into the transcript (as a `System` entry) rather than
       crashing the whole session
-- [ ] 9.3 — Add a timeout to `run_command` executions via
+- [x] 9.3 — Add a timeout to `run_command` executions via
       `exec.CommandContext` — a hung shell command should not freeze the
       entire session indefinitely; pick a sensible default (e.g. 30s) and
       make it configurable
-- [ ] 9.4 — Add basic logging (to a file, not stdout, since bubbletea owns the
+- [x] 9.4 — Add basic logging (to a file, not stdout, since bubbletea owns the
       terminal) of every request/response pair for debugging — you will need
       this the first time the loop does something unexpected and you need to
       see exactly what the model was actually sent and actually returned

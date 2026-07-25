@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -12,14 +13,31 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/logger"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/tui"
 )
 
 func main() {
+	// --- Parse CLI flags ---
+	sessionFlag := flag.String("session", "", "Path to a specific session file (.jsonl) to load/resume")
+	resumeFlag := flag.Bool("resume", false, "Resume the most recent session from the sessions directory")
+	flag.Parse()
+
+	// --- Initialise file-based debug logger ---
+	// Must happen before starting the TUI since bubbletea owns stdout/stderr.
+	// All subsequent log output goes to triad.log in the working directory.
+	if err := logger.Init("triad.log"); err != nil {
+		// Logger init failure is non-fatal: we just lose debug output.
+		// Print to stderr because TUI hasn't started yet.
+		fmt.Fprintf(os.Stderr, "Warning: could not initialise debug log: %v\n", err)
+	}
+	defer logger.Close()
+
 	// --- Load config ---
 	cfg, err := agent.LoadConfig("config.yaml")
 	if err != nil {
+		logger.L().Error("failed to load config", "error", err.Error())
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
@@ -36,11 +54,59 @@ func main() {
 	cfg.Coder.APIKey = apiKey
 	cfg.Reviewer.APIKey = apiKey
 
-	// --- Bind transcript to a session file ---
-	sessionID := fmt.Sprintf("session_%s", time.Now().Format("20060102_150405"))
+	// Derive the command timeout from config.
+	commandTimeout := time.Duration(cfg.CommandTimeoutSeconds) * time.Second
+	if commandTimeout <= 0 {
+		commandTimeout = agent.DefaultCommandTimeout
+	}
+
+	logger.L().Info("triad starting",
+		"base_url", cfg.Coder.BaseURL,
+		"model", cfg.Coder.Model,
+		"command_timeout", commandTimeout.String(),
+	)
+
+	// --- Session setup & transcript loading ---
+	var tr *transcript.Transcript
+	var sessionPath string
+
 	_ = os.MkdirAll("sessions", 0755)
-	sessionPath := filepath.Join("sessions", sessionID+".jsonl")
-	tr := transcript.NewTranscript(sessionPath)
+
+	if *sessionFlag != "" {
+		sessionPath = *sessionFlag
+		if filepath.Ext(sessionPath) != ".jsonl" {
+			log.Fatalf("session file must have .jsonl extension, got: %s", sessionPath)
+		}
+		if _, err := os.Stat(sessionPath); err == nil {
+			loadedTr, err := transcript.LoadFromFile(sessionPath)
+			if err != nil {
+				log.Fatalf("Failed to load session file %s: %v", sessionPath, err)
+			}
+			tr = loadedTr
+		} else {
+			tr = transcript.NewTranscript(sessionPath)
+		}
+	} else if *resumeFlag {
+		latestPath, err := transcript.FindLatestSession("sessions")
+		if err != nil {
+			sessionID := fmt.Sprintf("session_%s", time.Now().Format("20060102_150405"))
+			sessionPath = filepath.Join("sessions", sessionID+".jsonl")
+			tr = transcript.NewTranscript(sessionPath)
+		} else {
+			loadedTr, err := transcript.LoadFromFile(latestPath)
+			if err != nil {
+				log.Fatalf("Failed to resume latest session file %s: %v", latestPath, err)
+			}
+			tr = loadedTr
+			sessionPath = latestPath
+		}
+	} else {
+		sessionID := fmt.Sprintf("session_%s", time.Now().Format("20060102_150405"))
+		sessionPath = filepath.Join("sessions", sessionID+".jsonl")
+		tr = transcript.NewTranscript(sessionPath)
+	}
+
+	logger.L().Info("session ready", "path", sessionPath, "entries", len(tr.Entries()))
 
 	// --- Flush transcript on OS signal (SIGINT / SIGTERM) ---
 	// Each Append already writes immediately, but an explicit SaveToFile on signal
@@ -56,22 +122,25 @@ func main() {
 	}
 
 	// --- Create TUI Model ---
-	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir)
+	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout)
 
 	// --- Run Bubbletea program ---
 	p := tea.NewProgram(model)
 
-	// Handle OS signals in the background: flush transcript, then quit cleanly.
+	// Handle OS signals: kill the TUI program cleanly.
+	// Append already writes every entry atomically and immediately, so no
+	// additional SaveToFile is needed here. SaveToFile (full truncate-rewrite)
+	// would race with any concurrent Append still in flight.
 	go func() {
 		<-sigCh
-		_ = tr.SaveToFile(sessionPath)
+		logger.L().Info("received OS signal, shutting down")
 		p.Kill()
 	}()
 
 	if _, err := p.Run(); err != nil {
+		logger.L().Error("TUI program exited with error", "error", err.Error())
 		log.Fatalf("Error running TUI program: %v", err)
 	}
 
-	// Final flush on clean Ctrl+C / ESC exit through bubbletea's own quit path.
-	_ = tr.SaveToFile(sessionPath)
+	logger.L().Info("triad exited cleanly")
 }

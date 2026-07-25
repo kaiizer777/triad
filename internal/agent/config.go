@@ -19,16 +19,20 @@ type AgentConfig struct {
 
 // Config represents the root configuration file format and dual agent settings.
 type Config struct {
-	BaseURL  string `yaml:"base_url"`
-	APIKey   string `yaml:"api_key"`
-	Model    string `yaml:"model"`
+	BaseURL               string `yaml:"base_url"`
+	APIKey                string `yaml:"api_key"`
+	Model                 string `yaml:"model"`
+	// CommandTimeoutSeconds caps run_command execution time (default 30).
+	// Set to 0 or omit in config.yaml to use the default.
+	CommandTimeoutSeconds int    `yaml:"command_timeout_seconds"`
 	Coder    AgentConfig
 	Reviewer AgentConfig
 }
 
 const (
-	DefaultBaseURL = "https://opencode.ai/zen/v1"
-	DefaultModel   = "mimo-v2.5-free"
+	DefaultBaseURL            = "https://opencode.ai/zen/v1"
+	DefaultModel              = "mimo-v2.5-free"
+	DefaultCommandTimeoutSecs = 30
 )
 
 // LoadConfig attempts to load configuration from path (e.g., config.yaml).
@@ -55,6 +59,9 @@ func LoadConfig(path string) (*Config, error) {
 		if yamlCfg.Model != "" {
 			rawCfg.Model = yamlCfg.Model
 		}
+		if yamlCfg.CommandTimeoutSeconds > 0 {
+			rawCfg.CommandTimeoutSeconds = yamlCfg.CommandTimeoutSeconds
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("error reading config file at %s: %w", path, err)
 	}
@@ -65,6 +72,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if rawCfg.Model == "" {
 		rawCfg.Model = DefaultModel
+	}
+	if rawCfg.CommandTimeoutSeconds <= 0 {
+		rawCfg.CommandTimeoutSeconds = DefaultCommandTimeoutSecs
 	}
 
 	rawCfg.Coder = AgentConfig{

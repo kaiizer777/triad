@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -37,9 +38,10 @@ func cmdReviewerTurn(tr *transcript.Transcript, reviewer agent.AgentConfig, clie
 }
 
 // cmdExecuteTool executes an approved tool call asynchronously.
-func cmdExecuteTool(workDir string, toolCall agent.ToolCall) tea.Cmd {
+// commandTimeout caps run_command executions; 0 uses agent.DefaultCommandTimeout.
+func cmdExecuteTool(workDir string, toolCall agent.ToolCall, commandTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
-		res, err := agent.ExecuteTool(workDir, toolCall)
+		res, err := agent.ExecuteTool(workDir, toolCall, commandTimeout)
 		return toolResultMsg{
 			toolCall: toolCall,
 			result:   res,

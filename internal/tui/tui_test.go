@@ -48,7 +48,7 @@ func setupTestModel(t *testing.T, client loop.AgentClient) (Model, func()) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
 	// Simulate WindowSizeMsg to initialize viewport
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -60,16 +61,13 @@ func (t *Transcript) Append(entry Entry) error {
 
 	t.entries = append(t.entries, entry)
 
-	if t.filePath != nilStr() {
+	if t.filePath != "" {
 		return appendLineToFile(t.filePath, entry)
 	}
 
 	return nil
 }
 
-func nilStr() string {
-	return ""
-}
 
 // appendLineToFile appends a single Entry as a JSON line to the specified path.
 func appendLineToFile(path string, entry Entry) error {
@@ -90,6 +88,10 @@ func appendLineToFile(path string, entry Entry) error {
 
 	if _, err := file.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write entry to session file: %w", err)
+	}
+
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync session file: %w", err)
 	}
 
 	return nil
@@ -163,3 +165,40 @@ func LoadFromFile(path string) (*Transcript, error) {
 		filePath: path,
 	}, nil
 }
+
+// FindLatestSession searches dir for .jsonl session files and returns the path to the most recently modified one.
+// If no session files exist in dir, it returns an error.
+func FindLatestSession(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read sessions directory: %w", err)
+	}
+
+	var latestPath string
+	var latestTime int64
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			log.Printf("warning: FindLatestSession: could not stat %q: %v", entry.Name(), err)
+			continue
+		}
+
+		modTime := info.ModTime().UnixNano()
+		if modTime > latestTime {
+			latestTime = modTime
+			latestPath = filepath.Join(dir, entry.Name())
+		}
+	}
+
+	if latestPath == "" {
+		return "", fmt.Errorf("no session files found in %s", dir)
+	}
+
+	return latestPath, nil
+}
+

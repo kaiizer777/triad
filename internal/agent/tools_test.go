@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,7 +180,7 @@ func TestExecuteTool_WriteFile(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteTool(workDir, call)
+	result, err := ExecuteTool(workDir, call, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestExecuteTool_ReadFile(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteTool(workDir, call)
+	result, err := ExecuteTool(workDir, call, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestExecuteTool_ReadFile(t *testing.T) {
 func TestExecuteTool_UnknownToolReturnsError(t *testing.T) {
 	_, err := ExecuteTool(t.TempDir(), ToolCall{
 		Function: ToolCallFunction{Name: "delete_everything", Arguments: "{}"},
-	})
+	}, 0)
 	if err == nil {
 		t.Fatal("expected error for unknown tool name, got nil")
 	}
@@ -227,16 +228,27 @@ func TestExecuteTool_UnknownToolReturnsError(t *testing.T) {
 	}
 }
 
+// TestExecuteTool_MalformedArguments verifies that a completely unparseable JSON
+// argument string does NOT crash the session (no Go error returned). Instead,
+// ExecuteTool returns a "System: malformed..." result string that the TUI can
+// write as an action_result entry, keeping the session alive.
 func TestExecuteTool_MalformedArguments(t *testing.T) {
 	workDir := t.TempDir()
-	_, err := ExecuteTool(workDir, ToolCall{
+	result, err := ExecuteTool(workDir, ToolCall{
 		Function: ToolCallFunction{
 			Name:      "write_file",
 			Arguments: `{not valid json`,
 		},
-	})
-	if err == nil {
-		t.Fatal("expected error for malformed JSON arguments, got nil")
+	}, 0)
+	// Malformed JSON must NOT return a Go error — it must return a System: message.
+	if err != nil {
+		t.Fatalf("expected nil error for malformed JSON (graceful recovery), got: %v", err)
+	}
+	if !strings.HasPrefix(result, "System: ") {
+		t.Errorf("expected result to start with 'System: ', got %q", result)
+	}
+	if !strings.Contains(result, "write_file") {
+		t.Errorf("expected result to mention tool name 'write_file', got %q", result)
 	}
 }
 
@@ -291,5 +303,69 @@ func TestCoderTools_JSONRoundTrip(t *testing.T) {
 
 	if len(decoded) != len(tools) {
 		t.Errorf("expected %d tools after round-trip, got %d", len(tools), len(decoded))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 hardening tests
+// ---------------------------------------------------------------------------
+
+// TestExecuteTool_MissingRequiredPath verifies that write_file with a missing
+// 'path' argument returns a System: message and nil error (graceful recovery).
+func TestExecuteTool_MissingRequiredPath(t *testing.T) {
+	workDir := t.TempDir()
+	result, err := ExecuteTool(workDir, ToolCall{
+		Function: ToolCallFunction{
+			Name:      "write_file",
+			Arguments: `{"content":"hello world"}`, // 'path' is missing
+		},
+	}, 0)
+	if err != nil {
+		t.Fatalf("expected nil error for missing 'path' (graceful recovery), got: %v", err)
+	}
+	if !strings.HasPrefix(result, "System: ") {
+		t.Errorf("expected result to start with 'System: ', got %q", result)
+	}
+	if !strings.Contains(result, "path") {
+		t.Errorf("expected result to mention 'path', got %q", result)
+	}
+}
+
+// TestExecuteTool_MissingRequiredCommand verifies that run_command with a missing
+// 'command' argument returns a System: message and nil error.
+func TestExecuteTool_MissingRequiredCommand(t *testing.T) {
+	workDir := t.TempDir()
+	result, err := ExecuteTool(workDir, ToolCall{
+		Function: ToolCallFunction{
+			Name:      "run_command",
+			Arguments: `{}`, // 'command' is missing
+		},
+	}, 0)
+	if err != nil {
+		t.Fatalf("expected nil error for missing 'command' (graceful recovery), got: %v", err)
+	}
+	if !strings.HasPrefix(result, "System: ") {
+		t.Errorf("expected result to start with 'System: ', got %q", result)
+	}
+	if !strings.Contains(result, "command") {
+		t.Errorf("expected result to mention 'command', got %q", result)
+	}
+}
+
+// TestErrMalformedToolCall_Unwrap verifies the ErrMalformedToolCall type correctly
+// wraps its cause so errors.Is/As can reach the underlying parse error.
+func TestErrMalformedToolCall_Unwrap(t *testing.T) {
+	cause := errors.New("synthetic parse error")
+	wrapped := &ErrMalformedToolCall{
+		ToolName: "write_file",
+		Raw:      `{bad`,
+		Cause:    cause,
+	}
+
+	if !errors.Is(wrapped, cause) {
+		t.Errorf("errors.Is should find cause through ErrMalformedToolCall.Unwrap()")
+	}
+	if !strings.Contains(wrapped.Error(), "write_file") {
+		t.Errorf("expected error to mention tool name, got: %v", wrapped)
 	}
 }

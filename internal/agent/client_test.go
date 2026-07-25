@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -211,7 +212,11 @@ func TestClient_Respond_ErrorStatusHandling(t *testing.T) {
 	})
 
 	t.Run("429 Rate Limit with plain text body", func(t *testing.T) {
+		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			// Respond with Retry-After: 0 so the test doesn't actually sleep between retries.
+			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte("Rate limit exceeded. Please try again later."))
 		}))
@@ -225,8 +230,17 @@ func TestClient_Respond_ErrorStatusHandling(t *testing.T) {
 			t.Fatal("expected error for 429 response, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "429") || !strings.Contains(err.Error(), "Rate limit exceeded") {
-			t.Errorf("unexpected error format: %v", err)
+		// Verify error is specifically an *ErrRateLimit.
+		var rateLimitErr *ErrRateLimit
+		if !errors.As(err, &rateLimitErr) {
+			t.Errorf("expected *ErrRateLimit error, got: %T: %v", err, err)
+		}
+		if rateLimitErr != nil && rateLimitErr.Attempts != maxRetryAttempts {
+			t.Errorf("expected %d attempts, got %d", maxRetryAttempts, rateLimitErr.Attempts)
+		}
+		// Verify the server was actually called maxRetryAttempts times.
+		if attempts != maxRetryAttempts {
+			t.Errorf("expected server to be called %d times, got %d", maxRetryAttempts, attempts)
 		}
 	})
 

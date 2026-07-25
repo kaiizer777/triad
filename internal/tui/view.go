@@ -110,9 +110,9 @@ func (m Model) renderTitleBar(width int) string {
 	case m.sessionState == loop.StateIdle:
 		stateIndicator = "🟢 IDLE"
 	case m.activeToolCall != nil:
-		stateIndicator = "⚡ EXECUTING"
+		stateIndicator = "⚡ EXECUTING " + m.spinner.View()
 	default:
-		stateIndicator = "🧠 THINKING" + m.spinner.View()
+		stateIndicator = "🧠 THINKING " + m.spinner.View()
 	}
 
 	centerContent := fmt.Sprintf(" 📁 %s   ⋮   %s ", sessionFile, stateIndicator)

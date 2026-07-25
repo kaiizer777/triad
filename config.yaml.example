@@ -2,3 +2,7 @@
 base_url: "https://opencode.ai/zen/v1"
 api_key: "YOUR_OPENCODE_API_KEY"
 model: "mimo-v2.5-free"
+
+# Optional: cap run_command execution time (default: 30 seconds).
+# Raise this if your build commands (e.g. go build on a large repo) take longer.
+# command_timeout_seconds: 30

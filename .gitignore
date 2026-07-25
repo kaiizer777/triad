@@ -27,3 +27,6 @@ sessions/*
 .idea/
 .vscode/
 *.swp
+
+# Debug Logs (written by the file logger — never commit these)
+triad.log

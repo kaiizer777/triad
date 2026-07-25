@@ -292,7 +292,7 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			}
 
 			// Execute the approved tool call.
-			result, execErr := agent.ExecuteTool(l.workDir, toolCall)
+			result, execErr := agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
 			resultContent := result
 			if execErr != nil {
 				resultContent = fmt.Sprintf("ERROR: %v", execErr)
@@ -396,3 +396,45 @@ func FormatProposedAction(tc agent.ToolCall) string {
 	}
 	return fmt.Sprintf("Tool: %s\nArguments: %s", tc.Function.Name, tc.Function.Arguments)
 }
+
+// ParseProposedAction attempts to parse a ToolCall struct from a formatted proposed_action transcript string.
+func ParseProposedAction(content string) (*agent.ToolCall, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty proposed_action content")
+	}
+	lines := strings.Split(trimmed, "\n")
+
+	var name string
+	firstLine := strings.TrimSpace(lines[0])
+	if strings.HasPrefix(firstLine, "Tool: ") {
+		name = strings.TrimPrefix(firstLine, "Tool: ")
+	} else if strings.HasPrefix(firstLine, "Proposed tool call: ") {
+		name = strings.TrimPrefix(firstLine, "Proposed tool call: ")
+	} else {
+		name = firstLine
+	}
+	name = strings.TrimSpace(name)
+
+	if name == "" {
+		return nil, fmt.Errorf("could not extract tool name from proposed_action content: %q", content)
+	}
+
+	args := "{}"
+	if idx := strings.Index(content, "Arguments:"); idx != -1 {
+		rawArgs := strings.TrimSpace(content[idx+len("Arguments:"):])
+		if rawArgs != "" && rawArgs != "(no arguments)" {
+			args = rawArgs
+		}
+	}
+
+	return &agent.ToolCall{
+		ID:   "resumed_call",
+		Type: "function",
+		Function: agent.ToolCallFunction{
+			Name:      name,
+			Arguments: args,
+		},
+	}, nil
+}
+
