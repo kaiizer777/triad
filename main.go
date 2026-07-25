@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/logger"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/tui"
@@ -121,8 +122,19 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 
+	// --- Load slash command registry ---
+	// If the commands/ directory is missing or unreadable, fall back to an
+	// empty registry — slash commands are a quality-of-life feature, not a
+	// hard dependency for the session to start.
+	cmdReg, err := commands.Load("commands")
+	if err != nil {
+		logger.L().Warn("commands: failed to load registry, continuing with none", "error", err.Error())
+		cmdReg = &commands.Registry{}
+	}
+	logger.L().Info("slash commands ready", "count", cmdReg.Count(), "names", cmdReg.Names())
+
 	// --- Create TUI Model ---
-	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout)
+	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
 
 	// --- Run Bubbletea program ---
 	p := tea.NewProgram(model)

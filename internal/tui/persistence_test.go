@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -118,7 +119,7 @@ func TestPersistence_StateRecovery_IdleOnEmpty(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateIdle {
 		t.Errorf("expected sessionState to be StateIdle for empty transcript, got %v", model.sessionState)
 	}
@@ -141,7 +142,7 @@ func TestPersistence_StateRecovery_PendingUserPrompt(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive when user prompt is pending, got %v", model.sessionState)
 	}
@@ -169,7 +170,7 @@ func TestPersistence_StateRecovery_PendingProposedAction(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -205,7 +206,7 @@ func TestPersistence_StateRecovery_ApprovedActionPendingExecution(t *testing.T) 
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -241,7 +242,7 @@ func TestPersistence_StateRecovery_ReviewerObjection(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -277,7 +278,7 @@ func TestPersistence_StateRecovery_CompletedTask(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	if model.sessionState != loop.StateIdle {
 		t.Errorf("expected StateIdle for completed task, got %v", model.sessionState)
 	}
@@ -300,7 +301,7 @@ func TestPersistence_InitCmdBatching(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
 	initCmd := model.Init()
 	if initCmd == nil {
 		t.Fatalf("expected non-nil Init Cmd batch")

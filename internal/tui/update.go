@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -39,14 +40,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Responsive sidebar width:
-		// Hide sidebar on narrow terminals (< 80 cols)
+		// Hide sidebar on narrow terminals (< 75 cols)
 		var sidebarWidth int
-		if msg.Width < 80 {
+		if msg.Width < 75 {
 			sidebarWidth = 0
-		} else if msg.Width < 110 {
+		} else if msg.Width < 95 {
 			sidebarWidth = 28
-		} else {
+		} else if msg.Width < 120 {
 			sidebarWidth = 32
+		} else {
+			sidebarWidth = 36
 		}
 
 		mainContainerWidth := msg.Width - sidebarWidth
@@ -66,11 +69,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vpHeight := max(1, rightCardInnerHeight-4)
 
 		// Input box width based on rightCardInnerWidth
+		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
+		hintW := lipgloss.Width(m.styles.TitleKeycapKey.Render(" ↵ "))
 		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
-		inputWidth := inputContainerContentWidth - 30
-		if inputWidth < 10 {
-			inputWidth = 10
-		}
+		inputWidth := max(10, inputContainerContentWidth-pillW-hintW-4)
 		m.input.SetWidth(inputWidth)
 
 		if !m.ready {
@@ -98,6 +100,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case humanInputMsg:
+		// Slash command detection: if the input begins with "/", try to look
+		// it up as a registered command before treating it as a plain message.
+		// Per docs/work2.md §1.2.5: only the leading "/" matters — the rest
+		// of the input becomes the command's arguments.
+		expanded, cmdHandled, systemHandled, errMsg := m.expandSlashCommand(msg.content)
+		if errMsg != "" {
+			// Unknown or invalid command — surface a system error entry but
+			// don't inject the raw "/foo" into the transcript as a You
+			// message (that would be misleading: the agent didn't actually
+			// receive a coherent instruction).
+			errEntry := transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeMessage,
+				Content:   errMsg,
+				Timestamp: time.Now(),
+			}
+			_ = m.transcript.Append(errEntry)
+			m.statusMessage = "Command not recognized."
+			m.refreshViewport()
+			return m, nil
+		}
+		if systemHandled {
+			// System-target command (e.g. /status). The helper already wrote
+			// the appropriate System entry to the transcript; do not also
+			// inject it as a You message and do not trigger a Coder turn.
+			m.refreshViewport()
+			return m, nil
+		}
+		if cmdHandled {
+			// Use the expanded command text as the You message.
+			msg.content = expanded
+		}
+
 		entry := transcript.Entry{
 			Speaker:   transcript.SpeakerYou,
 			Type:      transcript.TypeMessage,

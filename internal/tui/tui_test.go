@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -42,6 +43,10 @@ func (m *mockClient) Respond(ctx context.Context, cfg agent.AgentConfig, entries
 }
 
 func setupTestModel(t *testing.T, client loop.AgentClient) (Model, func()) {
+	return setupTestModelWithRegistry(t, client, &commands.Registry{})
+}
+
+func setupTestModelWithRegistry(t *testing.T, client loop.AgentClient, reg *commands.Registry) (Model, func()) {
 	tmpDir := t.TempDir()
 	sessionPath := filepath.Join(tmpDir, "test_session.jsonl")
 	tr := transcript.NewTranscript(sessionPath)
@@ -49,7 +54,7 @@ func setupTestModel(t *testing.T, client loop.AgentClient) (Model, func()) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg)
 	// Simulate WindowSizeMsg to initialize viewport
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
@@ -313,6 +318,231 @@ func TestTUI_HeightBudgetAndClipping(t *testing.T) {
 				t.Errorf("View output line %d for %dx%d has visual width %d, expected <= %d", idx, dim.w, dim.h, visualWidth, dim.w)
 			}
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Slash command tests (docs/work2.md §1)
+// ---------------------------------------------------------------------------
+
+// loadTestRegistry writes a few command .md files into a temp dir and
+// returns the resulting Registry. Used by the slash command tests.
+func loadTestRegistry(t *testing.T) *commands.Registry {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"plan.md": `---
+target: coder
+description: Ask Coder to plan
+---
+
+Propose a step-by-step plan for: {{args}}
+`,
+		"status.md": `---
+target: system
+description: Print session status
+---
+
+(show session status)
+`,
+		"strict.md": `---
+target: reviewer
+description: Toggle strict mode
+---
+
+Be strict.
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("setup: write %s: %v", name, err)
+		}
+	}
+	reg, err := commands.Load(dir)
+	if err != nil {
+		t.Fatalf("setup: Load: %v", err)
+	}
+	return reg
+}
+
+func TestTUI_SlashCommand_PlanExpandsArgs(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// /plan Add Razorpay webhook → the rendered body should contain the
+	// expanded args and be injected as a You message (Speaker == You).
+	updated, _ := model.Update(humanInputMsg{content: "/plan Add Razorpay webhook"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 transcript entry, got %d (%v)", len(entries), entries)
+	}
+	got := entries[0]
+	if got.Speaker != transcript.SpeakerYou {
+		t.Errorf("speaker: got %q, want You", got.Speaker)
+	}
+	if !strings.Contains(got.Content, "Add Razorpay webhook") {
+		t.Errorf("expanded content missing args: %q", got.Content)
+	}
+	if !strings.Contains(got.Content, "step-by-step plan") {
+		t.Errorf("expanded content missing template body: %q", got.Content)
+	}
+	if strings.Contains(got.Content, "{{args}}") {
+		t.Errorf("template still contains {{args}} placeholder: %q", got.Content)
+	}
+}
+
+func TestTUI_SlashCommand_NoArgs(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// /plan with no args should still expand (replacing {{args}} with "").
+	updated, _ := model.Update(humanInputMsg{content: "/plan"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if strings.Contains(entries[0].Content, "{{args}}") {
+		t.Errorf("placeholder not replaced: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_SlashCommand_Unknown(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// Unknown command → System error entry, no You message, no Coder turn.
+	updated, cmd := model.Update(humanInputMsg{content: "/foobar do something"})
+	m := updated.(Model)
+
+	if cmd != nil {
+		t.Errorf("unknown command should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry (system error), got %d (%v)", len(entries), entries)
+	}
+	if entries[0].Speaker != transcript.SpeakerSystem {
+		t.Errorf("unknown command should produce System entry, got %q", entries[0].Speaker)
+	}
+	if !strings.Contains(entries[0].Content, "Unknown command") {
+		t.Errorf("expected 'Unknown command' in error, got: %q", entries[0].Content)
+	}
+	if !strings.Contains(entries[0].Content, "/plan") {
+		t.Errorf("expected available commands listed, got: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_SlashCommand_EmptyCommand(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// Bare "/" should not be treated as a command.
+	updated, _ := model.Update(humanInputMsg{content: "/"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 || entries[0].Speaker != transcript.SpeakerSystem {
+		t.Errorf("bare / should surface a system error, got entries=%v", entries)
+	}
+}
+
+func TestTUI_SlashCommand_PlainMessageStillWorks(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// A non-slash message should pass through untouched and trigger Coder turn.
+	updated, cmd := model.Update(humanInputMsg{content: "add a webhook handler"})
+	m := updated.(Model)
+
+	if cmd == nil {
+		t.Errorf("plain message should trigger a Coder turn")
+	}
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].Content != "add a webhook handler" {
+		t.Errorf("plain message content was modified: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_SlashCommand_StatusIsSystem(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// Pre-populate a human message so /status has something to report.
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "implement foo",
+	})
+
+	// /status is target: system — it should append a System entry and NOT
+	// trigger a Coder turn.
+	updated, cmd := model.Update(humanInputMsg{content: "/status"})
+	m := updated.(Model)
+
+	if cmd != nil {
+		t.Errorf("/status should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	entries := m.transcript.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (You + System), got %d", len(entries))
+	}
+	if entries[1].Speaker != transcript.SpeakerSystem {
+		t.Errorf("/status should produce a System entry, got %q", entries[1].Speaker)
+	}
+	if !strings.Contains(entries[1].Content, "Session status") {
+		t.Errorf("/status output missing header, got: %q", entries[1].Content)
+	}
+	if !strings.Contains(entries[1].Content, "implement foo") {
+		t.Errorf("/status should report current task, got: %q", entries[1].Content)
+	}
+}
+
+func TestTUI_SlashCommand_NoRegistry(t *testing.T) {
+	client := &mockClient{}
+	// Empty registry (no commands dir at all).
+	model, cleanup := setupTestModelWithRegistry(t, client, &commands.Registry{})
+	defer cleanup()
+
+	updated, _ := model.Update(humanInputMsg{content: "/plan anything"})
+	m := updated.(Model)
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 || entries[0].Speaker != transcript.SpeakerSystem {
+		t.Errorf("with empty registry, /plan should produce 'no commands registered' error, got: %v", entries)
+	}
+	if !strings.Contains(entries[0].Content, "No slash commands are registered") {
+		t.Errorf("expected 'No slash commands are registered' message, got: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_SlashCommand_TriggersCoderTurnWhenIdle(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// Session starts in idle; /plan (target: coder) should kick a Coder turn.
+	updated, cmd := model.Update(humanInputMsg{content: "/plan refactor auth"})
+	m := updated.(Model)
+
+	if cmd == nil {
+		t.Errorf("coder-target /plan should trigger a Coder turn when idle")
+	}
+	if m.sessionState != loop.StateActive {
+		t.Errorf("session should be active after /plan, got %v", m.sessionState)
 	}
 }
 

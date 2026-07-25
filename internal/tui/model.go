@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -11,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -443,6 +445,10 @@ type Model struct {
 	input    textinput.Model
 	styles   Styles
 
+	// commands holds the slash command registry loaded at startup.
+	// May be empty (no commands/ dir) but should never be nil.
+	commands *commands.Registry
+
 	width  int
 	height int
 	ready  bool
@@ -456,6 +462,7 @@ func NewModel(
 	client loop.AgentClient,
 	workDir string,
 	commandTimeout time.Duration,
+	cmdReg *commands.Registry,
 ) Model {
 	styles := DefaultStyles()
 
@@ -470,6 +477,10 @@ func NewModel(
 		spinner.WithStyle(styles.SpinnerStyle),
 	)
 
+	if cmdReg == nil {
+		cmdReg = &commands.Registry{}
+	}
+
 	m := Model{
 		transcript:     tr,
 		coder:          coder,
@@ -483,6 +494,7 @@ func NewModel(
 		spinner:        sp,
 		input:          ti,
 		styles:         styles,
+		commands:       cmdReg,
 	}
 
 	m.RestoreSessionState()
@@ -654,6 +666,148 @@ func actionResultExistsAfter(entries []transcript.Entry, propEntry transcript.En
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Slash command handling (docs/work2.md §1)
+// ---------------------------------------------------------------------------
+
+// expandSlashCommand inspects the human's input and, if it begins with "/",
+// looks it up in the command registry.
+//
+// Return values:
+//   - expanded:       the rendered command body (with {{args}} replaced),
+//                     suitable to inject as a You message.
+//   - cmdHandled:     true if the input was a recognised command — caller
+//                     should use `expanded` instead of the raw input.
+//   - systemHandled:  true if the command was a system-target command (e.g.
+//                     /status) that the helper has already fully handled
+//                     internally (wrote a System entry to the transcript).
+//                     Caller should NOT inject anything else or trigger
+//                     a Coder turn.
+//   - errMsg:         non-empty if the input looked like a command but was
+//                     not recognised; caller should surface it as a System
+//                     error and not inject the raw input.
+//
+// If the input does not begin with "/", all four return values are zero
+// values and the caller treats the input as a plain You message.
+func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bool, systemHandled bool, errMsg string) {
+	trimmed := strings.TrimSpace(input)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", false, false, ""
+	}
+
+	// Strip leading "/" and split into command name + rest as args.
+	rest := strings.TrimSpace(trimmed[1:])
+	if rest == "" {
+		// Just "/", nothing to dispatch.
+		return "", false, false, "Empty command. Type /<name> or just send a plain message."
+	}
+
+	// Split on the first run of whitespace so names with hyphens (e.g. /my-cmd)
+	// stay intact, but "/plan add X" parses as name=plan, args="add X".
+	var name, args string
+	for i, r := range rest {
+		if r == ' ' || r == '\t' {
+			name = rest[:i]
+			args = strings.TrimSpace(rest[i+1:])
+			break
+		}
+	}
+	if name == "" {
+		name = rest
+	}
+
+	cmd, ok := m.commands.Get(name)
+	if !ok {
+		available := m.commands.Names()
+		if len(available) == 0 {
+			return "", false, false, fmt.Sprintf("Unknown command /%s. (No slash commands are registered.)", name)
+		}
+		return "", false, false, fmt.Sprintf("Unknown command /%s. Available: /%s", name, strings.Join(available, ", /"))
+	}
+
+	// System-target commands: the command body is addressed to the session
+	// itself, not to either agent. /status is the canonical example — render
+	// a session summary and write it as a System entry, then bail.
+	if cmd.Target == commands.TargetSystem {
+		body := m.describeSession()
+		entry := transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   body,
+			Timestamp: time.Now(),
+		}
+		_ = m.transcript.Append(entry)
+		m.statusMessage = "Status command handled by session."
+		return "", false, true, ""
+	}
+
+	// Coder / Reviewer target: render the template and inject as a You
+	// message so the relevant agent sees it on the next turn.
+	return cmd.Expand(args), true, false, ""
+}
+
+// describeSession produces a short, human-readable summary of the current
+// session state for the /status command. This intentionally computes
+// everything from the transcript — no extra bookkeeping state — so it
+// stays correct across resumes and crash recovery.
+func (m *Model) describeSession() string {
+	entries := m.transcript.Entries()
+
+	var (
+		proposedCount  int
+		approvedCount  int
+		objectCount    int
+		humanMsgs      int
+		currentTask    string
+		lastActivityTS time.Time
+	)
+	for _, e := range entries {
+		switch e.Type {
+		case transcript.TypeProposedAction:
+			proposedCount++
+			lastActivityTS = e.Timestamp
+		case transcript.TypeActionResult:
+			approvedCount++
+			lastActivityTS = e.Timestamp
+		}
+		switch e.Speaker {
+		case transcript.SpeakerYou:
+			humanMsgs++
+			if e.Type == transcript.TypeMessage && currentTask == "" {
+				currentTask = e.Content
+			}
+		case transcript.SpeakerReviewer:
+			if loop.ParseReviewerDecision(e.Content) == loop.DecisionObject {
+				objectCount++
+			}
+		}
+	}
+
+	stateLabel := "idle"
+	if m.sessionState == loop.StateActive {
+		stateLabel = "active"
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Session status — %s\n", strings.ToUpper(stateLabel))
+	fmt.Fprintf(&sb, "  Entries in transcript: %d\n", len(entries))
+	fmt.Fprintf(&sb, "  Human messages: %d\n", humanMsgs)
+	fmt.Fprintf(&sb, "  Proposed actions: %d (approved: %d, objected: %d)\n", proposedCount, approvedCount, objectCount)
+	if currentTask != "" {
+		// Truncate long task descriptions to keep /status compact.
+		const maxTaskLen = 120
+		task := currentTask
+		if len(task) > maxTaskLen {
+			task = task[:maxTaskLen] + "..."
+		}
+		fmt.Fprintf(&sb, "  Current task: %s\n", task)
+	}
+	if !lastActivityTS.IsZero() {
+		fmt.Fprintf(&sb, "  Last activity: %s\n", lastActivityTS.Format("2006-01-02 15:04:05"))
+	}
+	return sb.String()
 }
 
 // Init implements tea.Model.
