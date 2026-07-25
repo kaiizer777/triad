@@ -8,6 +8,14 @@ const (
 	SpeakerCoder    = "Coder"
 	SpeakerReviewer = "Reviewer"
 	SpeakerSystem   = "System"
+
+	// SpeakerSubagent is the speaker value used for entries that come from
+	// a spawned subagent. The subagent's own transcript uses the same
+	// SpeakerYou/SpeakerSubagent/SpeakerSystem identifiers; entries
+	// appearing in the MAIN transcript with Speaker="Subagent" (or
+	// "Subagent:<id>") represent the summary that the parent loop
+	// bubbled up after the subagent finished. See docs/work2.md §3.
+	SpeakerSubagent = "Subagent"
 )
 
 // Entry types

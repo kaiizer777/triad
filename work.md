@@ -6,7 +6,7 @@ propose→review→execute approval loop with Reviewer veto power, human
 interjection, bubbletea TUI, and session persistence/resume. All 8 phases from
 Workflow 1 (`docs/work1.md`) are done and the tool runs real tasks end to end.
 This document covers the **next layer**: custom slash commands, git
-auto-commit on every executed edit, hooks, subagent spawning, and expanded
+auto-commit on every executed edit, subagent spawning, and expanded
 tool calls (browser control, multi-agent delegation).
 
 
@@ -22,12 +22,10 @@ daily driver (on par with what OpenCode/Claude Code offer natively) is:
 2. **Git auto-commit on every edit** — every executed file write gets its own
    commit automatically, giving you a full, granular history and making
    `/undo` trivial to implement correctly (see Section 2)
-3. **Hooks** — automatic actions triggered on events (e.g. auto-format on every
-   file write, block a dangerous command before it reaches Reviewer at all)
-4. **Subagents** — Coder or Reviewer can delegate a bounded sub-task to a
+3. **Subagents** — Coder or Reviewer can delegate a bounded sub-task to a
    short-lived, isolated-context agent and get back only a summary, instead of
    polluting the main transcript with exploratory work
-5. **Extended tool calls** — browser/computer control, not just file+shell
+4. **Extended tool calls** — browser/computer control, not just file+shell
 
 This is genuinely how the leading tools (Claude Code, OpenCode itself) are
 architected as of mid-2026 — you're not inventing new patterns, you're
@@ -117,8 +115,7 @@ This is a good match for your existing "no hardcoded destructive-action gate"
 decision from v1 — auto-commit doesn't block or slow down execution at all,
 it just runs alongside it. It adds safety net *after the fact* without adding
 friction *before* the fact, so it doesn't quietly walk back your original
-design choice the way a blocking hook might (see Section 3.2.3's note on this
-same tension).
+design choice.
 
 ### 2.2 Design for Triad
 
@@ -191,58 +188,9 @@ With every action now individually committed, `/undo` (introduced in Section
 
 ---
 
-## 3. Hooks
+## 3. Subagents
 
-### 3.1 What they are
-
-A hook is code that runs automatically on a specific event — before or after
-a tool call — without the model having to remember to trigger it. Claude
-Code's hook system is the clearest reference implementation: hooks fire on
-events like `PostToolUse` (matched against tool name/pattern) and run a
-shell command, e.g. auto-formatting a file immediately after every `Edit`/
-`Write`.
-
-### 3.2 Design for Triad
-
-- [ ] 3.2.1 — Define a `hooks.yaml` (or extend `config.yaml`) with a simple
-      event → command mapping:
-      ```yaml
-      hooks:
-        post_write_file:
-          - "gofmt -w {{path}}"
-        pre_run_command:
-          - block_if_matches: ["rm -rf", "git push --force", "sudo "]
-      ```
-- [ ] 3.2.2 — Implement `post_write_file` hooks: after a `write_file` tool
-      executes successfully (Phase 3.4 of Workflow 1) **and after the
-      auto-commit from Section 2.2 has run**, execute each configured
-      command with `{{path}}` substituted, append the hook's output as a
-      `System` transcript entry. Running this after auto-commit means a
-      hook like `gofmt -w` produces its own separate, clearly-attributed
-      follow-up commit rather than being silently folded into Coder's
-      commit.
-- [ ] 3.2.3 — Implement `pre_run_command` hooks as a **pattern-match safety
-      net**, separate from and prior to Reviewer's veto: if a proposed shell
-      command matches a blocklist pattern, refuse to execute it even if
-      Reviewer approved, and surface this clearly in the transcript as a hard
-      stop rather than a silent skip
-      - Note: this is worth reconsidering given your v1 decision for "full
-        trust in Reviewer, no hardcoded gate" — a hook-based blocklist is a
-        *narrower*, opt-in version of that gate (a handful of genuinely
-        catastrophic patterns, not a general human-approval requirement), and
-        you can leave the blocklist empty by default if you want to preserve
-        the original decision exactly. Your call; document whichever you pick
-        in PROJECT_SPEC.md so it doesn't silently drift from the original
-        design record.
-- [ ] 3.2.4 — **Test:** configure a `gofmt` post-write hook, confirm it fires
-      automatically and reformats a file Coder just wrote, without either
-      agent being told to do so explicitly
-
----
-
-## 4. Subagents
-
-### 4.1 The pattern, confirmed from current implementations
+### 3.1 The pattern, confirmed from current implementations
 
 Every major 2026 coding agent (Claude Code, OpenCode, Cursor, Codex) has
 converged on the same shape for subagents:
@@ -259,44 +207,44 @@ converged on the same shape for subagents:
   result to an inbox file, and the parent polls or reads it back — this maps
   directly onto your existing JSONL transcript approach
 
-### 4.2 Design for Triad
+### 3.2 Design for Triad
 
 This is the most architecturally significant addition in this phase — budget
 real time here, similar to how Phase 4 (the approval loop) was the hard part
 of Workflow 1.
 
-- [ ] 4.2.1 — Define a `Subagent` concept distinct from your main `Coder`/
+- [x] 3.2.1 — Define a `Subagent` concept distinct from your main `Coder`/
       `Reviewer`: same `Agent` interface from v1 (§6.2 of PROJECT_SPEC.md),
       but instantiated with a **fresh, empty transcript** (or a narrow, hand-
       constructed one) rather than the full session transcript
-- [ ] 4.2.2 — Add a new tool for Coder: `spawn_subagent(task, context)` —
+- [x] 3.2.2 — Add a new tool for Coder: `spawn_subagent(task, context)` —
       `context` is an explicit, bounded string the parent passes in (not the
       full transcript), forcing Coder to be deliberate about what the
       subagent actually needs to know
-- [ ] 4.2.3 — Implement subagent execution as genuinely separate: its own
+- [x] 3.2.3 — Implement subagent execution as genuinely separate: its own
       transcript file under `sessions/subagents/<id>.jsonl`, its own call loop
       (can reuse most of Phase 2/3's client code), running to completion (or a
       turn cap) independently of the main loop
-- [ ] 4.2.4 — On subagent completion, produce a **summary only** — either have
+- [x] 3.2.4 — On subagent completion, produce a **summary only** — either have
       the subagent itself emit a final "summary" message as its last turn, or
       have the parent's `spawn_subagent` tool result contain just that
       summary, not the subagent's full transcript
-- [ ] 4.2.5 — Append the subagent's summary to the **main** transcript as a
+- [x] 3.2.5 — Append the subagent's summary to the **main** transcript as a
       single `action_result` entry attributed to the subagent (e.g.
       `Speaker: "Subagent:explore"`), so Reviewer still sees *that* delegation
       happened and *what* it concluded, without seeing every intermediate step
-- [ ] 4.2.6 — **Recursion guard:** if you ever let a subagent spawn its own
+- [x] 3.2.6 — **Recursion guard:** if you ever let a subagent spawn its own
       subagent, enforce an explicit depth limit (start at 1 — subagents in v1
       of this feature cannot themselves spawn subagents) to avoid runaway
       nesting. This is a known failure mode in current research on subagent
       systems — worth taking seriously even at small scale.
-- [ ] 4.2.7 — **Test:** give Coder a task that plausibly benefits from
+- [x] 3.2.7 — **Test:** give Coder a task that plausibly benefits from
       delegation (e.g. "check how the existing codebase handles auth before
       adding this new route" — a bounded research task), confirm it spawns a
       subagent, the subagent runs independently, and only a clean summary
       lands back in the main transcript for Reviewer to see
 
-### 4.3 What subagents are (and aren't) good for in Triad specifically
+### 3.3 What subagents are (and aren't) good for in Triad specifically
 
 - **Good fit:** bounded research/exploration ("read these 5 files and tell me
   the existing error-handling pattern"), isolated verification tasks ("run the
@@ -310,9 +258,9 @@ of Workflow 1.
 
 ---
 
-## 5. Extended Tool Calls
+## 4. Extended Tool Calls
 
-### 5.1 Two very different tiers — pick based on cost, not just capability
+### 4.1 Two very different tiers — pick based on cost, not just capability
 
 Current tooling splits into two fundamentally different approaches, confirmed
 from Anthropic's own computer-use docs and current MCP tooling:
@@ -336,27 +284,27 @@ already-uncertain free-tier rate limits far faster, and `mimo-v2.5-free` was
 chosen for tool-calling reliability, not multimodal screenshot reasoning
 quality — tier 2 plays to what you already have.
 
-### 5.2 Design for Triad — structured browser tool
+### 4.2 Design for Triad — structured browser tool
 
-- [ ] 5.2.1 — Add a Go browser automation dependency —
+- [ ] 4.2.1 — Add a Go browser automation dependency —
       `github.com/playwright-community/playwright-go` is the direct
       equivalent of the Node Playwright MCP server, usable from Go directly
       without needing Node in the loop
-- [ ] 5.2.2 — Define new tool schemas in `internal/agent/tools.go`, same
+- [ ] 4.2.2 — Define new tool schemas in `internal/agent/tools.go`, same
       pattern as `write_file`/`run_command`: `browser_navigate(url)`,
       `browser_click(selector)`, `browser_type(selector, text)`,
       `browser_get_text(selector)`, `browser_screenshot()` (only for cases
       where visual confirmation genuinely matters — keep this one rare)
-- [ ] 5.2.3 — These go through the **same approval loop** as file/shell tools
+- [ ] 4.2.3 — These go through the **same approval loop** as file/shell tools
       — no special-casing. Reviewer sees "Coder wants to navigate to
       `https://api.razorpay.com/docs`" the same way it sees a proposed file
       diff, and approves/objects the same way
-- [ ] 5.2.4 — **Test:** give Coder a task that requires checking live
+- [ ] 4.2.4 — **Test:** give Coder a task that requires checking live
       documentation or a running local dev server (e.g. "check that the
       webhook endpoint returns 200 by hitting it in a browser"), confirm the
       browser tools work through the full propose→approve→execute cycle
 
-### 5.3 Explicit non-goal for this phase
+### 4.3 Explicit non-goal for this phase
 
 Do **not** build raw screenshot-based computer use in this phase. It's a
 legitimate future addition if you hit a wall structured browser control can't
@@ -366,7 +314,7 @@ needed it.
 
 ---
 
-## 6. Suggested Build Order for This Phase
+## 5. Suggested Build Order for This Phase
 
 Same philosophy as Workflow 1: prove the simplest thing works before adding
 the next layer.
@@ -375,19 +323,18 @@ the next layer.
    life, do this first
 2. **Git auto-commit** (Section 2) — small, self-contained addition; do this
    right after commands since `/undo` depends on it and it's good to have
-   real commit history before you're also running hooks/subagents that touch
+   real commit history before you're also running subagents that touch
    files
-3. **Hooks** (Section 3) — small, isolated addition, good next step
-4. **Extended browser tools** (Section 5) — same shape as existing tools, just
+3. **Extended browser tools** (Section 4) — same shape as existing tools, just
    more of them; do this before subagents since it doesn't require new
    architecture
-5. **Subagents** (Section 4) — save for last; it's the one genuinely new
+4. **Subagents** (Section 3) — save for last; it's the one genuinely new
    architectural concept in this phase and benefits from everything else
    being stable first
 
 ---
 
-## 7. Updated Directory Structure (additions only)
+## 6. Updated Directory Structure (additions only)
 
 ```
 triad/
@@ -396,15 +343,12 @@ triad/
 │   ├── status.md
 │   ├── strict.md
 │   └── undo.md                  # NEW (Phase 2.3) — reverts last auto-commit
-├── hooks.yaml                   # NEW — event → command mapping
 ├── internal/
 │   ├── commands/
 │   │   └── parser.go            # NEW — frontmatter + template parsing
 │   ├── gitcommit/               # NEW (Phase 2) — auto-commit on every
 │   │   ├── gitcommit.go            executed action, /undo support
 │   │   └── gitcommit_test.go
-│   ├── hooks/
-│   │   └── hooks.go             # NEW — hook execution
 │   ├── subagent/
 │   │   └── subagent.go          # NEW — isolated subagent spawn/summary
 │   └── agent/
@@ -416,7 +360,7 @@ triad/
 
 ---
 
-## 8. Open Items Carried Forward / New
+## 7. Open Items Carried Forward / New
 
 - Decide whether auto-commit (Section 2) should be possible to disable per
   session (e.g. if you're working inside a repo with its own commit
@@ -426,10 +370,7 @@ triad/
   modified the same lines an `/undo` target touched — a plain revert can
   conflict, and you'll want a defined fallback (e.g. surface the conflict to
   the human rather than attempting an automatic resolution)
-- Confirm whether `pre_run_command` blocklist hooks (§3.2.3) should exist at
-  all, given the v1 "no hardcoded gate" decision — resolve and document in
-  PROJECT_SPEC.md rather than letting the two documents disagree
-- Decide the subagent turn/time cap (§4.2.3) — unbounded subagent execution on
+- Decide the subagent turn/time cap (§3.2.3) — unbounded subagent execution on
   a rate-limited free tier is a real risk, needs a concrete number, not just
   "runs until done"
 - `playwright-go` requires downloading browser binaries on first run — this is

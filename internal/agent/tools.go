@@ -112,6 +112,37 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			// spawn_subagent is the opt-in support-research tool (docs/work2.md §3).
+			// It runs a short-lived, isolated-context agent with its own transcript
+			// and a narrowed tool set (read_file + run_command only). The parent
+			// receives only a summary of what the subagent found; the subagent's
+			// intermediate file reads and command runs stay out of the main
+			// transcript. Use this only for bounded research/verification work
+			// (e.g. "scan the existing auth code for how HMAC keys are loaded
+			// before I add a new route"). Do NOT use it to do the actual risky
+			// work of the task — that still has to go through the normal
+			// propose→Reviewer→execute loop.
+			Name:        "spawn_subagent",
+			Description: "Spawn a short-lived, isolated-context subagent to do bounded research or verification work (e.g. read several files and summarise an existing pattern, run the test suite and summarise failures). The subagent gets its own transcript and a narrower tool set (read_file, run_command only). The parent receives only a summary back. Do NOT use this to do the actual risky work of your task — that still has to go through the normal propose/review/execute loop.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"task": {
+						Type:        "string",
+						Description: "A short, focused description of what the subagent should investigate or verify (e.g. \"Check how the existing codebase handles HMAC signature verification in handlers/.\"). Be specific — the subagent has no access to the parent transcript.",
+					},
+					"context": {
+						Type:        "string",
+						Description: "Optional bounded context to hand to the subagent (relevant code excerpts, file paths, prior decisions). Keep this tight — the subagent's context window is small.",
+					},
+				},
+				Required: []string{"task"},
+			},
+		},
+	},
 }
 
 // CoderTools returns the full list of tool schemas for the Coder agent.
@@ -267,6 +298,14 @@ type ExecuteToolArgs struct {
 	Command string `json:"command"`
 }
 
+// SpawnSubagentArgs holds the decoded arguments for a spawn_subagent tool call.
+// Only the headless loop and the TUI should construct / decode this — see
+// docs/work2.md §3.2.2. `Task` is required; `Context` is optional.
+type SpawnSubagentArgs struct {
+	Task    string `json:"task"`
+	Context string `json:"context"`
+}
+
 // ErrMalformedToolCall is returned when tool call arguments cannot be parsed
 // at all (not just missing optional fields). The session continues — the error
 // is surfaced as a transcript entry rather than crashing.
@@ -373,6 +412,16 @@ func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (s
 		// No execution needed — the loop handles this signal itself.
 		// Returning the sentinel string "task_complete" lets the loop detect it.
 		result = "task_complete"
+	case "spawn_subagent":
+		// Intentionally not executed here. The headless loop and the TUI
+		// intercept spawn_subagent BEFORE ExecuteTool runs, because the
+		// subagent runner needs caller context (the loop's client, the
+		// working directory, the session path, the subagent session dir)
+		// that ExecuteTool doesn't have. If a spawn_subagent call lands
+		// here, it means the caller forgot to intercept it; surface a
+		// clear, debuggable error rather than silently falling through
+		// to the "unknown tool" default.
+		execErr = fmt.Errorf("ExecuteTool: spawn_subagent must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
 	default:
 		execErr = fmt.Errorf("ExecuteTool: unknown tool name %q", call.Function.Name)
 	}

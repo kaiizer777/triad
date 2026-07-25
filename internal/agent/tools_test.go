@@ -228,6 +228,27 @@ func TestExecuteTool_UnknownToolReturnsError(t *testing.T) {
 	}
 }
 
+// TestExecuteTool_SpawnSubagentMustBeIntercepted verifies that ExecuteTool
+// refuses to dispatch spawn_subagent directly. The headless loop and the TUI
+// are responsible for intercepting spawn_subagent before it gets here, because
+// the subagent runner needs caller context that ExecuteTool doesn't have. If
+// a call ever reaches this function, the caller has a bug and we want a
+// debuggable error rather than silent fallback to "unknown tool".
+func TestExecuteTool_SpawnSubagentMustBeIntercepted(t *testing.T) {
+	_, err := ExecuteTool(t.TempDir(), ToolCall{
+		Function: ToolCallFunction{
+			Name:      "spawn_subagent",
+			Arguments: `{"task":"x","context":"y"}`,
+		},
+	}, 0)
+	if err == nil {
+		t.Fatal("expected error when spawn_subagent reaches ExecuteTool directly, got nil")
+	}
+	if !strings.Contains(err.Error(), "intercepted by the caller") {
+		t.Errorf("expected 'intercepted by the caller' in error, got: %v", err)
+	}
+}
+
 // TestExecuteTool_MalformedArguments verifies that a completely unparseable JSON
 // argument string does NOT crash the session (no Go error returned). Instead,
 // ExecuteTool returns a "System: malformed..." result string that the TUI can
@@ -258,8 +279,8 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	if len(tools) != 5 {
+		t.Fatalf("expected 5 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -281,7 +302,7 @@ func TestCoderTools_JSONShape(t *testing.T) {
 		}
 	}
 
-	for _, required := range []string{"write_file", "read_file", "run_command", "task_complete"} {
+	for _, required := range []string{"write_file", "read_file", "run_command", "task_complete", "spawn_subagent"} {
 		if !names[required] {
 			t.Errorf("expected tool %q to be present", required)
 		}

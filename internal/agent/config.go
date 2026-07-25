@@ -15,6 +15,15 @@ type AgentConfig struct {
 	Model        string `yaml:"model" json:"model"`
 	HasTools     bool   `yaml:"has_tools" json:"has_tools"`
 	SystemPrompt string `yaml:"-" json:"-"` // injected at runtime, not from config file
+
+	// Tools is an optional override for the tool schema list sent to the
+	// model when HasTools is true. When nil, the client falls back to
+	// CoderTools() (the parent Coder's full tool set). Subagents set
+	// this explicitly to a narrower set (see internal/subagent) so
+	// their tool surface is a strict subset of the parent's. Reviewer
+	// never sends tools regardless of this field because HasTools is
+	// false for it.
+	Tools []ToolSchema `yaml:"-" json:"-"`
 }
 
 // Config represents the root configuration file format and dual agent settings.

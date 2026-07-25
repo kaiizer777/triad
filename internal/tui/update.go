@@ -274,6 +274,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.activeToolCall != nil {
 					tc := *m.activeToolCall
+					// spawn_subagent is special-cased: cmdExecuteTool
+					// doesn't know how to run a subagent (it doesn't
+					// have the subagent's client / session dir / parent
+					// config). The TUI dispatches it via
+					// cmdSpawnSubagent, which runs the subagent in the
+					// background and emits a toolResultMsg the same
+					// shape cmdExecuteTool would.
+					if tc.Function.Name == "spawn_subagent" {
+						m.statusMessage = "Running subagent..."
+						return m, cmdSpawnSubagent(
+							m.transcript.FilePath(),
+							m.workDir,
+							m.coder,
+							m.client,
+							m.commandTimeout,
+							tc,
+						)
+					}
 					m.statusMessage = fmt.Sprintf("Executing approved tool %q...", tc.Function.Name)
 					return m, cmdExecuteTool(m.workDir, tc, m.commandTimeout)
 				}

@@ -205,9 +205,15 @@ func (c *Client) Respond(ctx context.Context, cfg AgentConfig, entries []transcr
 		Messages: messages,
 	}
 
-	// Attach tool schemas only for the Coder agent (HasTools == true).
+	// Attach tool schemas only when the agent has tools. If cfg.Tools
+	// is set (e.g. a subagent with a narrower tool set), use it as-is;
+	// otherwise fall back to the parent Coder's full tool list.
 	if cfg.HasTools {
-		reqPayload.Tools = CoderTools()
+		if len(cfg.Tools) > 0 {
+			reqPayload.Tools = cfg.Tools
+		} else {
+			reqPayload.Tools = CoderTools()
+		}
 	}
 
 	bodyBytes, err := json.Marshal(reqPayload)

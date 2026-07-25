@@ -9,11 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/gitcommit"
+	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -294,7 +296,21 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			}
 
 			// Execute the approved tool call.
-			result, execErr := agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
+			//
+			// spawn_subagent is special-cased: ExecuteTool doesn't know
+			// how to run a subagent (it doesn't have the subagent's
+			// client / session dir / parent config). The loop
+			// intercepts it here and runs the subagent itself, then
+			// synthesises an action_result entry the same way
+			// ExecuteTool's normal path would. All other tools go
+			// through agent.ExecuteTool unchanged.
+			var result string
+			var execErr error
+			if toolCall.Function.Name == "spawn_subagent" {
+				result, execErr = l.runSpawnSubagent(ctx, toolCall)
+			} else {
+				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
+			}
 			resultContent := result
 			if execErr != nil {
 				resultContent = fmt.Sprintf("ERROR: %v", execErr)
@@ -455,6 +471,77 @@ func ParseProposedAction(content string) (*agent.ToolCall, error) {
 			Arguments: args,
 		},
 	}, nil
+}
+
+// runSpawnSubagent is the headless loop's handler for approved
+// spawn_subagent tool calls (docs/work2.md §3). It decodes the
+// tool-call arguments, runs the subagent to completion (or to its
+// turn cap), and returns a one-line summary suitable for an
+// action_result entry. The subagent's own transcript lives at
+// <sessionDir>/subagents/<id>.jsonl and is never seen by the parent
+// loop or Reviewer — only the final summary bubbles up.
+//
+// The runner inherits the loop's command timeout and the parent
+// Coder's config (BaseURL/Model/APIKey); the subagent's own
+// system prompt, tool set, and depth guard all live in the
+// subagent package.
+//
+// Returns the summary string on success, or an error (wrapped) on
+// subagent setup / run failure. The caller's existing
+// "ERROR: %v" formatting surfaces the error inline in the transcript.
+func (l *Loop) runSpawnSubagent(ctx context.Context, toolCall agent.ToolCall) (string, error) {
+	var args agent.SpawnSubagentArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return "", fmt.Errorf("spawn_subagent: failed to parse arguments: %w", err)
+	}
+	if strings.TrimSpace(args.Task) == "" {
+		return "", fmt.Errorf("spawn_subagent: required argument 'task' is missing or empty")
+	}
+
+	// Subagent JSONL lands next to the parent's session file. If the
+	// parent has no session file path yet, fall back to a
+	// sessions/ dir under the working directory — the same fallback
+	// main.go uses for finding the latest session.
+	sessionDir := filepath.Dir(l.transcript.FilePath())
+	if sessionDir == "" || sessionDir == "." {
+		sessionDir = filepath.Join(l.workDir, "sessions")
+	}
+
+	runner, err := subagent.NewRunner(
+		l.client,
+		l.workDir,
+		sessionDir,
+		agent.DefaultCommandTimeout,
+		0, // use default turn cap
+		0, // depth 0 — top-level (subagents can't themselves spawn)
+	)
+	if err != nil {
+		return "", fmt.Errorf("spawn_subagent: %w", err)
+	}
+
+	id := subagent.NewID()
+	res, runErr := runner.Run(ctx, id, args.Task, args.Context, l.coder)
+	if runErr != nil {
+		// The subagent failed partway through — return whatever
+		// summary it managed to produce plus the error, so the
+		// parent can still see partial findings in the transcript.
+		if res.Summary != "" {
+			return fmt.Sprintf("[subagent %s partial] %s\n\nerror: %v", id, res.Summary, runErr), runErr
+		}
+		return "", runErr
+	}
+
+	// Prepend a small "Subagent <id>:" header so Reviewer can see at a
+	// glance that this action_result came from a delegation, and add
+	// a "(truncated, partial findings)" tag if the subagent hit its
+	// turn cap. Reviewer should treat truncated findings as low-
+	// confidence; the parent Coder can re-spawn with a more focused
+	// task if needed.
+	header := fmt.Sprintf("Subagent %s: ", id)
+	if res.Truncated {
+		header = fmt.Sprintf("Subagent %s (truncated, %d turns): ", id, res.Turns)
+	}
+	return header + res.Summary, nil
 }
 
 // autoCommit is the headless equivalent of the TUI's maybeAutoCommit.

@@ -61,6 +61,25 @@ func (m *mockClient) Respond(_ context.Context, cfg agent.AgentConfig, _ []trans
 	return r.resp, r.err
 }
 
+// RespondWithKey is like Respond but always pulls from the queue for
+// the given logical key, ignoring cfg.Name. Used by the subagent
+// wire-up test to route any "Subagent:<id>" call to a single shared
+// queue (since the auto-generated ID isn't known up front).
+func (m *mockClient) RespondWithKey(_ context.Context, key string, _ agent.AgentConfig, _ []transcript.Entry) (agent.AgentResponse, error) {
+	queue := m.queues[key]
+	idx := m.calls[key]
+	m.calls[key]++
+
+	if len(queue) == 0 {
+		return agent.AgentResponse{}, errors.New("mockClient: no responses configured for " + key)
+	}
+	if idx >= len(queue) {
+		idx = len(queue) - 1
+	}
+	r := queue[idx]
+	return r.resp, r.err
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -732,5 +751,285 @@ func TestAutoCommit_RejectionDoesNotCommit(t *testing.T) {
 	if triadCount != 1 {
 		t.Errorf("expected exactly 1 [triad] commit (for approved revision), got %d. log:\n%s\n",
 			triadCount, listOut)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 3.2.7 — Subagent end-to-end (docs/work2.md §3.2 wire-up)
+// ---------------------------------------------------------------------------
+
+// TestSpawnSubagent_FullLoop runs the full propose→approve→execute
+// cycle where the Coder proposes a spawn_subagent, the Reviewer
+// approves, the subagent runs and returns a summary, and ONLY the
+// summary bubbles up to the main transcript. The subagent's own
+// transcript file is created at <sessionDir>/subagents/<id>.jsonl
+// and is NOT visible in the main transcript.
+func TestSpawnSubagent_FullLoop(t *testing.T) {
+	workDir := t.TempDir()
+	mc := newMockClient()
+
+	// Coder turn 1: propose spawn_subagent.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall(
+			"spawn_subagent",
+			`{"task":"find existing auth handler","context":"look in internal/handler/"}`,
+		)},
+	}})
+	// Reviewer turn 1: approve the spawn.
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Reasonable read-only research task.",
+	}})
+	// Coder turn 2: after the subagent summary, propose task_complete.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	// Reviewer turn 2: approve task_complete.
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Done.",
+	}})
+
+	// Subagent mock responses. The subagent's name is "Subagent:<id>"
+	// — since we don't know the ID ahead of time, the mock's lookup
+	// by exact name won't match. Instead, we register a response for
+	// a "default" name (the mock's "any other agent" fallback) and
+	// modify the mock to fall through to a global queue. Simpler
+	// approach: use a custom mock that responds to ANY name
+	// starting with "Subagent:".
+	mc.addResponse("__SUBAGENT__", mockResponse{resp: agent.AgentResponse{
+		// Subagent reads a file (which doesn't exist — runner will
+		// surface the error to the subagent's own transcript and the
+		// subagent will respond with a SUMMARY on the next turn).
+		ToolCalls: []agent.ToolCall{makeToolCall(
+			"read_file",
+			`{"path":"nonexistent.go"}`,
+		)},
+	}})
+	mc.addResponse("__SUBAGENT__", mockResponse{resp: agent.AgentResponse{
+		Text: "I tried to read nonexistent.go but it doesn't exist.\nSUMMARY: No auth handler file found in the standard locations.",
+	}})
+
+	// Install a wrapper that routes Subagent:* calls to the
+	// __SUBAGENT__ queue. We do this by replacing the mock's Respond
+	// method via a small adapter struct.
+	subMock := &subagentRoutedMock{
+		base:        mc,
+		subagentKey: "__SUBAGENT__",
+	}
+
+	// Run the loop with a real session file path so the subagent
+	// has somewhere to put its JSONL.
+	sessionDir := t.TempDir()
+	sessionPath := filepath.Join(sessionDir, "session_test.jsonl")
+
+	tr := transcript.NewTranscript(sessionPath)
+	coderCfg := agent.AgentConfig{
+		Name:     "Coder",
+		BaseURL:  "http://test",
+		Model:    "test-model",
+		HasTools: true,
+	}
+	reviewerCfg := agent.AgentConfig{
+		Name:     "Reviewer",
+		BaseURL:  "http://test",
+		Model:    "test-model",
+		HasTools: false,
+	}
+	l := loop.New(tr, coderCfg, reviewerCfg, subMock, workDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	taskChan := make(chan string, 1)
+	taskChan <- "find existing auth handler"
+	close(taskChan)
+
+	if err := l.Run(ctx, taskChan); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// 1) Main transcript should contain the summary, prefixed with "Subagent <id>:".
+	entries := tr.Entries()
+	var foundSummary bool
+	var summaryEntry transcript.Entry
+	for _, e := range entries {
+		if e.Type == transcript.TypeActionResult && strings.HasPrefix(e.Content, "Subagent ") && strings.Contains(e.Content, "No auth handler file found") {
+			foundSummary = true
+			summaryEntry = e
+			break
+		}
+	}
+	if !foundSummary {
+		t.Fatalf("expected main transcript to contain the subagent summary action_result, got entries: %+v", entries)
+	}
+
+	// 2) The summary should be the ONLY content the parent loop saw from
+	// the subagent — none of the subagent's intermediate proposed_action
+	// entries (the read_file) should appear in the main transcript.
+	for _, e := range entries {
+		if e.Type == transcript.TypeProposedAction && strings.Contains(e.Content, "read_file") && strings.Contains(e.Content, "nonexistent.go") {
+			t.Errorf("main transcript leaked subagent's intermediate proposed_action: %s", e.Content)
+		}
+	}
+
+	// 3) The subagent's own JSONL file should exist at
+	// <sessionDir>/subagents/<id>.jsonl. The summary entry's
+	// "Subagent <id>:" header tells us the ID.
+	// Extract ID from "Subagent <id>: ..." in summaryEntry.Content.
+	prefix := strings.TrimPrefix(summaryEntry.Content, "Subagent ")
+	colonIdx := strings.Index(prefix, ":")
+	if colonIdx < 0 {
+		t.Fatalf("could not extract subagent id from summary: %q", summaryEntry.Content)
+	}
+	subID := strings.TrimSpace(prefix[:colonIdx])
+	subPath := filepath.Join(sessionDir, "subagents", subID+".jsonl")
+	if _, err := os.Stat(subPath); err != nil {
+		t.Errorf("subagent transcript not created at %q: %v", subPath, err)
+	}
+
+	// 4) The subagent's own JSONL should contain BOTH the read_file
+	// proposed_action AND the summary message — proves the parent
+	// saw only the summary, but the subagent's intermediate
+	// exploration is preserved on disk for debugging.
+	subTr, err := transcript.LoadFromFile(subPath)
+	if err != nil {
+		t.Fatalf("LoadFromFile: %v", err)
+	}
+	subEntries := subTr.Entries()
+	foundRead := false
+	for _, e := range subEntries {
+		if e.Type == transcript.TypeProposedAction && strings.Contains(e.Content, "read_file") {
+			foundRead = true
+			break
+		}
+	}
+	if !foundRead {
+		t.Errorf("subagent transcript should contain the read_file proposed_action, got: %+v", subEntries)
+	}
+}
+
+// subagentRoutedMock wraps a base mockClient and routes any agent
+// name starting with "Subagent:" to a single subagent queue. Lets us
+// write a wire-up test without knowing the subagent's auto-generated
+// ID up front.
+type subagentRoutedMock struct {
+	base        *mockClient
+	subagentKey string
+}
+
+func (s *subagentRoutedMock) Respond(ctx context.Context, cfg agent.AgentConfig, entries []transcript.Entry) (agent.AgentResponse, error) {
+	if strings.HasPrefix(cfg.Name, transcript.SpeakerSubagent+":") {
+		// Route to the subagent queue.
+		return s.base.RespondWithKey(ctx, s.subagentKey, cfg, entries)
+	}
+	return s.base.Respond(ctx, cfg, entries)
+}
+
+// ---------------------------------------------------------------------------
+// Test 3.2.6 — Rejected spawn_subagent proposals never run the subagent
+// ---------------------------------------------------------------------------
+
+// TestSpawnSubagent_RejectionDoesNotSpawn verifies that if the
+// Reviewer objects to a spawn_subagent proposal, the subagent is
+// never invoked (the parent's review gate still works for
+// delegations). Important because the whole point of having a
+// Reviewer is that risky decisions get a second look — spawning a
+// subagent that itself reads files / runs commands is a way to
+// route around the loop, so the Reviewer's veto must still bite.
+func TestSpawnSubagent_RejectionDoesNotSpawn(t *testing.T) {
+	mc := newMockClient()
+
+	// Coder turn 1: propose spawn_subagent.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall(
+			"spawn_subagent",
+			`{"task":"do something risky"}`,
+		)},
+	}})
+	// Reviewer turn 1: OBJECTION.
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "OBJECTION: this task is too vague; be more specific.",
+	}})
+	// Coder turn 2: revise to a more specific task.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall(
+			"spawn_subagent",
+			`{"task":"find the file at internal/handler/foo.go"}`,
+		)},
+	}})
+	// Reviewer turn 2: APPROVE the revised spawn.
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Specific enough now.",
+	}})
+	// Subagent queue: respond with a summary.
+	mc.addResponse("__SUBAGENT__", mockResponse{resp: agent.AgentResponse{
+		Text: "Found it.\nSUMMARY: internal/handler/foo.go exists and contains a single FooHandler.",
+	}})
+	// Coder turn 3: task_complete.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	// Reviewer turn 3: approve task_complete.
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Done.",
+	}})
+
+	subMock := &subagentRoutedMock{base: mc, subagentKey: "__SUBAGENT__"}
+
+	workDir := t.TempDir()
+	sessionDir := t.TempDir()
+	sessionPath := filepath.Join(sessionDir, "session_test.jsonl")
+	tr := transcript.NewTranscript(sessionPath)
+	coderCfg := agent.AgentConfig{
+		Name:     "Coder",
+		BaseURL:  "http://test",
+		Model:    "test-model",
+		HasTools: true,
+	}
+	reviewerCfg := agent.AgentConfig{
+		Name:     "Reviewer",
+		BaseURL:  "http://test",
+		Model:    "test-model",
+		HasTools: false,
+	}
+	l := loop.New(tr, coderCfg, reviewerCfg, subMock, workDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	taskChan := make(chan string, 1)
+	taskChan <- "find handler file"
+	close(taskChan)
+
+	if err := l.Run(ctx, taskChan); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The subagent was invoked EXACTLY ONCE (for the approved revised
+	// proposal). The first (rejected) proposal must not have called
+	// the subagent at all.
+	subMock.subagentKey = "__SUBAGENT__" // no-op; just for clarity
+	// Inspect the base mock's call counts via the per-key map.
+	// (We piggyback on the existing mockClient.calls field.)
+	// Count Subagent invocations by walking entries — easier than
+	// exposing internals.
+	entries := tr.Entries()
+	spawnCalls := 0
+	for _, e := range entries {
+		if e.Type == transcript.TypeProposedAction && strings.Contains(e.Content, "spawn_subagent") {
+			spawnCalls++
+		}
+	}
+	if spawnCalls != 2 {
+		t.Errorf("expected 2 spawn_subagent proposals in transcript (1 rejected + 1 approved), got %d", spawnCalls)
+	}
+
+	// Confirm the subagent summary appears exactly once (proving the
+	// rejected proposal did NOT trigger a subagent run).
+	summaryCount := 0
+	for _, e := range entries {
+		if e.Type == transcript.TypeActionResult && strings.Contains(e.Content, "Subagent ") && strings.Contains(e.Content, "foo.go exists") {
+			summaryCount++
+		}
+	}
+	if summaryCount != 1 {
+		t.Errorf("expected exactly 1 subagent summary in main transcript, got %d", summaryCount)
 	}
 }
