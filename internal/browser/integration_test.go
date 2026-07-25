@@ -23,49 +23,10 @@ import (
 // static HTML — no external network required, fully hermetic.
 
 // chromeInstalled checks whether the Playwright Chromium binary is
-// present on disk. The exact directory name is version-pinned
-// (e.g. chromium-1228) and we don't want to mirror that, so we look
-// for the install root that `playwright install chromium` writes to.
+// present on disk. Thin wrapper around the production helper so the
+// install-detection logic lives in exactly one place.
 func chromeInstalled() bool {
-	// PLAYWRIGHT_BROWSERS_PATH is the documented override; if it's
-	// set, that's where the binary lives. Otherwise it's under
-	// %LOCALAPPDATA%\ms-playwright on Windows and ~/.cache/ms-playwright
-	// on Linux/macOS.
-	dir := os.Getenv("PLAYWRIGHT_BROWSERS_PATH")
-	if dir == "" {
-		// Best-effort fallback: look in the user home for ms-playwright.
-		// We don't enumerate every OS-specific path because the actual
-		// lookup is done by the Playwright driver itself; we just want
-		// a quick "is there something here?" check.
-		if home, err := os.UserHomeDir(); err == nil {
-			candidates := []string{
-				filepath.Join(home, "AppData", "Local", "ms-playwright"),
-				filepath.Join(home, ".cache", "ms-playwright"),
-			}
-			for _, c := range candidates {
-				if st, err := os.Stat(c); err == nil && st.IsDir() {
-					dir = c
-					break
-				}
-			}
-		}
-	}
-	if dir == "" {
-		return false
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		// Anything starting with "chromium-" counts; we don't pin
-		// the exact build number because it shifts between Playwright
-		// versions.
-		if strings.HasPrefix(e.Name(), "chromium-") {
-			return true
-		}
-	}
-	return false
+	return IsChromiumInstalled()
 }
 
 // newTestServer spins up a tiny local HTTP server with a small

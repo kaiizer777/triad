@@ -159,7 +159,11 @@ Coder has access to three essential filesystem and shell tools:
 | `read_file` | `path` | Reads file content relative to project root. |
 | `run_command` | `command` | Executes shell commands (`cmd.exe /C` on Windows, `sh -c` on Unix) in project directory. |
 
+Coder also has access to a `spawn_subagent` tool (delegates a bounded research/verification sub-task to a short-lived, isolated-context agent) and five structured browser tools (`browser_navigate`, `browser_click`, `browser_type`, `browser_get_text`, `browser_screenshot`) for DOM-level browser control via Playwright.
+
 > **Note on Safety:** Reviewer holds complete veto authority. Reviewer approval unlocks tool execution directly without requiring a manual keypress per step, allowing full agentic velocity while maintaining independent checks.
+
+> **Note on `browser_screenshot`:** Screenshot output (whether written to a file via the `path` argument or returned base64-encoded in the result) is **observational, not a code change**, and is therefore **not auto-committed** to git. `write_file` and `run_command` are the only tools that trigger auto-commit; everything else either reads or produces a transient artifact that you can add to git yourself if you want to keep it. Browser tools are also gated by the Chromium binary being installed — Triad prints a one-line notice at session start if it isn't.
 
 ---
 

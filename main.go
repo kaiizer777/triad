@@ -161,6 +161,16 @@ func main() {
 	// the Chromium binary isn't installed, that surfaces as a clear
 	// error on the first browser_* tool call rather than crashing
 	// at startup.
+	//
+	// We also do a one-line startup probe (rough edge #8 in the
+	// final project summary) so the user gets a friendly notice
+	// at session start, not on their first browser_navigate call.
+	// The probe is a best-effort filesystem check; it does not
+	// launch Chromium and adds no startup latency.
+	if !browser.IsChromiumInstalled() {
+		fmt.Fprintln(os.Stderr,
+			"Browser tools enabled, but Chromium isn't installed — run `playwright install chromium` to use browser_* tools.")
+	}
 	browserMgr := browser.NewManager()
 	model.SetBrowser(browserMgr)
 	defer func() {
