@@ -25,45 +25,39 @@ type orchestratorConfirm struct {
 	proposed string // the mode we proposed ("triad" for now; Phase 6 will use "twin")
 }
 
-// criticalKeywords are exact surface terms that always warrant full-Triad
-// oversight regardless of task length. These deliberately mirror the sensitive
-// surface list in clarify/assess.go and the hook blocklist described in
-// Workflow 2 §3.2.3, so the two systems share the same safety vocabulary.
-var criticalKeywords = []string{
-	"auth", "authentication", "authorization",
-	"password", "credential", "secret", "api key", "apikey", "token",
-	"payment", "billing", "charge", "refund", "subscription",
-	"delete", "drop", "truncate", "remove",
-	"migration", "migrate", "schema change",
-	"permission", "rbac", "security",
-	"refactor", "overhaul", "redesign", "re-architect",
-	"architecture",
-	"breaking change",
-	"database",
-	"multiple files", "across all files", "all tests",
-}
-
-// trivialPhrases are patterns that strongly suggest a one-liner or informational
-// task that never needs Reviewer overhead.
-var trivialPhrases = []string{
-	"typo", "fix typo",
-	"hello", "hi", "hey", "ping",
-	"what is", "what's", "how do i", "how to", "explain", "tell me", "show me",
-}
-
 // ClassifyTask inspects a task description and returns one of the three routing
 // tiers ("trivial", "critical", "middle") plus a short human-readable reason.
+//
+// The actual rules it consults live in DefaultRoutingRubric() (see rubric.go).
+// This function is just the *algorithm* — the rubric is the *data*. Splitting
+// them is what makes the rule-set reviewable as a unit and what lets
+// repeat-run determinism be tested as a separate property.
 //
 // Design constraints (from Phase 0 research):
 //   - Trivial: genuinely single-file/one-liner tasks where Reviewer overhead is
 //     pure waste. Conservative — false negatives (calling something trivial when
 //     it isn't) are more expensive than false positives.
 //   - Critical: any task touching auth, payments, deletion, sensitive credentials,
-//     or architectural surgery — matches the hook blocklist from Workflow 2 §3.2.3.
-//     More oversight is never the wrong call, so critical auto-proceeds to Triad.
+//     or architectural surgery — matches the hook blocklist from Workflow 2 §3.2.3
+//     and clarify/assess.go's `sensitive` slice. More oversight is never the
+//     wrong call, so critical auto-proceeds to Triad.
 //   - Middle: the genuine "I'm not sure" ground; Orchestrator must ask the human
 //     to confirm or override rather than silently picking.
+//
+// Determinism (Phase 0 + Phase 5 §5.4): ClassifyTask is a pure function of its
+// string input — no goroutines, no time.Now(), no LLM calls, no randomness.
+// Same input always yields the same (tier, reason) tuple. This is the
+// mitigation against the non-deterministic-LLM-routing failure mode Phase 0
+// called out — the heuristic rubric is a fixed-function gate, not a model.
 func ClassifyTask(task string) (tier, reason string) {
+	return classifyTaskWith(task, DefaultRoutingRubric())
+}
+
+// classifyTaskWith is the rubric-driven core of ClassifyTask. It exists
+// separately so tests can swap in a tweaked rubric without mutating
+// package-level state, and so the algorithm is reviewable in isolation
+// from the rule data.
+func classifyTaskWith(task string, rubric RoutingRubric) (tier, reason string) {
 	lower := strings.ToLower(strings.TrimSpace(task))
 	words := strings.Fields(lower)
 
@@ -73,47 +67,77 @@ func ClassifyTask(task string) (tier, reason string) {
 
 	// --- Critical check (highest priority) ---
 	// If ANY critical keyword appears as a whole word/phrase, route to Triad.
-	for _, kw := range criticalKeywords {
+	// Keywords come from the rubric — see rubric.go for the
+	// shared-safety-vocabulary contract.
+	for _, kw := range rubric.CriticalKeywords {
 		if containsWordOr(lower, kw) {
-			return TierCritical, fmt.Sprintf("task touches a sensitive/critical surface (%q)", kw)
+			return TierCritical, fmt.Sprintf("%s (%q)", rubric.ReasonPrefixes.Critical, kw)
 		}
 	}
 
 	// --- Trivial check ---
-	// Informational / conversational openers → always trivial.
-	for _, p := range trivialPhrases {
+	// We check three buckets of openers, in order from most-specific
+	// to most-permissive. Each bucket has a documented match rule —
+	// see rubric.go for the contract.
+	hasPaths := strings.Contains(lower, "/") || strings.Contains(lower, `\`)
+
+	// 1. Greetings: exact match only. "hi" is trivial, but "hi please
+	// refactor auth" is a real task starting with a greeting.
+	for _, p := range rubric.GreetingOpeners {
+		if lower == p {
+			return TierTrivial, fmt.Sprintf("conversational greeting (%q)", p)
+		}
+	}
+
+	// 2. Informational openers: greedy match. "what is X" / "explain
+	// the Y" are information requests, not code changes — Reviewer
+	// oversight would be pure waste. These DO match long tasks like
+	// "what is the difference between a slice and an array" because
+	// the answer never touches a file.
+	for _, p := range rubric.InformationalOpeners {
 		if lower == p || strings.HasPrefix(lower, p+" ") || strings.HasPrefix(lower, p+",") {
-			return TierTrivial, fmt.Sprintf("conversational/informational request (%q opener)", p)
+			return TierTrivial, fmt.Sprintf("informational question (%q opener)", p)
+		}
+	}
+
+	// 3. Short-fix openers: greedy match BUT defeated by path
+	// separators in the suffix. "fix typo" is trivial; "fix typo in
+	// cmd/triad/main.go" is multi-file scope and falls through to
+	// the middle-tier multi-file check. "fix typo in README" still
+	// matches (no path separator) and is handled by the short-and-
+	// focused rule below.
+	for _, p := range rubric.ShortFixOpeners {
+		if !hasPaths && (lower == p || strings.HasPrefix(lower, p+" ") || strings.HasPrefix(lower, p+",")) {
+			return TierTrivial, fmt.Sprintf("short fix opener (%q)", p)
 		}
 	}
 
 	// Short word count is the strongest trivial signal: genuine one-liners rarely
-	// exceed 6 words ("fix typo in README", "rename X to Y").
-	if len(words) <= 6 {
+	// exceed the rubric's MaxTrivialWords threshold ("fix typo in README",
+	// "rename X to Y").
+	if len(words) <= rubric.MaxTrivialWords {
 		extCount := countFileExtensions(lower)
-		hasPaths := strings.Contains(lower, "/") || strings.Contains(lower, `\`)
-		if extCount <= 1 && !hasPaths {
-			return TierTrivial, "short, focused task (≤6 words, single target) — minimal overhead needed"
+		if extCount <= rubric.MaxTrivialFileExts && !hasPaths {
+			return TierTrivial, rubric.ReasonPrefixes.Trivial
 		}
 	}
 
 	// --- Middle: everything else ---
 	// Long description or multi-file scope → human must confirm.
-	if len(words) > 20 || len(lower) > 120 {
+	if len(words) > rubric.MinMiddleWords || len(lower) > rubric.MinMiddleChars {
 		return TierMiddle, "task is lengthy / potentially multi-file — scope needs confirmation"
 	}
 
 	extCount := countFileExtensions(lower)
-	if extCount >= 2 {
+	if extCount >= rubric.MinMiddleFileExts {
 		return TierMiddle, "task touches multiple files — routing confirmation needed"
 	}
 
-	hasPaths := strings.Contains(lower, "/") || strings.Contains(lower, `\`)
 	if hasPaths {
 		return TierMiddle, "task references directory paths — may touch multiple files"
 	}
 
-	return TierMiddle, "task complexity is ambiguous — routing confirmation needed"
+	return TierMiddle, rubric.ReasonPrefixes.Middle
 }
 
 // OrchestratorMessage formats the mandatory stated-reasoning message that
