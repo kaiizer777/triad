@@ -1,0 +1,26 @@
+{
+  "name": "triad",
+  "version": "1.0.0",
+  "description": "Multi-agent CLI/TUI built with Go and Bubbletea",
+  "main": "bin/triad.js",
+  "bin": {
+    "triad": "bin/triad.js"
+  },
+  "files": [
+    "bin/",
+    "dist/"
+  ],
+  "scripts": {
+    "build:binaries": "cmd /c \"set GOOS=windows&& set GOARCH=amd64&& go build -o dist/triad-win-x64.exe main.go&& set GOOS=darwin&& set GOARCH=arm64&& go build -o dist/triad-darwin-arm64 main.go&& set GOOS=darwin&& set GOARCH=amd64&& go build -o dist/triad-darwin-x64 main.go&& set GOOS=linux&& set GOARCH=amd64&& go build -o dist/triad-linux-x64 main.go\""
+  },
+  "keywords": [
+    "cli",
+    "tui",
+    "ai",
+    "agent",
+    "go",
+    "bubbletea"
+  ],
+  "author": "",
+  "license": "MIT"
+}
