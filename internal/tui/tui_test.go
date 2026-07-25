@@ -893,3 +893,48 @@ func typeString(m Model, s string) Model {
 	}
 	return m
 }
+
+func TestTUI_ViewHeightOverflow(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	heights := []int{20, 24, 30, 40, 50}
+	widths := []int{70, 80, 100, 120, 150}
+
+	for _, h := range heights {
+		for _, w := range widths {
+			m, _ := model.Update(tea.WindowSizeMsg{Width: w, Height: h})
+			mod := m.(Model)
+			v := mod.View()
+			lines := strings.Split(v.Content, "\n")
+			if len(lines) != h {
+				t.Errorf("w=%d h=%d: expected %d lines, got %d", w, h, h, len(lines))
+				continue
+			}
+
+			// Last line must contain bottom border character '╰' or '─' or '╯'
+			lastLine := lines[len(lines)-1]
+			if !strings.Contains(lastLine, "╰") && !strings.Contains(lastLine, "─") && !strings.Contains(lastLine, "╯") {
+				t.Errorf("w=%d h=%d: bottom line missing bottom border, got: %q", w, h, lastLine)
+			}
+
+			// Check that the prompt input 'YOU' is present and not cut off
+			foundPrompt := false
+			for _, line := range lines {
+				if strings.Contains(line, "YOU") {
+					foundPrompt = true
+					break
+				}
+			}
+			if !foundPrompt {
+				t.Errorf("w=%d h=%d: prompt bar 'YOU' missing from view", w, h)
+			}
+		}
+	}
+}
+
+
+
+
+

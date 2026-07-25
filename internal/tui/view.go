@@ -114,8 +114,8 @@ func (m Model) View() tea.View {
 	)
 
 	rightCard := m.styles.RightCardContainer.
-		Width(rightCardInnerWidth).
-		Height(rightCardInnerHeight).
+		Width(mainContainerWidth).
+		Height(bodyHeight).
 		Render(rightCardContent)
 
 	var middlePanel string
@@ -333,8 +333,8 @@ func (m Model) renderSidebar(width int, height int) string {
 	padded := strings.Join(lines, "\n")
 
 	return m.styles.SidebarContainer.
-		Width(innerWidth).
-		Height(innerHeight).
+		Width(width).
+		Height(height).
 		Render(padded)
 }
 
@@ -468,8 +468,8 @@ func (m Model) renderInputBar(width int) string {
 	pillW := lipgloss.Width(pill)
 	hintW := lipgloss.Width(hint)
 
-	// Reserve 4 chars (2 spaces + 2 safety buffer) for layout stability.
-	inputW := max(10, containerW-pillW-hintW-4)
+	// Reserve 8 chars (2 spaces + prompt/cursor width + safety buffer) to prevent soft-wrapping.
+	inputW := max(10, containerW-pillW-hintW-8)
 	m.input.SetWidth(inputW)
 
 	inputView := m.input.View()
