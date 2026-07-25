@@ -33,19 +33,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Vertical layout: 1 line header + 1 line status + 3 lines input box = 5 lines subtracted
-		availHeight := msg.Height - 5
+		// Fixed header & footer lines:
+		// Header (1) + PipelineDock (1) + Status (1) + InputBar (3) = 6 lines
+		availHeight := msg.Height - 6
 		if availHeight < 1 {
 			availHeight = 1
 		}
 
-		// Calculate Sidebar and Viewport widths
-		sidebarWidth := 30
-		if msg.Width < 70 {
-			sidebarWidth = msg.Width / 3
-			if sidebarWidth < 18 {
-				sidebarWidth = 18
-			}
+		// Responsive sidebar width:
+		// Hide sidebar on narrow terminals (< 75 cols)
+		var sidebarWidth int
+		if msg.Width < 75 {
+			sidebarWidth = 0
+		} else if msg.Width < 100 {
+			sidebarWidth = 26
+		} else {
+			sidebarWidth = 30
 		}
 
 		mainContainerWidth := msg.Width - sidebarWidth
@@ -62,6 +65,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if vpHeight < 1 {
 			vpHeight = 1
 		}
+
+		// Input box width: container width is msg.Width - 2
+		// Inside: Pill (~10) + Hint (~14) + spacing (~4) = 28
+		inputWidth := msg.Width - 28
+		if inputWidth < 10 {
+			inputWidth = 10
+		}
+		m.input.SetWidth(inputWidth)
 
 		if !m.ready {
 			m.viewport = viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))

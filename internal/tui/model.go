@@ -49,10 +49,10 @@ type Styles struct {
 	ObjectionBadge     lipgloss.Style
 
 	// Markdown Formatting
-	MdBold        lipgloss.Style
-	MdInlineCode  lipgloss.Style
-	MdCodeBlock   lipgloss.Style
-	MdBullet      lipgloss.Style
+	MdBold       lipgloss.Style
+	MdInlineCode lipgloss.Style
+	MdCodeBlock  lipgloss.Style
+	MdBullet     lipgloss.Style
 
 	// Tool Call Cards
 	ToolCallBox    lipgloss.Style
@@ -82,256 +82,284 @@ type Styles struct {
 	SpinnerStyle      lipgloss.Style
 }
 
-// DefaultStyles returns a curated Catppuccin Mocha / CommandCode palette for production terminals.
+// DefaultStyles returns a premium obsidian dark palette with glowing accents,
+// inspired by Claude Code / Cursor CLI / Warp Terminal aesthetics.
 func DefaultStyles() Styles {
+	var (
+		obsidian    = lipgloss.Color("#0A0E17")
+		obsidianAlt = lipgloss.Color("#0F172A")
+		surface     = lipgloss.Color("#131A2A")
+		border      = lipgloss.Color("#1E293B")
+		borderSoft  = lipgloss.Color("#293548")
+		muted       = lipgloss.Color("#64748B")
+		mutedSoft   = lipgloss.Color("#475569")
+		textPrimary = lipgloss.Color("#F1F5F9")
+		textDim     = lipgloss.Color("#94A3B8")
+
+		violet    = lipgloss.Color("#8B5CF6")
+		violetLt  = lipgloss.Color("#C4B5FD")
+		cyan      = lipgloss.Color("#06B6D4")
+		cyanLt    = lipgloss.Color("#67E8F9")
+		emerald   = lipgloss.Color("#10B981")
+		emeraldLt = lipgloss.Color("#6EE7B7")
+		amber     = lipgloss.Color("#F59E0B")
+		amberLt   = lipgloss.Color("#FCD34D")
+		blue      = lipgloss.Color("#3B82F6")
+		blueLt    = lipgloss.Color("#93C5FD")
+		red       = lipgloss.Color("#F43F5E")
+		redLt     = lipgloss.Color("#FDA4AF")
+		pink      = lipgloss.Color("#EC4899")
+	)
+
 	return Styles{
-		// Header Strip
+		// ── Header Strip ──────────────────────────────────────────────
 		TitleBrand: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#7C3AED")). // Deep Purple
-			Padding(0, 1),
+			Background(violet).
+			Padding(0, 2),
 
 		TitleVersion: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#1E293B")).
-			Background(lipgloss.Color("#38BDF8")). // Sky Blue
+			Foreground(obsidian).
+			Background(cyanLt).
 			Padding(0, 1),
 
 		TitleCenter: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E2E8F0")).
-			Background(lipgloss.Color("#0F172A")). // Slate Dark
+			Foreground(textDim).
+			Background(obsidianAlt).
 			Padding(0, 1),
 
 		TitleKeycapKey: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#F8FAFC")).
-			Background(lipgloss.Color("#334155")). // Slate 700
+			Foreground(violetLt).
+			Background(surface).
 			Padding(0, 1),
 
 		TitleKeycapLabel: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#94A3B8")).
-			Background(lipgloss.Color("#1E293B")). // Slate 800
+			Foreground(muted).
+			Background(obsidianAlt).
 			Padding(0, 1),
 
-		// Sidebar Panel
+		// ── Sidebar Panel ─────────────────────────────────────────────
 		SidebarContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#334155")).
-			Background(lipgloss.Color("#0F172A")).
+			BorderForeground(violet).
+			Background(obsidian).
 			Padding(0, 1),
 
 		SidebarHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#A855F7")), // Violet
+			Foreground(violetLt),
 
 		SidebarSubHeader: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748B")),
+			Foreground(muted),
 
 		SidebarLabel: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#94A3B8")),
+			Foreground(textDim),
 
 		SidebarValue: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F1F5F9")),
+			Foreground(textPrimary),
 
 		SidebarBadgeIdle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0F172A")).
-			Background(lipgloss.Color("#22C55E")). // Green
+			Foreground(obsidian).
+			Background(emerald).
 			Padding(0, 1),
 
 		SidebarBadgeActive: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0F172A")).
-			Background(lipgloss.Color("#F59E0B")). // Amber
+			Foreground(obsidian).
+			Background(amber).
 			Padding(0, 1),
 
 		SidebarBadgeThink: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#8B5CF6")). // Purple
+			Background(violet).
 			Padding(0, 1),
 
 		SidebarMeterFill: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22C55E")),
+			Foreground(emerald),
 
 		SidebarMeterEmpty: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#334155")),
+			Foreground(border),
 
-		// Speaker Name Pills
+		// ── Speaker Name Pills ────────────────────────────────────────
 		YouPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#2563EB")). // Royal Blue
+			Background(blue).
 			Padding(0, 1),
 
 		CoderPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#9333EA")). // Deep Purple
+			Background(violet).
 			Padding(0, 1),
 
 		ReviewerPill: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0F172A")).
-			Background(lipgloss.Color("#F59E0B")). // Amber
+			Foreground(obsidian).
+			Background(amber).
 			Padding(0, 1),
 
 		SystemPill: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0F172A")).
-			Background(lipgloss.Color("#06B6D4")). // Cyan
+			Foreground(obsidian).
+			Background(cyan).
 			Padding(0, 1),
 
 		Timestamp: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748B")).
+			Foreground(mutedSoft).
 			Italic(true),
 
-		// Message Feed Callouts & Accents
+		// ── Message Feed Callouts & Accents ──────────────────────────
 		UserCalloutBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#3B82F6")).
-			Background(lipgloss.Color("#1E293B")).
+			BorderForeground(blue).
+			Background(surface).
+			Foreground(textPrimary).
 			Padding(0, 1),
 
 		YouMessageBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#3B82F6")).
+			Foreground(blueLt).
 			Bold(true),
 
 		CoderMessageBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A855F7")).
+			Foreground(violetLt).
 			Bold(true),
 
 		ReviewerMessageBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).
+			Foreground(amberLt).
 			Bold(true),
 
 		ApprovedBadge: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#22C55E")).
+			Foreground(lipgloss.Color("#FFFFFF")).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#22C55E")).
-			Background(lipgloss.Color("#052E16")).
+			BorderForeground(emerald).
+			Background(lipgloss.Color("#022C22")).
 			Padding(0, 1),
 
 		ObjectionBadge: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#EF4444")).
+			Foreground(lipgloss.Color("#FFFFFF")).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#EF4444")).
+			BorderForeground(red).
 			Background(lipgloss.Color("#450A0A")).
 			Padding(0, 1),
 
-		// Markdown Formatting
+		// ── Markdown Formatting ───────────────────────────────────────
 		MdBold: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#F8FAFC")),
+			Foreground(textPrimary),
 
 		MdInlineCode: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#38BDF8")).
-			Background(lipgloss.Color("#1E293B")).
+			Foreground(cyanLt).
+			Background(surface).
 			Padding(0, 1),
 
 		MdCodeBlock: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#475569")).
-			Background(lipgloss.Color("#0F172A")).
+			BorderForeground(borderSoft).
+			Background(obsidianAlt).
 			Padding(0, 1),
 
 		MdBullet: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A855F7")),
+			Foreground(violetLt),
 
-		// Tool Action Card Panel
+		// ── Tool Action Card Panel ────────────────────────────────────
 		ToolCallBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#8B5CF6")).
-			Background(lipgloss.Color("#090D16")).
+			BorderForeground(violet).
+			Background(lipgloss.Color("#0B0F1C")).
 			Padding(0, 1),
 
 		ToolCallHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#C084FC")),
+			Foreground(violetLt),
 
 		ToolCallFunc: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#38BDF8")),
+			Foreground(cyanLt),
 
 		ToolCallKey: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#818CF8")),
+			Foreground(lipgloss.Color("#A5B4FC")),
 
 		ToolCallVal: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4ADE80")),
+			Foreground(emeraldLt),
 
 		ToolCallNum: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F472B6")),
+			Foreground(pink),
 
-		// Input Box & Prompts
+		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#3B82F6")).
-			Background(lipgloss.Color("#0F172A")).
+			BorderForeground(blue).
+			Background(obsidianAlt).
 			Padding(0, 1),
 
 		InputPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#2563EB")).
+			Background(blue).
 			Padding(0, 1),
 
 		InputPrompt: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#38BDF8")),
+			Foreground(cyanLt),
 
 		InputHint: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748B")).
+			Foreground(muted).
 			Italic(true),
 
-		// Pipeline Dock Steps
+		// ── Pipeline Dock Steps ───────────────────────────────────────
 		PipelineStepActive: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#7C3AED")).
+			Background(violet).
 			Padding(0, 1),
 
 		PipelineStepPending: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#94A3B8")).
-			Background(lipgloss.Color("#1E293B")).
+			Foreground(muted).
+			Background(surface).
 			Padding(0, 1),
 
 		PipelineStepDone: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0F172A")).
-			Background(lipgloss.Color("#22C55E")).
+			Foreground(obsidian).
+			Background(emerald).
 			Padding(0, 1),
 
 		PipelineArrow: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748B")),
+			Foreground(mutedSoft),
 
-		// Transcript Viewport
+		// ── Transcript Viewport ───────────────────────────────────────
 		ViewportContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#334155")).
-			Background(lipgloss.Color("#0B0F19")),
+			BorderForeground(border).
+			Background(obsidian),
 
 		EntryContent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E2E8F0")),
+			Foreground(textPrimary),
 
 		ActionResult: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#94A3B8")),
+			Foreground(textDim),
 
 		ErrorContent: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#EF4444")),
+			Foreground(redLt),
 
 		StatusBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FDE047")).
-			Background(lipgloss.Color("#0F172A")).
+			Foreground(amberLt).
+			Background(obsidianAlt).
 			Padding(0, 1),
 
 		SpinnerStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A855F7")).
+			Foreground(violetLt).
 			Bold(true),
 	}
 }
@@ -374,6 +402,7 @@ func NewModel(
 	ti := textinput.New()
 	ti.Placeholder = "Ask Triad to build a feature, edit code, or analyze tasks..."
 	ti.Prompt = " ❯ "
+	ti.SetWidth(40)
 	ti.Focus()
 
 	sp := spinner.New(

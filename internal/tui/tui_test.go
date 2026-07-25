@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -280,5 +281,32 @@ func TestTUI_Phase7_Badges(t *testing.T) {
 		t.Fatalf("expected non-empty transcript output with badges")
 	}
 }
+
+func TestTUI_HeightBudgetAndClipping(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	testDimensions := []struct {
+		w, h int
+	}{
+		{80, 24},
+		{100, 30},
+		{60, 15},
+		{120, 40},
+	}
+
+	for _, dim := range testDimensions {
+		updated, _ := model.Update(tea.WindowSizeMsg{Width: dim.w, Height: dim.h})
+		m := updated.(Model)
+		v := m.View()
+
+		lines := strings.Split(v.Content, "\n")
+		if len(lines) > dim.h {
+			t.Errorf("View output for %dx%d produced %d lines, expected <= %d", dim.w, dim.h, len(lines), dim.h)
+		}
+	}
+}
+
 
 
