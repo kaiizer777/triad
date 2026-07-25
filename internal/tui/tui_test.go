@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/loop"
@@ -302,8 +303,15 @@ func TestTUI_HeightBudgetAndClipping(t *testing.T) {
 		v := m.View()
 
 		lines := strings.Split(v.Content, "\n")
-		if len(lines) > dim.h {
-			t.Errorf("View output for %dx%d produced %d lines, expected <= %d", dim.w, dim.h, len(lines), dim.h)
+		if len(lines) != dim.h {
+			t.Errorf("View output for %dx%d produced %d lines, expected exactly %d", dim.w, dim.h, len(lines), dim.h)
+		}
+
+		for idx, line := range lines {
+			visualWidth := lipgloss.Width(line)
+			if visualWidth > dim.w {
+				t.Errorf("View output line %d for %dx%d has visual width %d, expected <= %d", idx, dim.w, dim.h, visualWidth, dim.w)
+			}
 		}
 	}
 }

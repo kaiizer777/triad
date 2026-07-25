@@ -17,51 +17,65 @@ func (m Model) View() tea.View {
 		return tea.NewView(" ⚡ Initializing Triad Studio UI...")
 	}
 
+	width := m.width
+	height := m.height
+	if width < 10 {
+		width = 10
+	}
+	if height < 10 {
+		height = 10
+	}
+
 	// 1. Top Title Bar (1 line)
-	header := m.renderTitleBar(m.width)
+	header := m.renderTitleBar(width)
 
 	// 2. Middle 2-Panel Section (Sidebar + Viewport)
 	// Vertical budget: Header(1) + PipelineDock(1) + Status(1) + InputBar(3) = 6 lines
-	availHeight := m.height - 6
+	availHeight := height - 6
 	if availHeight < 1 {
 		availHeight = 1
 	}
 
 	var middlePanel string
-	if m.width < 75 {
+	if width < 75 {
 		// Responsive mode: hide sidebar on small terminal width
-		vpContainer := m.styles.ViewportContainer.
-			Width(m.width - 2).
-			Height(availHeight).
+		vpContentWidth := max(1, width-m.styles.ViewportContainer.GetHorizontalFrameSize())
+		vpContentHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
+
+		middlePanel = m.styles.ViewportContainer.
+			Width(vpContentWidth).
+			Height(vpContentHeight).
 			Render(m.viewport.View())
-		middlePanel = vpContainer
 	} else {
 		sidebarWidth := 30
-		if m.width < 100 {
+		if width < 100 {
 			sidebarWidth = 26
 		}
 
 		sidebar := m.renderSidebar(sidebarWidth, availHeight)
 
-		mainContainerWidth := m.width - sidebarWidth
+		mainContainerWidth := width - sidebarWidth
 		if mainContainerWidth < 10 {
 			mainContainerWidth = 10
 		}
 
+		vpContentWidth := max(1, mainContainerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
+		vpContentHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
+
 		vpContainer := m.styles.ViewportContainer.
-			Width(mainContainerWidth - 2).
-			Height(availHeight).
+			Width(vpContentWidth).
+			Height(vpContentHeight).
 			Render(m.viewport.View())
 
 		middlePanel = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, vpContainer)
 	}
 
 	// 3. Pipeline Step Dock & Status Bar (1 line each)
-	pipelineDock := m.renderPipelineDock(m.width)
-	statusBar := m.renderStatusBar(m.width)
+	pipelineDock := m.renderPipelineDock(width)
+	statusBar := m.renderStatusBar(width)
 
 	// 4. Input Bar (3 lines)
-	inputBar := m.renderInputBar(m.width)
+	inputBar := m.renderInputBar(width)
 
 	// Combine all vertically
 	content := lipgloss.JoinVertical(
@@ -73,10 +87,10 @@ func (m Model) View() tea.View {
 		inputBar,
 	)
 
-	// Fail-safe height clipping: guarantee no terminal vertical scrolling
-	content = fitToHeight(content, m.height)
+	// Fail-safe height and width clipping: guarantee no terminal wrapping or vertical scrolling
+	formattedContent := fitToCanvas(content, width, height)
 
-	v := tea.NewView(content)
+	v := tea.NewView(formattedContent)
 	v.AltScreen = true
 	return v
 }
@@ -88,15 +102,22 @@ func (m Model) renderTitleBar(width int) string {
 	version := m.styles.TitleVersion.Render(" v1.0.0 ")
 	left := lipgloss.JoinHorizontal(lipgloss.Top, brand, version)
 
-	// Right side keycaps
-	k1 := m.styles.TitleKeycapKey.Render("Esc")
-	l1 := m.styles.TitleKeycapLabel.Render("Quit")
-	k2 := m.styles.TitleKeycapKey.Render("Enter")
-	l2 := m.styles.TitleKeycapLabel.Render("Submit")
-	k3 := m.styles.TitleKeycapKey.Render("↑↓")
-	l3 := m.styles.TitleKeycapLabel.Render("Scroll ")
-
-	right := lipgloss.JoinHorizontal(lipgloss.Top, k1, l1, k2, l2, k3, l3)
+	var right string
+	if width < 90 {
+		k1 := m.styles.TitleKeycapKey.Render("Esc")
+		l1 := m.styles.TitleKeycapLabel.Render("Quit ")
+		k2 := m.styles.TitleKeycapKey.Render("Enter")
+		l2 := m.styles.TitleKeycapLabel.Render("Submit ")
+		right = lipgloss.JoinHorizontal(lipgloss.Top, k1, l1, k2, l2)
+	} else {
+		k1 := m.styles.TitleKeycapKey.Render("Esc")
+		l1 := m.styles.TitleKeycapLabel.Render("Quit ")
+		k2 := m.styles.TitleKeycapKey.Render("Enter")
+		l2 := m.styles.TitleKeycapLabel.Render("Submit ")
+		k3 := m.styles.TitleKeycapKey.Render("↑↓")
+		l3 := m.styles.TitleKeycapLabel.Render("Scroll ")
+		right = lipgloss.JoinHorizontal(lipgloss.Top, k1, l1, k2, l2, k3, l3)
+	}
 
 	centerWidth := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if centerWidth < 0 {
@@ -116,7 +137,8 @@ func (m Model) renderTitleBar(width int) string {
 	}
 
 	centerContent := fmt.Sprintf(" 📁 %s   ⋮   %s ", sessionFile, stateIndicator)
-	center := m.styles.TitleCenter.Width(centerWidth).Render(truncateLine(centerContent, centerWidth))
+	centerStyleWidth := max(0, centerWidth-m.styles.TitleCenter.GetHorizontalFrameSize())
+	center := m.styles.TitleCenter.Width(centerStyleWidth).Render(truncateLine(centerContent, centerWidth))
 
 	res := lipgloss.JoinHorizontal(lipgloss.Top, left, center, right)
 	return clipLines(res, 1)
@@ -124,9 +146,17 @@ func (m Model) renderTitleBar(width int) string {
 
 // renderSidebar constructs the left metadata & controls sidebar panel.
 func (m Model) renderSidebar(width int, height int) string {
-	containerHeight := height - 2 // inner content height inside borders
-	if containerHeight < 1 {
-		containerHeight = 1
+	frameHoriz := m.styles.SidebarContainer.GetHorizontalFrameSize()
+	frameVert := m.styles.SidebarContainer.GetVerticalFrameSize()
+
+	innerWidth := width - frameHoriz
+	if innerWidth < 4 {
+		innerWidth = 4
+	}
+
+	innerHeight := height - frameVert
+	if innerHeight < 1 {
+		innerHeight = 1
 	}
 
 	var sb strings.Builder
@@ -134,7 +164,7 @@ func (m Model) renderSidebar(width int, height int) string {
 	// Header / Title
 	sb.WriteString(m.styles.SidebarHeader.Render("◈ SESSION OVERVIEW"))
 	sb.WriteString("\n")
-	sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", max(1, width-4))))
+	sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
 	sb.WriteString("\n")
 
 	// State
@@ -151,48 +181,53 @@ func (m Model) renderSidebar(width int, height int) string {
 
 	// Paths
 	sb.WriteString(m.styles.SidebarLabel.Render("📂 Workdir: "))
-	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(m.workDir, max(4, width-14))))
+	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(m.workDir, max(4, innerWidth-11))))
 	sb.WriteString("\n")
 
 	filePath := m.transcript.FilePath()
 	sb.WriteString(m.styles.SidebarLabel.Render("📝 Session: "))
-	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(filePath, max(4, width-14))))
+	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(filePath, max(4, innerWidth-11))))
 	sb.WriteString("\n\n")
 
 	// Dual Agents
-	if containerHeight >= 12 {
+	if innerHeight >= 10 {
 		sb.WriteString(m.styles.SidebarHeader.Render("◈ DUAL AGENTS"))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", max(1, width-4))))
+		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.CoderPill.Render(" CODER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.coder.Model, max(4, width-12))))
+		sb.WriteString(m.styles.CoderPill.Render(" CODER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.coder.Model, max(4, innerWidth-10))))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.ReviewerPill.Render(" REVIEWER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.reviewer.Model, max(4, width-14))))
+		sb.WriteString(m.styles.ReviewerPill.Render(" REVIEWER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.reviewer.Model, max(4, innerWidth-13))))
 		sb.WriteString("\n\n")
 	}
 
 	// Metrics
-	if containerHeight >= 16 {
+	if innerHeight >= 14 {
 		sb.WriteString(m.styles.SidebarHeader.Render("◈ METRICS"))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", max(1, width-4))))
-		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarLabel.Render("↻ Retries  "))
-		sb.WriteString(renderProgressBar(m.retryCount, m.MaxRetries, m.styles))
-		sb.WriteString(m.styles.SidebarValue.Render(fmt.Sprintf(" %d/%d", m.retryCount, m.MaxRetries)))
+		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
 		sb.WriteString("\n")
 
+		retriesStr := fmt.Sprintf(" %d/%d", m.retryCount, m.MaxRetries)
+		meterWidthR := max(2, innerWidth-11-len(retriesStr))
+		sb.WriteString(m.styles.SidebarLabel.Render("↻ Retries  "))
+		sb.WriteString(renderProgressBar(m.retryCount, m.MaxRetries, meterWidthR, m.styles))
+		sb.WriteString(m.styles.SidebarValue.Render(retriesStr))
+		sb.WriteString("\n")
+
+		turnsStr := fmt.Sprintf(" %d/%d", m.plainTextTurns, MaxPlainTextTurns)
+		meterWidthT := max(2, innerWidth-11-len(turnsStr))
 		sb.WriteString(m.styles.SidebarLabel.Render("💬 Turns    "))
-		sb.WriteString(renderProgressBar(m.plainTextTurns, MaxPlainTextTurns, m.styles))
-		sb.WriteString(m.styles.SidebarValue.Render(fmt.Sprintf(" %d/%d", m.plainTextTurns, MaxPlainTextTurns)))
+		sb.WriteString(renderProgressBar(m.plainTextTurns, MaxPlainTextTurns, meterWidthT, m.styles))
+		sb.WriteString(m.styles.SidebarValue.Render(turnsStr))
 		sb.WriteString("\n\n")
 	}
 
 	// Controls
-	if containerHeight >= 20 {
+	if innerHeight >= 18 {
 		sb.WriteString(m.styles.SidebarHeader.Render("◈ CONTROLS"))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", max(1, width-4))))
+		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
 		sb.WriteString("\n")
 		sb.WriteString(m.styles.TitleKeycapKey.Render("Enter") + " " + m.styles.SidebarValue.Render("Submit"))
 		sb.WriteString("  ")
@@ -201,16 +236,11 @@ func (m Model) renderSidebar(width int, height int) string {
 		sb.WriteString(m.styles.TitleKeycapKey.Render("↑/↓") + " " + m.styles.SidebarValue.Render("Scroll Feed"))
 	}
 
-	containerWidth := width - 2
-	if containerWidth < 10 {
-		containerWidth = 10
-	}
-
-	clipped := clipLines(sb.String(), containerHeight)
+	clipped := clipLines(sb.String(), innerHeight)
 
 	return m.styles.SidebarContainer.
-		Width(containerWidth).
-		Height(height).
+		Width(innerWidth).
+		Height(innerHeight).
 		Render(clipped)
 }
 
@@ -219,7 +249,7 @@ func (m Model) renderSidebar(width int, height int) string {
 func (m Model) renderPipelineDock(width int) string {
 	var s1, s2, s3, s4 string
 
-	if width < 75 {
+	if width < 85 {
 		s1 = m.styles.PipelineStepDone.Render(" 1 ⬤ ")
 		s2 = m.styles.PipelineStepPending.Render(" 2 ○ ")
 		s3 = m.styles.PipelineStepPending.Render(" 3 ○ ")
@@ -264,7 +294,8 @@ func (m Model) renderPipelineDock(width int) string {
 	arrow := m.styles.PipelineArrow.Render(" ➔ ")
 	dockContent := lipgloss.JoinHorizontal(lipgloss.Top, s1, arrow, s2, arrow, s3, arrow, s4)
 
-	res := m.styles.TitleCenter.Width(width).Render(" ⛭ PIPELINE  " + dockContent)
+	contentStyleWidth := max(0, width-m.styles.TitleCenter.GetHorizontalFrameSize())
+	res := m.styles.TitleCenter.Width(contentStyleWidth).Render(" ⛭ PIPELINE  " + dockContent)
 	return clipLines(res, 1)
 }
 
@@ -276,8 +307,9 @@ func (m Model) renderStatusBar(width int) string {
 	} else {
 		statusText = fmt.Sprintf(" ✓ %s", m.statusMessage)
 	}
-	truncated := truncateLine(statusText, max(10, width-2))
-	res := m.styles.StatusBar.Width(width).Render(truncated)
+	truncated := truncateLine(statusText, max(10, width-4))
+	contentStyleWidth := max(0, width-m.styles.StatusBar.GetHorizontalFrameSize())
+	res := m.styles.StatusBar.Width(contentStyleWidth).Render(truncated)
 	return clipLines(res, 1)
 }
 
@@ -286,10 +318,7 @@ func (m Model) renderInputBar(width int) string {
 	pill := m.styles.InputPill.Render(" 💬 YOU ❯ ")
 	inputView := m.input.View()
 
-	containerWidth := width - 2
-	if containerWidth < 10 {
-		containerWidth = 10
-	}
+	containerStyleWidth := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
 
 	hintText := " [Enter ↵ Submit] "
 	if m.sessionState == loop.StateActive {
@@ -305,7 +334,7 @@ func (m Model) renderInputBar(width int) string {
 		hint,
 	)
 
-	res := m.styles.InputContainer.Width(containerWidth).Render(content)
+	res := m.styles.InputContainer.Width(containerStyleWidth).Height(1).Render(content)
 	return clipLines(res, 3)
 }
 
@@ -355,11 +384,8 @@ func (m Model) renderProposedAction(content string, width int) string {
 		sb.WriteString("\n")
 	}
 
-	boxWidth := width - 4
-	if boxWidth < 10 {
-		boxWidth = 10
-	}
-	return m.styles.ToolCallBox.Width(boxWidth).Render(strings.TrimRight(sb.String(), "\n"))
+	boxStyleWidth := max(0, width-m.styles.ToolCallBox.GetHorizontalFrameSize())
+	return m.styles.ToolCallBox.Width(boxStyleWidth).Render(strings.TrimRight(sb.String(), "\n"))
 }
 
 // renderTranscript formats all transcript entries with Lipgloss styles for the viewport.
@@ -428,11 +454,8 @@ func (m Model) renderTranscript() string {
 			}
 
 			if entry.Speaker == transcript.SpeakerYou {
-				boxWidth := m.viewport.Width() - 4
-				if boxWidth < 10 {
-					boxWidth = 10
-				}
-				body = m.styles.UserCalloutBox.Width(boxWidth).Render(content)
+				boxStyleWidth := max(0, m.viewport.Width()-m.styles.UserCalloutBox.GetHorizontalFrameSize())
+				body = m.styles.UserCalloutBox.Width(boxStyleWidth).Render(content)
 			} else {
 				lines := strings.Split(content, "\n")
 				var formattedLines []string
@@ -474,8 +497,10 @@ func truncatePath(path string, maxLen int) string {
 	return "..." + path[len(path)-(maxLen-3):]
 }
 
-func renderProgressBar(value int, maxVal int, styles Styles) string {
-	totalBlocks := 8
+func renderProgressBar(value int, maxVal int, totalBlocks int, styles Styles) string {
+	if totalBlocks < 2 {
+		totalBlocks = 2
+	}
 	filled := 0
 	if maxVal > 0 {
 		filled = (value * totalBlocks) / maxVal
@@ -510,12 +535,29 @@ func clipLines(s string, maxLines int) string {
 	return strings.Join(lines[:maxLines], "\n")
 }
 
-func fitToHeight(s string, maxLines int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= maxLines {
-		return s
+func padOrClipLine(line string, width int) string {
+	w := lipgloss.Width(line)
+	if w == width {
+		return line
 	}
-	return strings.Join(lines[:maxLines], "\n")
+	if w < width {
+		return line + strings.Repeat(" ", width-w)
+	}
+	return truncateLine(line, width)
+}
+
+func fitToCanvas(s string, width int, height int) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, height)
+
+	for i := 0; i < height; i++ {
+		if i < len(lines) {
+			out = append(out, padOrClipLine(lines[i], width))
+		} else {
+			out = append(out, strings.Repeat(" ", width))
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func truncateLine(s string, maxLen int) string {

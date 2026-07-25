@@ -56,19 +56,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mainContainerWidth = 10
 		}
 
-		// Viewport inner dimensions (subtracting 2 for container borders)
-		vpWidth := mainContainerWidth - 2
-		if vpWidth < 1 {
-			vpWidth = 1
-		}
-		vpHeight := availHeight - 2
-		if vpHeight < 1 {
-			vpHeight = 1
-		}
+		// Viewport inner dimensions using exact style frame sizes
+		vpWidth := max(1, mainContainerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
+		vpHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
 
-		// Input box width: container width is msg.Width - 2
-		// Inside: Pill (~10) + Hint (~14) + spacing (~4) = 28
-		inputWidth := msg.Width - 28
+		// Input box width:
+		inputContainerContentWidth := max(1, msg.Width-m.styles.InputContainer.GetHorizontalFrameSize())
+		inputWidth := inputContainerContentWidth - 30
 		if inputWidth < 10 {
 			inputWidth = 10
 		}
