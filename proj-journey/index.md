@@ -1,6 +1,6 @@
 # Documentation Index
 
-Welcome to the Triad documentation directory. This page serves as a navigation index for all documentation files in the `docs` folder.
+Welcome to the Triad documentation directory. This page serves as a navigation index for all documentation files in the `proj-journey` folder.
 
 ---
 

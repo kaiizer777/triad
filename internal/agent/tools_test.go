@@ -299,9 +299,11 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
 	// 6 base tools (write_file, read_file, run_command, task_complete,
-	// spawn_subagent, spawn_twin_subagent) + 5 browser_* tools + 1 web_search tool.
-	if len(tools) != 12 {
-		t.Fatalf("expected 12 tools, got %d", len(tools))
+	// spawn_subagent, spawn_twin_subagent) + 6 browser_* tools
+	// (navigate/click/type/get_text/screenshot + wait_for, Work 4
+	// Phase 2.3) + 1 web_search tool.
+	if len(tools) != 13 {
+		t.Fatalf("expected 13 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -317,10 +319,12 @@ func TestCoderTools_JSONShape(t *testing.T) {
 		if tool.Function.Parameters.Type != "object" {
 			t.Errorf("tool %q: parameters.type must be 'object', got %q", tool.Function.Name, tool.Function.Parameters.Type)
 		}
-		// task_complete, browser_get_text, and browser_screenshot
-		// intentionally have zero required parameters (the latter
-		// two default to reading the page body / taking a viewport
-		// screenshot).
+		// task_complete, browser_get_text, browser_screenshot, and
+		// the legacy browser_wait_for-like variants intentionally
+		// have zero required parameters (the latter three default to
+		// reading the page body / taking a viewport screenshot /
+		// waiting for the page load). browser_wait_for requires
+		// 'kind' so it is NOT in this skip-list.
 		if len(tool.Function.Parameters.Required) == 0 &&
 			tool.Function.Name != "task_complete" &&
 			tool.Function.Name != "browser_get_text" &&
@@ -331,7 +335,7 @@ func TestCoderTools_JSONShape(t *testing.T) {
 
 	required := []string{
 		"write_file", "read_file", "run_command", "task_complete", "spawn_subagent", "spawn_twin_subagent",
-		"browser_navigate", "browser_click", "browser_type", "browser_get_text", "browser_screenshot",
+		"browser_navigate", "browser_click", "browser_type", "browser_get_text", "browser_screenshot", "browser_wait_for",
 	}
 	for _, name := range required {
 		if !names[name] {

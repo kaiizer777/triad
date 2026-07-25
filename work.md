@@ -72,11 +72,11 @@ action. Move to Phase 1 when ready.
 tools toward the selector strategy the field has converged on, since this is
 the single biggest lever for reliability (§0.2).
 
-- [ ] 1.1 — Audit current selector handling in `internal/browser`: confirm
+- [x] 1.1 — Audit current selector handling in `internal/browser`: confirm
       whether Coder is currently free to pass any CSS selector string
       (including fragile, layout-tied ones) with no guidance, or whether
       there's already a preference toward stable selectors
-- [ ] 1.2 — Update Coder's system prompt (the one used when browser tools
+- [x] 1.2 — Update Coder's system prompt (the one used when browser tools
       are available) to follow the confirmed 2026 fallback chain, in order:
       **role+accessible-name first → visible text/label second → CSS
       class/attribute only as a last resort, never positional/nth-child**.
@@ -85,22 +85,22 @@ the single biggest lever for reliability (§0.2).
       locators"), not just a general best practice — instruct Coder to
       follow this exact order rather than picking whichever selector type
       comes to mind first
-- [ ] 1.3 — If Playwright-go's locator API supports role-based queries
+- [x] 1.3 — If Playwright-go's locator API supports role-based queries
       (verify current API surface — don't assume feature parity with the
       JS/Python Playwright libraries, since Go bindings sometimes lag),
       wire `browser_click`/`browser_type` to accept a `strategy` hint
       (`role`, `text`, `css`) alongside the selector, so Coder's intent is
       explicit rather than everything being parsed as a raw CSS string
-- [ ] 1.4 — Never accept absolute positional selectors (e.g. "third button
+- [x] 1.4 — Never accept absolute positional selectors (e.g. "third button
       on the page," nth-child chains with no semantic anchor) — if Coder's
       proposed selector looks purely positional, this is a signal worth
       surfacing to Reviewer as a quality concern, not just executing it
       silently
-- [ ] 1.5 — **Test:** run a task against a page with realistic messy markup
+- [x] 1.5 — **Test:** run a task against a page with realistic messy markup
       (reused classes, no IDs on some elements), confirm role/text-based
       targeting succeeds where a naive CSS-class selector would have been
       fragile
-- [ ] 1.6 — **Test:** confirm a genuinely positional-only selector proposal
+- [x] 1.6 — **Test:** confirm a genuinely positional-only selector proposal
       gets flagged rather than silently executed
 
 **Checkpoint:** Coder defaults to stable, semantic selectors instead of
@@ -115,32 +115,32 @@ directly.
 commonly cited flakiness cause across every source researched for this
 document.
 
-- [ ] 2.1 — Audit current wait behavior: confirm whether `browser_click`/
+- [x] 2.1 — Audit current wait behavior: confirm whether `browser_click`/
       `browser_type`/`browser_get_text` currently rely on Playwright's
       built-in auto-waiting (actionability checks before interacting with an
       element) or whether any manual/fixed-delay waiting exists anywhere in
       the current implementation
-- [ ] 2.2 — Where manual delays exist, replace them with condition-based
+- [x] 2.2 — Where manual delays exist, replace them with condition-based
       waits tied to an actual signal — element visible/attached, network
       idle, a specific text appearing — never a fixed `sleep(N)`, per the
       universally-converged finding that hard waits are both slower and
       still don't guarantee correctness
-- [ ] 2.3 — Add a new tool, `browser_wait_for(condition)`, giving Coder an
+- [x] 2.3 — Add a new tool, `browser_wait_for(condition)`, giving Coder an
       explicit way to wait for a specific signal (e.g. "wait until text
       'Success' appears," "wait until element X is visible") rather than
       guessing that a fixed pause after `browser_click` is enough — this
       also makes waiting a visible, reviewable action in the transcript
       instead of invisible internal timing
-- [ ] 2.4 — Set an explicit, configurable default timeout for all
+- [x] 2.4 — Set an explicit, configurable default timeout for all
       wait/actionability checks (not unlimited) — a hung wait should
       surface as a clear failure back to Coder/Reviewer, not freeze the
       loop, mirroring the existing `run_command` timeout pattern from
       Workflow 2 §8.3
-- [ ] 2.5 — **Test:** a page with a deliberately delayed element (e.g.
+- [x] 2.5 — **Test:** a page with a deliberately delayed element (e.g.
       content that appears 2 seconds after page load) — confirm the tool
       correctly waits for it rather than failing immediately or guessing a
       fixed delay that happens to work today but might not tomorrow
-- [ ] 2.6 — **Test:** confirm the timeout from 2.4 actually triggers on a
+- [x] 2.6 — **Test:** confirm the timeout from 2.4 actually triggers on a
       genuinely-never-appearing condition, surfacing a clear failure rather
       than hanging
 

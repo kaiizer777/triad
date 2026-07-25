@@ -23,6 +23,7 @@ func TestIsBrowserTool(t *testing.T) {
 		{"type", "browser_type", true},
 		{"get_text", "browser_get_text", true},
 		{"screenshot", "browser_screenshot", true},
+		{"wait_for", "browser_wait_for", true},
 		{"write_file_rejected", "write_file", false},
 		{"read_file_rejected", "read_file", false},
 		{"run_command_rejected", "run_command", false},

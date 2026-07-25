@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -36,7 +37,8 @@ func IsBrowserTool(name string) bool {
 		"browser_click",
 		"browser_type",
 		"browser_get_text",
-		"browser_screenshot":
+		"browser_screenshot",
+		"browser_wait_for":
 		return true
 	}
 	return false
@@ -62,23 +64,30 @@ type NavigateArgs struct {
 
 // ClickArgs is the decoded argument struct for browser_click. Selector
 // is a CSS / text / Playwright selector — Playwright accepts the
-// engine-specific syntax directly.
+// engine-specific syntax directly. Strategy is an optional hint
+// (Work 4 Phase 1.3) that tells the browser which Playwright Locator
+// factory to use: "role", "text", "label", "placeholder", "testid",
+// "title", "alt", or "css" (default).
 type ClickArgs struct {
-	Selector string `json:"selector"`
+	Selector string        `json:"selector"`
+	Strategy SelectStrategy `json:"strategy,omitempty"`
 }
 
 // TypeArgs is the decoded argument struct for browser_type. We use
 // `text` rather than `value` so the model isn't tempted to confuse
 // this with the read_file `path` argument; the schema description
-// spells out the distinction.
+// spells out the distinction. Strategy mirrors ClickArgs.Strategy.
 type TypeArgs struct {
-	Selector string `json:"selector"`
-	Text     string `json:"text"`
+	Selector string        `json:"selector"`
+	Text     string        `json:"text"`
+	Strategy SelectStrategy `json:"strategy,omitempty"`
 }
 
 // GetTextArgs is the decoded argument struct for browser_get_text.
+// Strategy mirrors ClickArgs.Strategy.
 type GetTextArgs struct {
-	Selector string `json:"selector"`
+	Selector string        `json:"selector"`
+	Strategy SelectStrategy `json:"strategy,omitempty"`
 }
 
 // ScreenshotArgs is the decoded argument struct for browser_screenshot.
@@ -89,6 +98,76 @@ type GetTextArgs struct {
 type ScreenshotArgs struct {
 	Path     string `json:"path"`
 	FullPage bool   `json:"full_page"`
+}
+
+// WaitCondition is the condition shape Coder passes to
+// browser_wait_for. Work 4 Phase 2 covers three concrete cases that
+// all map onto existing Playwright auto-waiting primitives, with an
+// explicit timeout that surfaces as a clear failure when the signal
+// never arrives:
+//
+//   - "text"   — wait until the page contains the given visible text
+//     (substring match by default, exact-match when Exact is true).
+//     Maps to page.GetByText(...).WaitFor().
+//   - "visible" — wait until the element matching Selector+Strategy is
+//     attached to the DOM and visible. Mirrors Phase 1's selector
+//     plumbing so wait_for reuses the same stable, semantic
+//     strategies. Maps to Locator.WaitFor().
+//   - "url"    — wait until the page navigates to a URL matching the
+//     given substring (e.g. "/dashboard", "?error=1"). Maps to
+//     page.WaitForURL().
+//
+// "network_idle" was an obvious candidate (Playwright supports it
+// natively) but we deliberately leave it out for now: it's the most
+// expensive wait in real usage, and Coder rarely needs it. Easy to
+// add later if a real use case shows up.
+type WaitCondition struct {
+	// Kind selects the wait primitive. One of: "text", "visible", "url".
+	Kind string `json:"kind"`
+
+	// Selector + Strategy are used when Kind == "visible". They reuse
+	// the same SelectStrategy enum and LocatorForStrategy factory from
+	// Phase 1, so wait_for and click target the same elements with the
+	// same semantic discipline.
+	Selector string         `json:"selector,omitempty"`
+	Strategy SelectStrategy `json:"strategy,omitempty"`
+
+	// Text is used when Kind == "text". Visible page text to wait for.
+	Text string `json:"text,omitempty"`
+
+	// Exact selects exact-match semantics for Kind == "text". Has no
+	// effect on other kinds.
+	Exact bool `json:"exact,omitempty"`
+
+	// URL is used when Kind == "url". A substring match against the
+	// page's current URL (page.WaitForURL's documented default).
+	URL string `json:"url,omitempty"`
+
+	// TimeoutMS overrides the default wait timeout for this call.
+	// 0 means "use DefaultTimeout". Capped on the high side by
+	// MaxWaitTimeout so a model can't ask us to hang for an hour.
+	TimeoutMS int `json:"timeout_ms,omitempty"`
+}
+
+// MaxWaitTimeout is the upper bound for any browser_wait_for timeout,
+// regardless of what the caller passes. Two minutes is enough for any
+// realistic page render or navigation we care about, and prevents a
+// pathological "timeout_ms: 99999999" from hanging the loop.
+const MaxWaitTimeout = 2 * time.Minute
+
+// resolveWaitTimeout returns the effective wait timeout for a
+// browser_wait_for call. Honors TimeoutMS when in (0, MaxWaitTimeout],
+// falls back to DefaultTimeout for 0 (unset), and clamps anything
+// larger to MaxWaitTimeout so we never wait longer than that.
+func resolveWaitTimeout(ms int) time.Duration {
+	switch {
+	case ms <= 0:
+		return DefaultTimeout
+	case time.Duration(ms)*time.Millisecond > MaxWaitTimeout:
+		return MaxWaitTimeout
+	default:
+		return time.Duration(ms) * time.Millisecond
+	}
 }
 
 // validateSelector does a minimal sanity check on a selector. Playwright
@@ -155,6 +234,8 @@ func (m *Manager) ExecuteTool(workDir, name, rawArgs string) (string, error) {
 		return m.ExecuteGetText(rawArgs)
 	case "browser_screenshot":
 		return m.ExecuteScreenshot(workDir, rawArgs)
+	case "browser_wait_for":
+		return m.ExecuteWaitFor(rawArgs)
 	default:
 		return "", fmt.Errorf("browser.ExecuteTool: %q is not a browser tool", name)
 	}
@@ -200,13 +281,26 @@ func (m *Manager) ExecuteNavigate(rawArgs string) (string, error) {
 
 // ExecuteClick clicks the element matching selector. Waits for the
 // element to be visible before clicking (Playwright default), with the
-// default timeout.
+// default timeout. If args.Strategy is set, the selector is resolved
+// through a Playwright Locator factory (Phase 1.3) for the more
+// stable role/label/text/testid/etc. targeting.
+//
+// Phase 1.4: pure positional CSS selectors (e.g. "li:nth-child(3) > a")
+// are rejected up front instead of being silently executed — the
+// Reviewer prompt also instructs Reviewer to object to such proposals,
+// so this refusal is the first of two safety nets.
 func (m *Manager) ExecuteClick(rawArgs string) (string, error) {
 	var args ClickArgs
 	if err := unmarshalArgs("browser_click", rawArgs, &args); err != nil {
 		return "", err
 	}
 	if err := validateSelector("browser_click", args.Selector); err != nil {
+		return "", err
+	}
+	if !validStrategy(args.Strategy) {
+		return "", fmt.Errorf("browser_click: unknown strategy %q (valid: css, role, text, label, placeholder, testid, title, alt)", args.Strategy)
+	}
+	if err := rejectPositionalCSS("browser_click", args.Strategy, args.Selector); err != nil {
 		return "", err
 	}
 
@@ -216,12 +310,16 @@ func (m *Manager) ExecuteClick(rawArgs string) (string, error) {
 		return "", err
 	}
 
-	if err := m.page.Click(args.Selector, playwright.PageClickOptions{
+	loc, err := LocatorForStrategy(m.page, args.Strategy, args.Selector, "browser_click")
+	if err != nil {
+		return "", err
+	}
+	if err := loc.Click(playwright.LocatorClickOptions{
 		Timeout: playwright.Float(float64(DefaultTimeout.Milliseconds())),
 	}); err != nil {
-		return "", fmt.Errorf("browser_click: failed to click %q: %w", args.Selector, err)
+		return "", fmt.Errorf("browser_click: failed to click [%s] %q: %w", args.Strategy, args.Selector, err)
 	}
-	return fmt.Sprintf("browser_click: clicked %q", args.Selector), nil
+	return fmt.Sprintf("browser_click: clicked [%s] %q", args.Strategy, args.Selector), nil
 }
 
 // ExecuteType fills the element matching selector with text. Uses
@@ -229,7 +327,8 @@ func (m *Manager) ExecuteClick(rawArgs string) (string, error) {
 // human would expect from "type into this field". For append-only
 // typing (e.g. into a contenteditable), this is wrong, but we don't
 // have a use case for that yet and it's easy to add a separate
-// `browser_append` tool later if it comes up.
+// `browser_append` tool later if it comes up. Strategy mirrors
+// ExecuteClick. Phase 1.4 positional-rejection mirrors ExecuteClick.
 func (m *Manager) ExecuteType(rawArgs string) (string, error) {
 	var args TypeArgs
 	if err := unmarshalArgs("browser_type", rawArgs, &args); err != nil {
@@ -244,6 +343,12 @@ func (m *Manager) ExecuteType(rawArgs string) (string, error) {
 		// silently clearing the target.
 		return "", errors.New("browser_type: required argument 'text' is empty; if you want to clear a field, use browser_click + a delete-key approach or call this with a single space")
 	}
+	if !validStrategy(args.Strategy) {
+		return "", fmt.Errorf("browser_type: unknown strategy %q (valid: css, role, text, label, placeholder, testid, title, alt)", args.Strategy)
+	}
+	if err := rejectPositionalCSS("browser_type", args.Strategy, args.Selector); err != nil {
+		return "", err
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -251,18 +356,23 @@ func (m *Manager) ExecuteType(rawArgs string) (string, error) {
 		return "", err
 	}
 
-	if err := m.page.Fill(args.Selector, args.Text, playwright.PageFillOptions{
+	loc, err := LocatorForStrategy(m.page, args.Strategy, args.Selector, "browser_type")
+	if err != nil {
+		return "", err
+	}
+	if err := loc.Fill(args.Text, playwright.LocatorFillOptions{
 		Timeout: playwright.Float(float64(DefaultTimeout.Milliseconds())),
 	}); err != nil {
-		return "", fmt.Errorf("browser_type: failed to fill %q: %w", args.Selector, err)
+		return "", fmt.Errorf("browser_type: failed to fill [%s] %q: %w", args.Strategy, args.Selector, err)
 	}
-	return fmt.Sprintf("browser_type: filled %q with %d chars", args.Selector, len(args.Text)), nil
+	return fmt.Sprintf("browser_type: filled [%s] %q with %d chars", args.Strategy, args.Selector, len(args.Text)), nil
 }
 
 // ExecuteGetText returns the text content of the first element
 // matching selector, or the page body's text if selector is empty /
 // "body". We cap the result at MaxResultBytes to keep the transcript
-// from blowing up on a giant page.
+// from blowing up on a giant page. Strategy mirrors ExecuteClick.
+// Phase 1.4 positional-rejection mirrors ExecuteClick.
 func (m *Manager) ExecuteGetText(rawArgs string) (string, error) {
 	var args GetTextArgs
 	if err := unmarshalArgs("browser_get_text", rawArgs, &args); err != nil {
@@ -276,6 +386,12 @@ func (m *Manager) ExecuteGetText(rawArgs string) (string, error) {
 	} else if err := validateSelector("browser_get_text", selector); err != nil {
 		return "", err
 	}
+	if !validStrategy(args.Strategy) {
+		return "", fmt.Errorf("browser_get_text: unknown strategy %q (valid: css, role, text, label, placeholder, testid, title, alt)", args.Strategy)
+	}
+	if err := rejectPositionalCSS("browser_get_text", args.Strategy, selector); err != nil {
+		return "", err
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -283,13 +399,54 @@ func (m *Manager) ExecuteGetText(rawArgs string) (string, error) {
 		return "", err
 	}
 
-	text, err := m.page.InnerText(selector, playwright.PageInnerTextOptions{
+	// For the empty-selector defaults-to-body shortcut, we still go
+	// through the CSS locator path so the strategy plumbing stays
+	// uniform. Using loc.InnerText() is the documented locator-based
+	// way to read text (Playwright-go marks the page.InnerText
+	// selector variant as deprecated).
+	loc, err := LocatorForStrategy(m.page, args.Strategy, selector, "browser_get_text")
+	if err != nil {
+		return "", err
+	}
+	text, err := loc.InnerText(playwright.LocatorInnerTextOptions{
 		Timeout: playwright.Float(float64(DefaultTimeout.Milliseconds())),
 	})
 	if err != nil {
-		return "", fmt.Errorf("browser_get_text: failed to read %q: %w", selector, err)
+		return "", fmt.Errorf("browser_get_text: failed to read [%s] %q: %w", args.Strategy, selector, err)
 	}
-	return fmt.Sprintf("browser_get_text: %q =\n%s", selector, truncateResult(text, MaxResultBytes)), nil
+	return fmt.Sprintf("browser_get_text: [%s] %q =\n%s", args.Strategy, selector, truncateResult(text, MaxResultBytes)), nil
+}
+
+// rejectPositionalCSS refuses purely positional CSS selectors. The
+// detection (IsPositionalSelector) only flags the CSS strategy path —
+// role/text/label/placeholder/testid/title/alt are inherently semantic
+// and don't have positional selectors, so they bypass this check.
+//
+// The error message is intentionally Reviewer-friendly: it states what
+// Coder did wrong, why it matters, and what to do instead. When the
+// loop surfaces this error, the Reviewer sees the corrected guidance
+// and is in a position to keep objecting or to approve the corrected
+// re-proposal.
+func rejectPositionalCSS(toolName string, strategy SelectStrategy, selector string) error {
+	if strategy != "" && strategy != StrategyCSS {
+		// role / text / label / placeholder / testid / title / alt
+		// are not subject to positional pseudo-classes.
+		return nil
+	}
+	if !IsPositionalSelector(selector) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s: positional CSS selector rejected (%q) — layout-coupled selectors break the moment the page is restyled. "+
+			"Replace with one of: "+
+			"strategy=\"role\" with selector=\"role:name\" (e.g. \"button:Sign in\"), "+
+			"strategy=\"text\" with selector=visible text, "+
+			"strategy=\"label\" with selector=label/aria-label text, "+
+			"strategy=\"placeholder\" with selector=placeholder text, "+
+			"strategy=\"testid\" with selector=data-testid, "+
+			"or strategy=\"css\" with a stable id like \"#submit-btn\" rather than a positional chain.",
+		toolName, selector,
+	)
 }
 
 // ExecuteScreenshot takes a PNG screenshot. If args.Path is non-empty,
@@ -373,4 +530,95 @@ func unmarshalArgs(toolName, rawJSON string, dst any) error {
 		return fmt.Errorf("%s: failed to parse arguments %q: %w", toolName, rawJSON, err)
 	}
 	return nil
+}
+
+// ExecuteWaitFor is the Work 4 Phase 2.3 tool: an explicit,
+// reviewable, condition-based wait. The point of having a dedicated
+// tool — rather than asking Coder to silently sleep after a click — is
+// that waiting shows up in the transcript as its own approve-or-reject
+// action, with the condition Coder is waiting for visible to Reviewer
+// (and to the human reading the log later). A fixed sleep, by
+// contrast, is invisible and unbounded.
+//
+// The wait is bounded by an explicit timeout (DefaultTimeout, or the
+// TimeoutMS override capped at MaxWaitTimeout) and surfaces a clear
+// failure on timeout rather than hanging the loop. There are no fixed
+// sleeps anywhere on this code path.
+func (m *Manager) ExecuteWaitFor(rawArgs string) (string, error) {
+	var args WaitCondition
+	if err := unmarshalArgs("browser_wait_for", rawArgs, &args); err != nil {
+		return "", err
+	}
+
+	switch args.Kind {
+	case "text":
+		if args.Text == "" {
+			return "", errors.New("browser_wait_for: kind=\"text\" requires a non-empty 'text' field")
+		}
+	case "visible":
+		if err := validateSelector("browser_wait_for", args.Selector); err != nil {
+			return "", err
+		}
+		if !validStrategy(args.Strategy) {
+			return "", fmt.Errorf("browser_wait_for: unknown strategy %q (valid: css, role, text, label, placeholder, testid, title, alt)", args.Strategy)
+		}
+		if err := rejectPositionalCSS("browser_wait_for", args.Strategy, args.Selector); err != nil {
+			return "", err
+		}
+	case "url":
+		if args.URL == "" {
+			return "", errors.New("browser_wait_for: kind=\"url\" requires a non-empty 'url' field")
+		}
+	default:
+		return "", fmt.Errorf("browser_wait_for: kind %q is not one of: text, visible, url", args.Kind)
+	}
+
+	timeout := resolveWaitTimeout(args.TimeoutMS)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.ensureLaunched(); err != nil {
+		return "", err
+	}
+
+	switch args.Kind {
+	case "text":
+		opts := playwright.PageGetByTextOptions{}
+		if args.Exact {
+			opts.Exact = boolPtr(true)
+		}
+		loc := m.page.GetByText(args.Text, opts)
+		if err := loc.WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(float64(timeout.Milliseconds())),
+		}); err != nil {
+			return "", fmt.Errorf("browser_wait_for: timed out after %s waiting for text %q to appear", timeout, args.Text)
+		}
+		return fmt.Sprintf("browser_wait_for: text %q appeared within %s", args.Text, timeout), nil
+
+	case "visible":
+		loc, err := LocatorForStrategy(m.page, args.Strategy, args.Selector, "browser_wait_for")
+		if err != nil {
+			return "", err
+		}
+		if err := loc.WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(float64(timeout.Milliseconds())),
+		}); err != nil {
+			return "", fmt.Errorf("browser_wait_for: timed out after %s waiting for [%s] %q to become visible", timeout, args.Strategy, args.Selector)
+		}
+		return fmt.Sprintf("browser_wait_for: [%s] %q became visible within %s", args.Strategy, args.Selector, timeout), nil
+
+	case "url":
+		if err := m.page.WaitForURL(args.URL, playwright.PageWaitForURLOptions{
+			Timeout: playwright.Float(float64(timeout.Milliseconds())),
+		}); err != nil {
+			return "", fmt.Errorf("browser_wait_for: timed out after %s waiting for URL to contain %q", timeout, args.URL)
+		}
+		finalURL := m.page.URL()
+		return fmt.Sprintf("browser_wait_for: URL became %q (matched %q) within %s", finalURL, args.URL, timeout), nil
+	}
+
+	// Unreachable — the kind switch above already errored on unknown values.
+	return "", fmt.Errorf("browser_wait_for: internal error, unknown kind %q after validation", args.Kind)
 }

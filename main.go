@@ -152,6 +152,14 @@ func main() {
 	logger.L().Info("slash commands ready", "count", cmdReg.Count(), "names", cmdReg.Names())
 
 	// --- Create TUI Model ---
+	// Browser tools are always registered in this build (the manager is
+	// unconditional below), so we extend the Coder / Reviewer system
+	// prompts with the browser-selector guidance (Workflow 4 Phase 1).
+	// If a future variant ever wants to skip browser tools, gate this
+	// on the same flag the manager is gated on.
+	cfg.Coder.SystemPrompt = agent.CoderSystemPromptWithBrowser()
+	cfg.Reviewer.SystemPrompt = agent.ReviewerSystemPromptWithBrowser()
+
 	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
 	model.SetSearchAPIKey(cfg.SearchAPIKey)
 

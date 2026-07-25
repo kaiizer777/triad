@@ -204,13 +204,17 @@ var coderToolSchemas = []ToolSchema{
 		Type: "function",
 		Function: ToolFunctionSpec{
 			Name:        "browser_click",
-			Description: "Click the first element matching the given CSS / text / Playwright selector on the current page. Waits for the element to be visible before clicking. Use browser_navigate first if the page isn't loaded yet.",
+			Description: "Click the element matching the given selector on the current page. Waits for the element to be visible before clicking. Use browser_navigate first if the page isn't loaded yet. Prefer the explicit `strategy` hint (role / text / label / placeholder / testid / title / alt) over a raw CSS selector — see the Coder system prompt for the canonical fallback chain.",
 			Parameters: ToolParamSchema{
 				Type: "object",
 				Properties: map[string]ToolParamProperty{
 					"selector": {
 						Type:        "string",
-						Description: "CSS selector, text=... selector, or other Playwright-supported selector syntax identifying the element to click. Examples: 'button.submit', 'text=Sign in', '#login-form input[name=password]'.",
+						Description: "Selector for the element to click. For strategy=role, the form is 'role:name' (e.g. 'button:Sign in'). For strategy=text, the selector is the visible text (prefix 'exact:' for exact match). For strategy=label/placeholder/testid/title/alt, the selector is the associated attribute / text. For strategy=css (default), the selector is a raw CSS / Playwright locator string.",
+					},
+					"strategy": {
+						Type:        "string",
+						Description: "Optional. Selector strategy hint. One of: 'role' (selector=\"role:name\", e.g. 'button:Sign in'), 'text' (selector=visible text), 'label' (selector=label / aria-label text), 'placeholder' (selector=placeholder text), 'testid' (selector=data-testid), 'title' (selector=title attribute), 'alt' (selector=alt text), 'css' (default — selector is raw CSS / Playwright locator). Default is 'css' for backward compatibility. Prefer 'role' / 'text' / 'label' for stable, semantic targeting.",
 					},
 				},
 				Required: []string{"selector"},
@@ -221,17 +225,21 @@ var coderToolSchemas = []ToolSchema{
 		Type: "function",
 		Function: ToolFunctionSpec{
 			Name:        "browser_type",
-			Description: "Clear the input element matching selector and type text into it. Equivalent to clicking the field and typing — replaces any existing value. To append or type into a contenteditable element, prefer using a more specific Playwright selector or a separate action.",
+			Description: "Clear the input element matching selector and type text into it. Equivalent to clicking the field and typing — replaces any existing value. To append or type into a contenteditable element, prefer using a more specific Playwright selector or a separate action. Strategy mirrors browser_click.",
 			Parameters: ToolParamSchema{
 				Type: "object",
 				Properties: map[string]ToolParamProperty{
 					"selector": {
 						Type:        "string",
-						Description: "CSS / text / Playwright selector identifying the input element (e.g. 'input[name=email]', '#search-box', 'textarea#message').",
+						Description: "Selector for the input element. Same strategy-aware form as browser_click: for strategy=role, 'textbox:Email'; for strategy=label, 'Email'; for strategy=placeholder, 'Search'; for strategy=css (default), raw CSS like 'input[name=email]' or '#search-box'.",
 					},
 					"text": {
 						Type:        "string",
 						Description: "The text to type. Pass a single space to leave the field visually empty but technically non-empty; an empty string is rejected to avoid accidental clears.",
+					},
+					"strategy": {
+						Type:        "string",
+						Description: "Optional. Same enum as browser_click.strategy: 'role', 'text', 'label', 'placeholder', 'testid', 'title', 'alt', 'css' (default). Prefer 'role' or 'label' for form fields.",
 					},
 				},
 				Required: []string{"selector", "text"},
@@ -242,13 +250,17 @@ var coderToolSchemas = []ToolSchema{
 		Type: "function",
 		Function: ToolFunctionSpec{
 			Name:        "browser_get_text",
-			Description: "Read the visible text content of the first element matching the given selector (or of the whole page body if selector is empty / 'body'). Useful for scraping a specific element after navigation — e.g. confirming a form submitted, reading a confirmation message, or pulling a single value out of a page. Long results are truncated.",
+			Description: "Read the visible text content of the first element matching the given selector (or of the whole page body if selector is empty / 'body'). Useful for scraping a specific element after navigation — e.g. confirming a form submitted, reading a confirmation message, or pulling a single value out of a page. Long results are truncated. Strategy mirrors browser_click.",
 			Parameters: ToolParamSchema{
 				Type: "object",
 				Properties: map[string]ToolParamProperty{
 					"selector": {
 						Type:        "string",
-						Description: "CSS / text / Playwright selector for the element to read. Defaults to 'body' (the whole visible page text) if omitted. Examples: 'h1', '.error-message', 'div#result span.value'.",
+						Description: "Selector for the element to read. Defaults to 'body' (the whole visible page text) if omitted. Same strategy-aware form as browser_click. For strategy=role, 'heading:Hello world'; for strategy=text, 'Success'; for strategy=css (default), raw CSS like 'h1' or '.error-message'.",
+					},
+					"strategy": {
+						Type:        "string",
+						Description: "Optional. Same enum as browser_click.strategy. Default is 'css'.",
 					},
 				},
 				Required: []string{},
@@ -273,6 +285,47 @@ var coderToolSchemas = []ToolSchema{
 					},
 				},
 				Required: []string{},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_wait_for",
+			Description: "Wait for a specific page signal before continuing (Work 4 Phase 2 — replaces silent fixed delays with an explicit, reviewable, condition-based wait). The wait is bounded by an explicit timeout (default 30s, override via timeout_ms up to 2 minutes). Three wait kinds are supported: 'text' (wait until visible text appears), 'visible' (wait until a selector target becomes visible — reuses the same strategy hint as browser_click), and 'url' (wait until the page URL contains a substring). If the condition never becomes true, the call fails with a clear timeout error rather than hanging the loop.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"kind": {
+						Type:        "string",
+						Description: "What to wait for. One of: 'text' (wait for visible text — uses the 'text' field), 'visible' (wait for an element to become visible — uses 'selector' and 'strategy'), 'url' (wait for a URL substring — uses the 'url' field).",
+					},
+					"selector": {
+						Type:        "string",
+						Description: "Used when kind='visible'. Same strategy-aware form as browser_click: for strategy='role', 'heading:Success'; for strategy='text', 'Success'; for strategy='css' (default), raw CSS like '#result-text'.",
+					},
+					"strategy": {
+						Type:        "string",
+						Description: "Optional. Same enum as browser_click.strategy. Used when kind='visible'.",
+					},
+					"text": {
+						Type:        "string",
+						Description: "Used when kind='text'. The visible page text to wait for. Substring match by default; pass exact=true for an exact match.",
+					},
+					"exact": {
+						Type:        "boolean",
+						Description: "Optional, kind='text' only. If true, wait for an exact text match rather than a substring.",
+					},
+					"url": {
+						Type:        "string",
+						Description: "Used when kind='url'. A substring to match against the current page URL (page.WaitForURL's documented default). Useful for waiting for SPA navigations like '/dashboard' or '?error=1'.",
+					},
+					"timeout_ms": {
+						Type:        "integer",
+						Description: "Optional. Per-call timeout in milliseconds. 0 means 'use the default (30s)'. Capped at 120000 (2 minutes) so a runaway timeout can't hang the loop.",
+					},
+				},
+				Required: []string{"kind"},
 			},
 		},
 	},
