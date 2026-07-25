@@ -1405,6 +1405,46 @@ func TestTUI_ModeMismatchNotice(t *testing.T) {
 	}
 }
 
+func TestTUI_JourneyCommand(t *testing.T) {
+	cmdDir := filepath.Join(t.TempDir(), "commands")
+	_ = os.MkdirAll(cmdDir, 0755)
+	journeyMd := "---\nname: journey\ntarget: system\ndescription: Visualize commit journey\n---\nVisualize commit history timeline\n"
+	_ = os.WriteFile(filepath.Join(cmdDir, "journey.md"), []byte(journeyMd), 0644)
+	reg, err := commands.Load(cmdDir)
+	if err != nil {
+		t.Fatalf("failed to load registry: %v", err)
+	}
+
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, reg)
+	defer cleanup()
+
+	// Test /journey on zero commits
+	updated, _ := model.Update(humanInputMsg{content: "/journey"})
+	m := updated.(Model)
+	entries := m.transcript.Entries()
+	if len(entries) == 0 {
+		t.Fatalf("expected transcript entry for /journey command")
+	}
+	lastEntry := entries[len(entries)-1]
+	if !strings.Contains(lastEntry.Content, "No Triad commit history") {
+		t.Errorf("expected zero commit notice in transcript, got: %s", lastEntry.Content)
+	}
+
+	// Test /journey --export
+	updated2, _ := m.Update(humanInputMsg{content: "/journey --export"})
+	m2 := updated2.(Model)
+	entries2 := m2.transcript.Entries()
+	lastEntry2 := entries2[len(entries2)-1]
+	if !strings.Contains(lastEntry2.Content, "[Commit Journey] Exported visual HTML report") {
+		t.Errorf("expected export confirmation in transcript, got: %s", lastEntry2.Content)
+	}
+	if _, err := os.Stat(filepath.Join(m2.workDir, "journey_report.html")); os.IsNotExist(err) {
+		t.Errorf("expected journey_report.html to be created")
+	}
+}
+
+
 
 
 

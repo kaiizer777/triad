@@ -16,6 +16,7 @@ import (
 	"github.com/kaiizer777/triad/internal/clarify"
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
+	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/learn"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/memory"
@@ -893,8 +894,10 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return m.handleTrace(), ""
 	case "learn":
 		return m.handleLearn(args)
+	case "journey":
+		return m.handleJourney(args)
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey).", name)
 	}
 }
 
@@ -1075,6 +1078,35 @@ func (m *Model) handleSummary() string {
 	}
 	fmt.Fprintf(&sb, "  Lines changed: +%d / -%d\n", summary.LinesAdded, summary.LinesRemoved)
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// handleJourney renders or exports the session's commit journey timeline.
+func (m *Model) handleJourney(args string) (body string, errMsg string) {
+	entries := m.transcript.Entries()
+	entryIDs := make(map[int]bool, len(entries))
+	for _, e := range entries {
+		entryIDs[e.ID] = true
+	}
+
+	journeyEntries, err := journey.GetJourneyEntries(m.workDir, entryIDs)
+	if err != nil {
+		return "", fmt.Sprintf("/journey failed: %v", err)
+	}
+
+	args = strings.TrimSpace(args)
+	if args == "--export" || args == "export" || strings.HasPrefix(args, "--export ") {
+		filename := "journey_report.html"
+		if strings.HasPrefix(args, "--export ") {
+			filename = strings.TrimSpace(strings.TrimPrefix(args, "--export "))
+		}
+		outPath, err := journey.ExportHTML(m.workDir, filename, journeyEntries)
+		if err != nil {
+			return "", fmt.Sprintf("/journey export failed: %v", err)
+		}
+		return fmt.Sprintf("[Commit Journey] Exported visual HTML report with %d commit(s) to %s.", len(journeyEntries), outPath), ""
+	}
+
+	return journey.RenderASCII(journeyEntries), ""
 }
 
 

@@ -44,9 +44,32 @@ Welcome to the Triad documentation directory. This page serves as a navigation i
 
 ---
 
+### 3. [Triad — Workflow 3: Orchestrator, Commit Journey & Memory](./work-3.md) (`work-3.md`)
+
+* **Title:** Triad — Workflow 3: Orchestrator, Commit Journey & Memory
+* **Companion Document:** `PROJECT_SPEC.md`
+* **Purpose:** Outlines the next architectural layer covering task routing by complexity/severity, twin subagent pairs (mini Coder+Reviewer), batched clarify phase, cross-agent trace logging, markdown memory system with human-gated self-learning loop, and commit-journey visualization.
+* **Tech Stack:** Go, `lipgloss` styling, Git CLI, Markdown file storage, JSON Lines trace logs.
+* **Key Summary & Table of Contents:**
+  * **Phase 0:** Research Grounding (Multi-agent orchestration, trace log necessity, memory curation principles, token overhead mitigations)
+  * **Phase 1:** Modes Foundation & `/mode` Command (Orchestrator, General Chat, Triad sticky mode switching & persistence)
+  * **Phase 2:** Mode Mismatch Notice (Passive non-blocking FYI warning when forced mode mismatches task complexity)
+  * **Phase 3:** The Clarify Phase (Upfront batched clarifying questions across all execution modes)
+  * **Phase 4:** Orchestrator Routing Logic (Logged routing decisions, auto-proceed extremes & human confirmation in middle)
+  * **Phase 5:** Rubric for Orchestrator's Judgment (Concrete criteria for consistent task categorization)
+  * **Phase 6:** Twin Subagent (Isolated mini-Triad propose-review-execute loops, summary-only return, depth guard & loop turn cap)
+  * **Phase 7:** Observability (Unified cross-agent trace log in `sessions/traces/<session-id>.jsonl` and `/trace` command)
+  * **Phase 8:** Memory Structure (Markdown index, preferences, daily logs, topic files, and session-start loading)
+  * **Phase 9:** Self-Learning Loop (Automatic extraction of Reviewer objections/corrections to daily logs & human-gated promotion via `/learn`)
+  * **Phase 10:** Commit Journey Visualization (Visual linear commit timeline in ASCII TUI and HTML export via `/journey`)
+
+---
+
 ## Navigation Quick Links
 
 * [index.md](./index.md) — Documentation index and navigation map (this file)
 * [work-1.md](./work-1.md) — Core build workflow (v1)
 * [work-2.md](./work-2.md) — Workflow 2 (Commands, Subagents, Git Auto-Commit & Browser Tools)
+* [work-3.md](./work-3.md) — Workflow 3 (Orchestrator, Commit Journey, Memory & Twin Subagents)
+
 
