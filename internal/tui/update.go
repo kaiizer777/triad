@@ -46,9 +46,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Width < 75 {
 			sidebarWidth = 0
 		} else if msg.Width < 100 {
-			sidebarWidth = 26
+			sidebarWidth = 28
 		} else {
-			sidebarWidth = 30
+			sidebarWidth = 32
 		}
 
 		mainContainerWidth := msg.Width - sidebarWidth
@@ -60,7 +60,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vpWidth := max(1, mainContainerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 		vpHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
 
-		// Input box width:
+		// Input box width
 		inputContainerContentWidth := max(1, msg.Width-m.styles.InputContainer.GetHorizontalFrameSize())
 		inputWidth := inputContainerContentWidth - 30
 		if inputWidth < 10 {

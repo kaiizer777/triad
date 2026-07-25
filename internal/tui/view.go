@@ -14,7 +14,7 @@ import (
 // View renders the complete TUI layout.
 func (m Model) View() tea.View {
 	if !m.ready {
-		return tea.NewView(" ⚡ Initializing Triad Studio UI...")
+		return tea.NewView(" Initializing Triad Studio...")
 	}
 
 	width := m.width
@@ -26,58 +26,54 @@ func (m Model) View() tea.View {
 		height = 10
 	}
 
-	// 1. Top Title Bar (1 line)
-	header := m.renderTitleBar(width)
-
-	// 2. Middle 2-Panel Section (Sidebar + Viewport)
-	// Vertical budget: Header(1) + PipelineDock(1) + Status(1) + InputBar(3) = 6 lines
+	// Layout budget: Header(1) + Pipeline(1) + Status(1) + InputBar(3) = 6 lines reserved
 	availHeight := height - 6
 	if availHeight < 1 {
 		availHeight = 1
 	}
 
+	// 1. Header
+	header := m.renderTitleBar(width)
+
+	// 2. Middle panel: Sidebar + Viewport
 	var middlePanel string
-	if width < 75 {
-		// Responsive mode: hide sidebar on small terminal width
+	if width < 80 {
+		// Narrow: hide sidebar
 		vpContentWidth := max(1, width-m.styles.ViewportContainer.GetHorizontalFrameSize())
 		vpContentHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
-
 		middlePanel = m.styles.ViewportContainer.
 			Width(vpContentWidth).
 			Height(vpContentHeight).
 			Render(m.viewport.View())
 	} else {
-		sidebarWidth := 30
-		if width < 100 {
-			sidebarWidth = 26
+		sidebarWidth := 32
+		if width < 110 {
+			sidebarWidth = 28
 		}
-
 		sidebar := m.renderSidebar(sidebarWidth, availHeight)
 
 		mainContainerWidth := width - sidebarWidth
 		if mainContainerWidth < 10 {
 			mainContainerWidth = 10
 		}
-
 		vpContentWidth := max(1, mainContainerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 		vpContentHeight := max(1, availHeight-m.styles.ViewportContainer.GetVerticalFrameSize())
-
 		vpContainer := m.styles.ViewportContainer.
 			Width(vpContentWidth).
 			Height(vpContentHeight).
 			Render(m.viewport.View())
-
 		middlePanel = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, vpContainer)
 	}
 
-	// 3. Pipeline Step Dock & Status Bar (1 line each)
+	// 3. Pipeline Dock
 	pipelineDock := m.renderPipelineDock(width)
+
+	// 4. Status Bar
 	statusBar := m.renderStatusBar(width)
 
-	// 4. Input Bar (3 lines)
+	// 5. Input Bar
 	inputBar := m.renderInputBar(width)
 
-	// Combine all vertically
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
@@ -87,242 +83,296 @@ func (m Model) View() tea.View {
 		inputBar,
 	)
 
-	// Fail-safe height and width clipping: guarantee no terminal wrapping or vertical scrolling
 	formattedContent := fitToCanvas(content, width, height)
-
 	v := tea.NewView(formattedContent)
 	v.AltScreen = true
 	return v
 }
 
-// renderTitleBar constructs the high-tech studio toolbar with brand tags,
-// breadcrumbs, live state indicator, and keycap shortcut badges.
+// renderTitleBar builds the studio toolbar: brand, session path, live state, keycaps.
 func (m Model) renderTitleBar(width int) string {
-	brand := m.styles.TitleBrand.Render(" ⚡ TRIAD STUDIO ")
-	version := m.styles.TitleVersion.Render(" v1.0.0 ")
-	left := lipgloss.JoinHorizontal(lipgloss.Top, brand, version)
+	brand := m.styles.TitleBrand.Render(" TRIAD ")
+	version := m.styles.TitleVersion.Render(" v1.0 ")
+	sep := m.styles.TitleCenter.Render(" | ")
+	left := lipgloss.JoinHorizontal(lipgloss.Top, brand, version, sep)
 
-	var right string
-	if width < 90 {
-		k1 := m.styles.TitleKeycapKey.Render("Esc")
-		l1 := m.styles.TitleKeycapLabel.Render("Quit ")
-		k2 := m.styles.TitleKeycapKey.Render("Enter")
-		l2 := m.styles.TitleKeycapLabel.Render("Submit ")
-		right = lipgloss.JoinHorizontal(lipgloss.Top, k1, l1, k2, l2)
-	} else {
-		k1 := m.styles.TitleKeycapKey.Render("Esc")
-		l1 := m.styles.TitleKeycapLabel.Render("Quit ")
-		k2 := m.styles.TitleKeycapKey.Render("Enter")
-		l2 := m.styles.TitleKeycapLabel.Render("Submit ")
-		k3 := m.styles.TitleKeycapKey.Render("↑↓")
-		l3 := m.styles.TitleKeycapLabel.Render("Scroll ")
-		right = lipgloss.JoinHorizontal(lipgloss.Top, k1, l1, k2, l2, k3, l3)
+	var rightParts []string
+	if width >= 100 {
+		rightParts = append(rightParts,
+			m.styles.TitleKeycapKey.Render("tt"),
+			m.styles.TitleKeycapLabel.Render(" Scroll "),
+		)
 	}
+	rightParts = append(rightParts,
+		m.styles.TitleKeycapKey.Render("Enter"),
+		m.styles.TitleKeycapLabel.Render(" Submit "),
+		m.styles.TitleKeycapKey.Render("Esc"),
+		m.styles.TitleKeycapLabel.Render(" Quit"),
+	)
+	right := lipgloss.JoinHorizontal(lipgloss.Top, rightParts...)
 
-	centerWidth := width - lipgloss.Width(left) - lipgloss.Width(right)
+	leftW := lipgloss.Width(left)
+	rightW := lipgloss.Width(right)
+	centerWidth := width - leftW - rightW
 	if centerWidth < 0 {
 		centerWidth = 0
 	}
 
-	sessionFile := truncatePath(m.transcript.FilePath(), max(5, centerWidth-22))
-
-	var stateIndicator string
+	var stateStr string
 	switch {
 	case m.sessionState == loop.StateIdle:
-		stateIndicator = "🟢 IDLE"
+		stateStr = " IDLE"
 	case m.activeToolCall != nil:
-		stateIndicator = "⚡ EXECUTING " + m.spinner.View()
+		stateStr = " EXEC " + m.spinner.View()
 	default:
-		stateIndicator = "🧠 THINKING " + m.spinner.View()
+		stateStr = " THINK " + m.spinner.View()
 	}
 
-	centerContent := fmt.Sprintf(" 📁 %s   ⋮   %s ", sessionFile, stateIndicator)
-	centerStyleWidth := max(0, centerWidth-m.styles.TitleCenter.GetHorizontalFrameSize())
-	center := m.styles.TitleCenter.Width(centerStyleWidth).Render(truncateLine(centerContent, centerWidth))
+	centerFrameW := m.styles.TitleCenter.GetHorizontalFrameSize()
+	centerStyleW := max(0, centerWidth-centerFrameW)
+	sessFile := truncatePath(m.transcript.FilePath(), max(5, centerStyleW-lipgloss.Width(stateStr)-4))
+	centerContent := " " + sessFile + "  " + stateStr + " "
+	center := m.styles.TitleCenter.Width(centerStyleW).Render(truncateLine(centerContent, centerStyleW))
 
 	res := lipgloss.JoinHorizontal(lipgloss.Top, left, center, right)
 	return clipLines(res, 1)
 }
 
-// renderSidebar constructs the left metadata & controls sidebar panel.
+// renderSidebar builds the left panel with glowing section headers, agent info,
+// progress meters, and controls. All widths are measured with lipgloss.Width()
+// to handle multi-byte/wide Unicode characters correctly on Windows Terminal.
 func (m Model) renderSidebar(width int, height int) string {
 	frameHoriz := m.styles.SidebarContainer.GetHorizontalFrameSize()
 	frameVert := m.styles.SidebarContainer.GetVerticalFrameSize()
 
 	innerWidth := width - frameHoriz
-	if innerWidth < 4 {
-		innerWidth = 4
+	if innerWidth < 6 {
+		innerWidth = 6
 	}
-
 	innerHeight := height - frameVert
 	if innerHeight < 1 {
 		innerHeight = 1
 	}
 
+	// Use ASCII-safe rule character to guarantee 1-wide per char
+	rule := m.styles.SidebarSubHeader.Render(strings.Repeat("-", innerWidth))
+
 	var sb strings.Builder
 
-	// Header / Title
-	sb.WriteString(m.styles.SidebarHeader.Render("◈ SESSION OVERVIEW"))
+	// ── SESSION OVERVIEW ─────────────────────────────────────────
+	sb.WriteString(m.styles.SidebarHeader.Render(">> SESSION OVERVIEW"))
 	sb.WriteString("\n")
-	sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
+	sb.WriteString(rule)
 	sb.WriteString("\n")
 
-	// State
-	sb.WriteString(m.styles.SidebarLabel.Render("State: "))
+	// State badge
+	stateLabelW := lipgloss.Width(m.styles.SidebarLabel.Render(" State "))
+	_ = stateLabelW
+	sb.WriteString(m.styles.SidebarLabel.Render(" State  "))
 	switch {
 	case m.sessionState == loop.StateIdle:
-		sb.WriteString(m.styles.SidebarBadgeIdle.Render(" 🟢 IDLE "))
+		sb.WriteString(m.styles.SidebarBadgeIdle.Render(" IDLE "))
 	case m.activeToolCall != nil:
-		sb.WriteString(m.styles.SidebarBadgeActive.Render(" ⚙ EXECUTING "))
+		sb.WriteString(m.styles.SidebarBadgeActive.Render(" EXEC "))
 	default:
-		sb.WriteString(m.styles.SidebarBadgeThink.Render(" 🧠 THINKING "))
+		sb.WriteString(m.styles.SidebarBadgeThink.Render(" THINK "))
 	}
 	sb.WriteString("\n")
 
-	// Paths
-	sb.WriteString(m.styles.SidebarLabel.Render("📂 Workdir: "))
-	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(m.workDir, max(4, innerWidth-11))))
+	// Workdir
+	dirLabel := m.styles.SidebarLabel.Render(" Dir  ")
+	dirLabelW := lipgloss.Width(dirLabel)
+	dirVal := truncatePath(m.workDir, max(3, innerWidth-dirLabelW))
+	sb.WriteString(dirLabel)
+	sb.WriteString(m.styles.SidebarValue.Render(dirVal))
 	sb.WriteString("\n")
 
-	filePath := m.transcript.FilePath()
-	sb.WriteString(m.styles.SidebarLabel.Render("📝 Session: "))
-	sb.WriteString(m.styles.SidebarValue.Render(truncatePath(filePath, max(4, innerWidth-11))))
-	sb.WriteString("\n\n")
+	// Session file
+	fileLabel := m.styles.SidebarLabel.Render(" File ")
+	fileLabelW := lipgloss.Width(fileLabel)
+	fileVal := truncatePath(m.transcript.FilePath(), max(3, innerWidth-fileLabelW))
+	sb.WriteString(fileLabel)
+	sb.WriteString(m.styles.SidebarValue.Render(fileVal))
+	sb.WriteString("\n")
 
-	// Dual Agents
-	if innerHeight >= 10 {
-		sb.WriteString(m.styles.SidebarHeader.Render("◈ DUAL AGENTS"))
+	// ── DUAL AGENT ENGINE ────────────────────────────────────────
+	if innerHeight >= 11 {
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
+		sb.WriteString(m.styles.SidebarHeader.Render(">> DUAL AGENT ENGINE"))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.CoderPill.Render(" CODER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.coder.Model, max(4, innerWidth-10))))
+		sb.WriteString(rule)
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.ReviewerPill.Render(" REVIEWER ") + " " + m.styles.SidebarValue.Render(truncatePath(m.reviewer.Model, max(4, innerWidth-13))))
-		sb.WriteString("\n\n")
+
+		coderPillW := lipgloss.Width(m.styles.CoderPill.Render(" CODER ")) + 1
+		coderVal := truncatePath(m.coder.Model, max(3, innerWidth-coderPillW))
+		sb.WriteString(m.styles.CoderPill.Render(" CODER "))
+		sb.WriteString(" ")
+		sb.WriteString(m.styles.SidebarValue.Render(coderVal))
+		sb.WriteString("\n")
+
+		revPillW := lipgloss.Width(m.styles.ReviewerPill.Render(" REVIEWER ")) + 1
+		revVal := truncatePath(m.reviewer.Model, max(3, innerWidth-revPillW))
+		sb.WriteString(m.styles.ReviewerPill.Render(" REVIEWER "))
+		sb.WriteString(" ")
+		sb.WriteString(m.styles.SidebarValue.Render(revVal))
+		sb.WriteString("\n")
 	}
 
-	// Metrics
-	if innerHeight >= 14 {
-		sb.WriteString(m.styles.SidebarHeader.Render("◈ METRICS"))
+	// ── PIPELINE METRICS ─────────────────────────────────────────
+	if innerHeight >= 17 {
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
+		sb.WriteString(m.styles.SidebarHeader.Render(">> PIPELINE METRICS"))
+		sb.WriteString("\n")
+		sb.WriteString(rule)
 		sb.WriteString("\n")
 
-		retriesStr := fmt.Sprintf(" %d/%d", m.retryCount, m.MaxRetries)
-		meterWidthR := max(2, innerWidth-11-len(retriesStr))
-		sb.WriteString(m.styles.SidebarLabel.Render("↻ Retries  "))
-		sb.WriteString(renderProgressBar(m.retryCount, m.MaxRetries, meterWidthR, m.styles))
+		// Retries meter — measure all parts precisely
+		retryLabelStr := " Retries "
+		retryLabel := m.styles.SidebarLabel.Render(retryLabelStr)
+		retryLabelW := lipgloss.Width(retryLabel)
+		retriesStr := fmt.Sprintf("%d/%d", m.retryCount, m.MaxRetries)
+		retriesStrW := lipgloss.Width(retriesStr)
+		retryMeterW := max(2, innerWidth-retryLabelW-retriesStrW-1)
+		sb.WriteString(retryLabel)
+		sb.WriteString(renderProgressBar(m.retryCount, m.MaxRetries, retryMeterW, m.styles))
+		sb.WriteString(" ")
 		sb.WriteString(m.styles.SidebarValue.Render(retriesStr))
 		sb.WriteString("\n")
 
-		turnsStr := fmt.Sprintf(" %d/%d", m.plainTextTurns, MaxPlainTextTurns)
-		meterWidthT := max(2, innerWidth-11-len(turnsStr))
-		sb.WriteString(m.styles.SidebarLabel.Render("💬 Turns    "))
-		sb.WriteString(renderProgressBar(m.plainTextTurns, MaxPlainTextTurns, meterWidthT, m.styles))
+		// Turns meter
+		turnLabelStr := " Turns   "
+		turnLabel := m.styles.SidebarLabel.Render(turnLabelStr)
+		turnLabelW := lipgloss.Width(turnLabel)
+		turnsStr := fmt.Sprintf("%d/%d", m.plainTextTurns, MaxPlainTextTurns)
+		turnsStrW := lipgloss.Width(turnsStr)
+		turnMeterW := max(2, innerWidth-turnLabelW-turnsStrW-1)
+		sb.WriteString(turnLabel)
+		sb.WriteString(renderProgressBar(m.plainTextTurns, MaxPlainTextTurns, turnMeterW, m.styles))
+		sb.WriteString(" ")
 		sb.WriteString(m.styles.SidebarValue.Render(turnsStr))
-		sb.WriteString("\n\n")
+		sb.WriteString("\n")
 	}
 
-	// Controls
-	if innerHeight >= 18 {
-		sb.WriteString(m.styles.SidebarHeader.Render("◈ CONTROLS"))
+	// ── CONTROLS ─────────────────────────────────────────────────
+	if innerHeight >= 22 {
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", innerWidth)))
+		sb.WriteString(m.styles.SidebarHeader.Render(">> CONTROLS"))
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.TitleKeycapKey.Render("Enter") + " " + m.styles.SidebarValue.Render("Submit"))
-		sb.WriteString("  ")
-		sb.WriteString(m.styles.TitleKeycapKey.Render("Esc") + " " + m.styles.SidebarValue.Render("Quit"))
+		sb.WriteString(rule)
 		sb.WriteString("\n")
-		sb.WriteString(m.styles.TitleKeycapKey.Render("↑/↓") + " " + m.styles.SidebarValue.Render("Scroll Feed"))
+
+		enterKey := m.styles.TitleKeycapKey.Render("Enter")
+		escKey := m.styles.TitleKeycapKey.Render("Esc")
+		scrollKey := m.styles.TitleKeycapKey.Render("tt")
+		submitLbl := m.styles.SidebarSubHeader.Render(" Send  ")
+		quitLbl := m.styles.SidebarSubHeader.Render(" Quit")
+		scrollLbl := m.styles.SidebarSubHeader.Render(" Scroll")
+
+		row1 := lipgloss.JoinHorizontal(lipgloss.Top, enterKey, submitLbl, escKey, quitLbl)
+		sb.WriteString(row1)
+		sb.WriteString("\n")
+		row2 := lipgloss.JoinHorizontal(lipgloss.Top, scrollKey, scrollLbl)
+		sb.WriteString(row2)
 	}
 
 	clipped := clipLines(sb.String(), innerHeight)
-
 	return m.styles.SidebarContainer.
 		Width(innerWidth).
 		Height(innerHeight).
 		Render(clipped)
 }
 
-// renderPipelineDock builds a visual multi-step pipeline indicator strip
-// with the active step dynamically highlighted alongside spinner motion.
+// renderPipelineDock builds a 4-step visual pipeline tracker:
+// [1 Prompt] -> [2 Propose] -> [3 Review] -> [4 Exec]
 func (m Model) renderPipelineDock(width int) string {
-	var s1, s2, s3, s4 string
+	type stepState int
+	const (
+		stepPending stepState = iota
+		stepActive
+		stepDone
+	)
 
-	if width < 85 {
-		s1 = m.styles.PipelineStepDone.Render(" 1 ⬤ ")
-		s2 = m.styles.PipelineStepPending.Render(" 2 ○ ")
-		s3 = m.styles.PipelineStepPending.Render(" 3 ○ ")
-		s4 = m.styles.PipelineStepPending.Render(" 4 ○ ")
-
-		if m.sessionState == loop.StateActive {
-			if m.activeToolCall != nil {
-				s2 = m.styles.PipelineStepDone.Render(" 2 ✓ ")
-				s3 = m.styles.PipelineStepDone.Render(" 3 ✓ ")
-				s4 = m.styles.PipelineStepActive.Render(" 4 " + m.spinner.View() + " ")
-			} else if strings.Contains(m.statusMessage, "Reviewer") {
-				s2 = m.styles.PipelineStepDone.Render(" 2 ✓ ")
-				s3 = m.styles.PipelineStepActive.Render(" 3 " + m.spinner.View() + " ")
-			} else {
-				s2 = m.styles.PipelineStepActive.Render(" 2 " + m.spinner.View() + " ")
-			}
-		} else if m.sessionState == loop.StateIdle {
-			s1 = m.styles.PipelineStepPending.Render(" 1 ○ ")
-		}
-	} else {
-		s1 = m.styles.PipelineStepDone.Render(" 1 ⬤ User Prompt ")
-		s2 = m.styles.PipelineStepPending.Render(" 2 ○ Coder Propose ")
-		s3 = m.styles.PipelineStepPending.Render(" 3 ○ Reviewer Check ")
-		s4 = m.styles.PipelineStepPending.Render(" 4 ○ Exec Tool ")
-
-		if m.sessionState == loop.StateActive {
-			if m.activeToolCall != nil {
-				s2 = m.styles.PipelineStepDone.Render(" 2 ✓ Coder Propose ")
-				s3 = m.styles.PipelineStepDone.Render(" 3 ✓ Reviewer Check ")
-				s4 = m.styles.PipelineStepActive.Render(" 4 " + m.spinner.View() + " Exec Tool ")
-			} else if strings.Contains(m.statusMessage, "Reviewer") {
-				s2 = m.styles.PipelineStepDone.Render(" 2 ✓ Coder Propose ")
-				s3 = m.styles.PipelineStepActive.Render(" 3 " + m.spinner.View() + " Reviewer Check ")
-			} else {
-				s2 = m.styles.PipelineStepActive.Render(" 2 " + m.spinner.View() + " Coder Propose ")
-			}
-		} else if m.sessionState == loop.StateIdle {
-			s1 = m.styles.PipelineStepPending.Render(" 1 ○ User Prompt ")
+	step1, step2, step3, step4 := stepDone, stepPending, stepPending, stepPending
+	if m.sessionState == loop.StateIdle {
+		step1 = stepPending
+	} else if m.sessionState == loop.StateActive {
+		if m.activeToolCall != nil {
+			step2, step3, step4 = stepDone, stepDone, stepActive
+		} else if strings.Contains(m.statusMessage, "Reviewer") {
+			step2, step3 = stepDone, stepActive
+		} else {
+			step2 = stepActive
 		}
 	}
 
-	arrow := m.styles.PipelineArrow.Render(" ➔ ")
+	renderStep := func(n int, label string, state stepState) string {
+		var icon string
+		switch state {
+		case stepDone:
+			icon = "+"
+		case stepActive:
+			icon = m.spinner.View()
+		default:
+			icon = "o"
+		}
+		var text string
+		if width < 90 {
+			text = fmt.Sprintf(" %d%s ", n, icon)
+		} else {
+			text = fmt.Sprintf(" %d %s %s ", n, icon, label)
+		}
+		switch state {
+		case stepActive:
+			return m.styles.PipelineStepActive.Render(text)
+		case stepDone:
+			return m.styles.PipelineStepDone.Render(text)
+		default:
+			return m.styles.PipelineStepPending.Render(text)
+		}
+	}
+
+	arrow := m.styles.PipelineArrow.Render(" > ")
+	s1 := renderStep(1, "Prompt", step1)
+	s2 := renderStep(2, "Propose", step2)
+	s3 := renderStep(3, "Review", step3)
+	s4 := renderStep(4, "Exec", step4)
+
 	dockContent := lipgloss.JoinHorizontal(lipgloss.Top, s1, arrow, s2, arrow, s3, arrow, s4)
 
-	contentStyleWidth := max(0, width-m.styles.TitleCenter.GetHorizontalFrameSize())
-	res := m.styles.TitleCenter.Width(contentStyleWidth).Render(" ⛭ PIPELINE  " + dockContent)
-	return clipLines(res, 1)
-}
-
-// renderStatusBar renders the live status line with spinner when active.
-func (m Model) renderStatusBar(width int) string {
-	var statusText string
-	if m.sessionState == loop.StateActive {
-		statusText = fmt.Sprintf(" %s %s", m.spinner.View(), m.statusMessage)
-	} else {
-		statusText = fmt.Sprintf(" ✓ %s", m.statusMessage)
+	prefix := ""
+	if width >= 85 {
+		prefix = m.styles.SidebarSubHeader.Render(" PIPELINE  ")
 	}
-	truncated := truncateLine(statusText, max(10, width-4))
-	contentStyleWidth := max(0, width-m.styles.StatusBar.GetHorizontalFrameSize())
-	res := m.styles.StatusBar.Width(contentStyleWidth).Render(truncated)
+	full := prefix + dockContent
+
+	dockW := max(0, width-m.styles.PipelineDock.GetHorizontalFrameSize())
+	res := m.styles.PipelineDock.Width(dockW).Render(truncateLine(full, width))
 	return clipLines(res, 1)
 }
 
-// renderInputBar constructs the bottom bordered input bar with hint.
+// renderStatusBar renders the live status line with state icon and spinner.
+func (m Model) renderStatusBar(width int) string {
+	var icon string
+	if m.sessionState == loop.StateActive {
+		icon = m.spinner.View() + " "
+	} else {
+		icon = "* "
+	}
+	statusText := " " + icon + m.statusMessage
+	truncated := truncateLine(statusText, max(10, width-2))
+	contentW := max(0, width-m.styles.StatusBar.GetHorizontalFrameSize())
+	res := m.styles.StatusBar.Width(contentW).Render(truncated)
+	return clipLines(res, 1)
+}
+
+// renderInputBar renders the full-width bordered prompt dock.
 func (m Model) renderInputBar(width int) string {
-	pill := m.styles.InputPill.Render(" 💬 YOU ❯ ")
+	pill := m.styles.InputPill.Render(" YOU > ")
 	inputView := m.input.View()
 
-	containerStyleWidth := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
-
-	hintText := " [Enter ↵ Submit] "
+	hintText := " [Enter]"
 	if m.sessionState == loop.StateActive {
-		hintText = " [Enter ↵ Interject] "
+		hintText = " [Enter: Interject]"
 	}
 	hint := m.styles.InputHint.Render(hintText)
 
@@ -334,11 +384,12 @@ func (m Model) renderInputBar(width int) string {
 		hint,
 	)
 
-	res := m.styles.InputContainer.Width(containerStyleWidth).Height(1).Render(content)
+	containerW := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
+	res := m.styles.InputContainer.Width(containerW).Height(1).Render(content)
 	return clipLines(res, 3)
 }
 
-// renderProposedAction formats a proposed action as a syntax-highlighted code block box.
+// renderProposedAction formats a tool proposal card with syntax-highlighted args.
 func (m Model) renderProposedAction(content string, width int) string {
 	lines := strings.Split(content, "\n")
 	var sb strings.Builder
@@ -348,27 +399,25 @@ func (m Model) renderProposedAction(content string, width int) string {
 		funcName = strings.TrimSpace(strings.TrimPrefix(lines[0], "Proposed tool call:"))
 	}
 
-	header := fmt.Sprintf(" ⚡ TOOL PROPOSAL  %s", m.styles.ToolCallFunc.Render(funcName))
-	sb.WriteString(header)
+	headerLabel := m.styles.ToolCallHeader.Render("  TOOL PROPOSAL  ")
+	funcLabel := m.styles.ToolCallFunc.Render(" " + funcName + " ")
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, headerLabel, "  ", funcLabel))
 	sb.WriteString("\n")
-	sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("─", max(1, width-8))))
+	sb.WriteString(m.styles.SidebarSubHeader.Render(strings.Repeat("-", max(1, width-m.styles.ToolCallBox.GetHorizontalFrameSize()-2))))
 	sb.WriteString("\n")
 
 	argLines := lines
 	if len(lines) > 1 {
 		argLines = lines[1:]
 	}
-
 	for _, line := range argLines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || trimmed == "Arguments:" {
 			continue
 		}
-
 		if idx := strings.Index(line, ":"); idx != -1 && strings.Contains(line[:idx], `"`) {
 			key := line[:idx+1]
 			val := line[idx+1:]
-
 			sb.WriteString("  ")
 			sb.WriteString(m.styles.ToolCallKey.Render(key))
 			sb.WriteString(" ")
@@ -384,54 +433,43 @@ func (m Model) renderProposedAction(content string, width int) string {
 		sb.WriteString("\n")
 	}
 
-	boxStyleWidth := max(0, width-m.styles.ToolCallBox.GetHorizontalFrameSize())
-	return m.styles.ToolCallBox.Width(boxStyleWidth).Render(strings.TrimRight(sb.String(), "\n"))
+	boxW := max(0, width-m.styles.ToolCallBox.GetHorizontalFrameSize())
+	return m.styles.ToolCallBox.Width(boxW).Render(strings.TrimRight(sb.String(), "\n"))
 }
 
-// renderTranscript formats all transcript entries with Lipgloss styles for the viewport.
+// renderTranscript formats all transcript entries for the viewport.
 func (m Model) renderTranscript() string {
 	entries := m.transcript.Entries()
 	if len(entries) == 0 {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarHeader.Render("  ⚡ TRIAD STUDIO v1.0.0 — Dual-Agent Coding Engine"))
-		sb.WriteString("\n")
-		sb.WriteString(m.styles.SidebarSubHeader.Render("  " + strings.Repeat("─", max(10, m.viewport.Width()-6))))
-		sb.WriteString("\n\n")
-		sb.WriteString("  🤖 " + m.styles.CoderPill.Render(" CODER ") + " " + m.styles.SidebarValue.Render("Proposes file edits, commands, and tool calls"))
-		sb.WriteString("\n")
-		sb.WriteString("  🛡 " + m.styles.ReviewerPill.Render(" REVIEWER ") + " " + m.styles.SidebarValue.Render("Inspects & enforces safety veto gates"))
-		sb.WriteString("\n\n")
-		sb.WriteString("  " + m.styles.TitleKeycapKey.Render(" Tip ") + " " + m.styles.SidebarSubHeader.Render("Type your instructions in the prompt box below and press ") + m.styles.TitleKeycapKey.Render("Enter ↵"))
-		return sb.String()
+		return m.renderWelcomeScreen()
 	}
 
 	var sb strings.Builder
 	for i, entry := range entries {
-		ts := m.styles.Timestamp.Render(entry.Timestamp.Format("15:04:05"))
+		ts := m.styles.Timestamp.Render(entry.Timestamp.Format("15:04"))
 
 		var pill string
 		var accentBar lipgloss.Style
 
 		switch entry.Speaker {
 		case transcript.SpeakerYou:
-			pill = m.styles.YouPill.Render(" 👤 YOU ")
+			pill = m.styles.YouPill.Render(" YOU ")
 			accentBar = m.styles.YouMessageBar
 		case transcript.SpeakerCoder:
-			pill = m.styles.CoderPill.Render(" 🤖 CODER ")
+			pill = m.styles.CoderPill.Render(" CODER ")
 			accentBar = m.styles.CoderMessageBar
 		case transcript.SpeakerReviewer:
-			pill = m.styles.ReviewerPill.Render(" 🛡 REVIEWER ")
+			pill = m.styles.ReviewerPill.Render(" REVIEWER ")
 			accentBar = m.styles.ReviewerMessageBar
 		case transcript.SpeakerSystem:
-			pill = m.styles.SystemPill.Render(" ⚙ SYSTEM ")
+			pill = m.styles.SystemPill.Render(" SYSTEM ")
 			accentBar = m.styles.TitleKeycapKey
 		default:
 			pill = m.styles.SystemPill.Render(fmt.Sprintf(" %s ", entry.Speaker))
 			accentBar = m.styles.TitleKeycapKey
 		}
 
-		header := fmt.Sprintf("%s %s", pill, ts)
+		entryHeader := lipgloss.JoinHorizontal(lipgloss.Top, pill, " ", ts)
 
 		var body string
 		switch entry.Type {
@@ -439,50 +477,100 @@ func (m Model) renderTranscript() string {
 			body = m.renderProposedAction(entry.Content, m.viewport.Width())
 
 		case transcript.TypeActionResult:
-			body = fmt.Sprintf("  %s %s", m.styles.ToolCallKey.Render("❯"), m.styles.ActionResult.Render(entry.Content))
+			resultIcon := m.styles.ToolCallFunc.Render(">")
+			body = "  " + resultIcon + " " + m.styles.ActionResult.Render(entry.Content)
 
 		default:
 			content := entry.Content
 
-			// Check for Approval or Objection banners
 			if strings.HasPrefix(content, "APPROVED") {
-				badge := m.styles.ApprovedBadge.Render("✓ APPROVED BY REVIEWER")
+				badge := m.styles.ApprovedBadge.Render(" + APPROVED BY REVIEWER ")
 				content = badge + "\n" + strings.TrimPrefix(content, "APPROVED")
 			} else if strings.HasPrefix(content, "OBJECTION") {
-				badge := m.styles.ObjectionBadge.Render("🛑 OBJECTION BY REVIEWER")
+				badge := m.styles.ObjectionBadge.Render(" ! OBJECTION BY REVIEWER ")
 				content = badge + "\n" + strings.TrimPrefix(content, "OBJECTION")
 			}
 
 			if entry.Speaker == transcript.SpeakerYou {
-				boxStyleWidth := max(0, m.viewport.Width()-m.styles.UserCalloutBox.GetHorizontalFrameSize())
-				body = m.styles.UserCalloutBox.Width(boxStyleWidth).Render(content)
+				boxW := max(0, m.viewport.Width()-m.styles.UserCalloutBox.GetHorizontalFrameSize())
+				body = m.styles.UserCalloutBox.Width(boxW).Render(content)
 			} else {
 				lines := strings.Split(content, "\n")
-				var formattedLines []string
+				var formatted []string
 				for _, line := range lines {
-					formattedLines = append(formattedLines, fmt.Sprintf("  %s %s", accentBar.Render("▎"), formatMarkdownLine(line, m.styles)))
+					bar := accentBar.Render("|")
+					formatted = append(formatted, "  "+bar+" "+formatMarkdownLine(line, m.styles))
 				}
-				body = strings.Join(formattedLines, "\n")
+				body = strings.Join(formatted, "\n")
 			}
 		}
 
-		sb.WriteString(header)
+		sb.WriteString(entryHeader)
 		sb.WriteString("\n")
 		sb.WriteString(body)
 		if i < len(entries)-1 {
 			sb.WriteString("\n\n")
 		}
 	}
+	return sb.String()
+}
+
+// renderWelcomeScreen renders the empty-session splash screen.
+func (m Model) renderWelcomeScreen() string {
+	var sb strings.Builder
+	vw := m.viewport.Width()
+	if vw < 10 {
+		vw = 10
+	}
+
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.WelcomeTitle.Render("  TRIAD STUDIO  --  Dual-Agent Coding Engine"))
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.SidebarSubHeader.Render("  " + strings.Repeat("-", max(10, vw-4))))
+	sb.WriteString("\n\n")
+
+	coderPill := m.styles.CoderPill.Render(" CODER ")
+	reviewerPill := m.styles.ReviewerPill.Render(" REVIEWER ")
+
+	sb.WriteString("  ")
+	sb.WriteString(coderPill)
+	sb.WriteString("  ")
+	sb.WriteString(m.styles.WelcomeSub.Render("Proposes file edits, commands, and tool calls"))
+	sb.WriteString("\n")
+	sb.WriteString("  ")
+	sb.WriteString(reviewerPill)
+	sb.WriteString("  ")
+	sb.WriteString(m.styles.WelcomeSub.Render("Inspects proposals & enforces safety veto gates"))
+	sb.WriteString("\n\n")
+
+	sb.WriteString("  ")
+	sb.WriteString(m.styles.TitleKeycapKey.Render(" TIP "))
+	sb.WriteString("  ")
+	sb.WriteString(m.styles.WelcomeTip.Render("Type your task below and press "))
+	sb.WriteString(m.styles.TitleKeycapKey.Render(" Enter "))
+	sb.WriteString("\n")
 
 	return sb.String()
 }
 
-// formatMarkdownLine applies basic inline styling for bold, code, and bullet points.
+// formatMarkdownLine applies basic inline styling for bullets and inline code.
 func formatMarkdownLine(line string, styles Styles) string {
 	trimmed := strings.TrimSpace(line)
-	if strings.HasPrefix(trimmed, "• ") || strings.HasPrefix(trimmed, "- ") {
-		rest := strings.TrimPrefix(strings.TrimPrefix(trimmed, "• "), "- ")
-		return styles.MdBullet.Render("● ") + styles.EntryContent.Render(rest)
+	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
+		rest := trimmed[2:]
+		return styles.MdBullet.Render("  * ") + styles.EntryContent.Render(rest)
+	}
+	if strings.Contains(line, "`") {
+		parts := strings.Split(line, "`")
+		var out strings.Builder
+		for i, p := range parts {
+			if i%2 == 1 {
+				out.WriteString(styles.MdInlineCode.Render(p))
+			} else {
+				out.WriteString(styles.EntryContent.Render(p))
+			}
+		}
+		return out.String()
 	}
 	return styles.EntryContent.Render(line)
 }
@@ -491,12 +579,19 @@ func truncatePath(path string, maxLen int) string {
 	if maxLen <= 3 {
 		return "..."
 	}
-	if len(path) <= maxLen {
+	// Use lipgloss.Width to measure since path may contain non-ASCII
+	if lipgloss.Width(path) <= maxLen {
 		return path
 	}
-	return "..." + path[len(path)-(maxLen-3):]
+	runes := []rune(path)
+	for len(runes) > 0 && lipgloss.Width("..."+string(runes)) > maxLen {
+		runes = runes[1:]
+	}
+	return "..." + string(runes)
 }
 
+// renderProgressBar renders a progress meter using single-width block chars.
+// Uses `#` for filled and `.` for empty — guaranteed 1-wide on all terminals.
 func renderProgressBar(value int, maxVal int, totalBlocks int, styles Styles) string {
 	if totalBlocks < 2 {
 		totalBlocks = 2
@@ -508,13 +603,12 @@ func renderProgressBar(value int, maxVal int, totalBlocks int, styles Styles) st
 	if filled > totalBlocks {
 		filled = totalBlocks
 	}
-
 	var sb strings.Builder
 	for i := 0; i < totalBlocks; i++ {
 		if i < filled {
-			sb.WriteString(styles.SidebarMeterFill.Render("▰"))
+			sb.WriteString(styles.SidebarMeterFill.Render("#"))
 		} else {
-			sb.WriteString(styles.SidebarMeterEmpty.Render("▱"))
+			sb.WriteString(styles.SidebarMeterEmpty.Render("."))
 		}
 	}
 	return sb.String()
@@ -549,7 +643,6 @@ func padOrClipLine(line string, width int) string {
 func fitToCanvas(s string, width int, height int) string {
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, height)
-
 	for i := 0; i < height; i++ {
 		if i < len(lines) {
 			out = append(out, padOrClipLine(lines[i], width))
@@ -564,8 +657,12 @@ func truncateLine(s string, maxLen int) string {
 	if maxLen <= 3 {
 		return "..."
 	}
-	if len(s) <= maxLen {
+	if lipgloss.Width(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes))+3 > maxLen {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "..."
 }

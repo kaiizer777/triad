@@ -76,6 +76,7 @@ type Styles struct {
 	PipelineStepPending lipgloss.Style
 	PipelineStepDone    lipgloss.Style
 	PipelineArrow       lipgloss.Style
+	PipelineDock        lipgloss.Style
 
 	ViewportContainer lipgloss.Style
 	EntryContent      lipgloss.Style
@@ -83,35 +84,52 @@ type Styles struct {
 	ErrorContent      lipgloss.Style
 	StatusBar         lipgloss.Style
 	SpinnerStyle      lipgloss.Style
+
+	// Welcome screen
+	WelcomeTitle lipgloss.Style
+	WelcomeSub   lipgloss.Style
+	WelcomeTip   lipgloss.Style
 }
 
 // DefaultStyles returns an ultra-premium obsidian dark palette with glowing accents,
 // inspired by Claude Code / Cursor CLI / Warp Terminal / Aider aesthetics.
 func DefaultStyles() Styles {
 	var (
-		obsidian    = lipgloss.Color("#0A0E17")
-		obsidianAlt = lipgloss.Color("#0F172A")
-		surface     = lipgloss.Color("#131A2A")
-		border      = lipgloss.Color("#1E293B")
-		borderSoft  = lipgloss.Color("#293548")
-		muted       = lipgloss.Color("#64748B")
-		mutedSoft   = lipgloss.Color("#475569")
-		textPrimary = lipgloss.Color("#F8FAFC")
-		textDim     = lipgloss.Color("#94A3B8")
+		obsidian    = lipgloss.Color("#080C14")
+		obsidianAlt = lipgloss.Color("#0D1526")
+		surface     = lipgloss.Color("#111827")
+		surfaceHigh = lipgloss.Color("#172032")
+		border      = lipgloss.Color("#1E2D45")
+		borderSoft  = lipgloss.Color("#253348")
+		muted       = lipgloss.Color("#4B5E78")
+		mutedSoft   = lipgloss.Color("#5A7090")
+		textPrimary = lipgloss.Color("#E8EDF5")
+		textDim     = lipgloss.Color("#8899B4")
 
-		violet    = lipgloss.Color("#8B5CF6")
-		violetLt  = lipgloss.Color("#C4B5FD")
-		cyan      = lipgloss.Color("#06B6D4")
-		cyanLt    = lipgloss.Color("#67E8F9")
-		emerald   = lipgloss.Color("#10B981")
+		violetMd = lipgloss.Color("#8B5CF6")
+		violetLt = lipgloss.Color("#A78BFA")
+		violetBg = lipgloss.Color("#1A0A3A")
+
+		cyan   = lipgloss.Color("#0891B2")
+		cyanLt = lipgloss.Color("#67E8F9")
+
+		emerald   = lipgloss.Color("#059669")
 		emeraldLt = lipgloss.Color("#6EE7B7")
-		amber     = lipgloss.Color("#F59E0B")
-		amberLt   = lipgloss.Color("#FCD34D")
-		blue      = lipgloss.Color("#3B82F6")
-		blueLt    = lipgloss.Color("#93C5FD")
-		red       = lipgloss.Color("#F43F5E")
-		redLt     = lipgloss.Color("#FDA4AF")
-		pink      = lipgloss.Color("#EC4899")
+		emeraldBg = lipgloss.Color("#022C22")
+
+		amber   = lipgloss.Color("#D97706")
+		amberLt = lipgloss.Color("#FCD34D")
+
+		blue   = lipgloss.Color("#2563EB")
+		blueMd = lipgloss.Color("#3B82F6")
+		blueLt = lipgloss.Color("#93C5FD")
+		blueBg = lipgloss.Color("#0A1628")
+
+		red   = lipgloss.Color("#BE123C")
+		redLt = lipgloss.Color("#FDA4AF")
+		redBg = lipgloss.Color("#2D0A14")
+
+		pink = lipgloss.Color("#EC4899")
 	)
 
 	return Styles{
@@ -119,7 +137,7 @@ func DefaultStyles() Styles {
 		TitleBrand: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(violet).
+			Background(violetMd).
 			Padding(0, 2),
 
 		TitleVersion: lipgloss.NewStyle().
@@ -136,18 +154,18 @@ func DefaultStyles() Styles {
 		TitleKeycapKey: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(violetLt).
-			Background(surface).
+			Background(surfaceHigh).
 			Padding(0, 1),
 
 		TitleKeycapLabel: lipgloss.NewStyle().
-			Foreground(muted).
+			Foreground(mutedSoft).
 			Background(obsidianAlt).
 			Padding(0, 1),
 
 		// ── Sidebar Panel ─────────────────────────────────────────────
 		SidebarContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(violet).
+			BorderForeground(border).
 			Background(obsidian).
 			Padding(0, 1),
 
@@ -156,7 +174,7 @@ func DefaultStyles() Styles {
 			Foreground(violetLt),
 
 		SidebarSubHeader: lipgloss.NewStyle().
-			Foreground(mutedSoft),
+			Foreground(muted),
 
 		SidebarLabel: lipgloss.NewStyle().
 			Bold(true).
@@ -180,11 +198,11 @@ func DefaultStyles() Styles {
 		SidebarBadgeThink: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(violet).
+			Background(violetMd).
 			Padding(0, 1),
 
 		SidebarMeterFill: lipgloss.NewStyle().
-			Foreground(emerald),
+			Foreground(emeraldLt),
 
 		SidebarMeterEmpty: lipgloss.NewStyle().
 			Foreground(border),
@@ -199,13 +217,13 @@ func DefaultStyles() Styles {
 		CoderPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(violet).
+			Background(violetMd).
 			Padding(0, 1),
 
 		ReviewerPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(obsidian).
-			Background(amber).
+			Background(amberLt).
 			Padding(0, 1),
 
 		SystemPill: lipgloss.NewStyle().
@@ -215,16 +233,16 @@ func DefaultStyles() Styles {
 			Padding(0, 1),
 
 		Timestamp: lipgloss.NewStyle().
-			Foreground(mutedSoft).
+			Foreground(muted).
 			Italic(true),
 
 		// ── Message Feed Callouts & Accents ──────────────────────────
 		UserCalloutBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(blue).
-			Background(surface).
+			BorderForeground(blueMd).
+			Background(blueBg).
 			Foreground(textPrimary).
-			Padding(0, 1),
+			Padding(0, 2),
 
 		YouMessageBar: lipgloss.NewStyle().
 			Foreground(blueLt).
@@ -240,19 +258,19 @@ func DefaultStyles() Styles {
 
 		ApprovedBadge: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(emeraldLt).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(emerald).
-			Background(lipgloss.Color("#022C22")).
-			Padding(0, 1),
+			Background(emeraldBg).
+			Padding(0, 2),
 
 		ObjectionBadge: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(redLt).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(red).
-			Background(lipgloss.Color("#450A0A")).
-			Padding(0, 1),
+			Background(redBg).
+			Padding(0, 2),
 
 		// ── Markdown Formatting ───────────────────────────────────────
 		MdBold: lipgloss.NewStyle().
@@ -276,8 +294,8 @@ func DefaultStyles() Styles {
 		// ── Tool Action Card Panel ────────────────────────────────────
 		ToolCallBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(violet).
-			Background(lipgloss.Color("#0B0F1C")).
+			BorderForeground(violetMd).
+			Background(violetBg).
 			Padding(0, 1),
 
 		ToolCallHeader: lipgloss.NewStyle().
@@ -301,7 +319,7 @@ func DefaultStyles() Styles {
 		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(blue).
+			BorderForeground(blueMd).
 			Background(obsidianAlt).
 			Padding(0, 1),
 
@@ -323,7 +341,7 @@ func DefaultStyles() Styles {
 		PipelineStepActive: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(violet).
+			Background(violetMd).
 			Padding(0, 1),
 
 		PipelineStepPending: lipgloss.NewStyle().
@@ -334,11 +352,16 @@ func DefaultStyles() Styles {
 		PipelineStepDone: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(obsidian).
-			Background(emerald).
+			Background(emeraldLt).
 			Padding(0, 1),
 
 		PipelineArrow: lipgloss.NewStyle().
-			Foreground(mutedSoft),
+			Foreground(border),
+
+		PipelineDock: lipgloss.NewStyle().
+			Background(obsidian).
+			Foreground(textDim).
+			Padding(0, 1),
 
 		// ── Transcript Viewport ───────────────────────────────────────
 		ViewportContainer: lipgloss.NewStyle().
@@ -357,13 +380,25 @@ func DefaultStyles() Styles {
 			Foreground(redLt),
 
 		StatusBar: lipgloss.NewStyle().
-			Foreground(amberLt).
+			Foreground(textDim).
 			Background(obsidianAlt).
 			Padding(0, 1),
 
 		SpinnerStyle: lipgloss.NewStyle().
 			Foreground(violetLt).
 			Bold(true),
+
+		// ── Welcome Screen ────────────────────────────────────────────
+		WelcomeTitle: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(violetLt),
+
+		WelcomeSub: lipgloss.NewStyle().
+			Foreground(textDim),
+
+		WelcomeTip: lipgloss.NewStyle().
+			Foreground(mutedSoft).
+			Italic(true),
 	}
 }
 
@@ -614,4 +649,3 @@ func (m Model) Init() tea.Cmd {
 	}
 	return tea.Batch(cmds...)
 }
-
