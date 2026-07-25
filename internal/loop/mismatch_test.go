@@ -11,6 +11,17 @@ import (
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
+func makeMismatchToolCall(name, args string) agent.ToolCall {
+	return agent.ToolCall{
+		ID:   "call_mismatch",
+		Type: "function",
+		Function: agent.ToolCallFunction{
+			Name:      name,
+			Arguments: args,
+		},
+	}
+}
+
 func TestCheckModeMismatch_Unit(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -75,7 +86,9 @@ func TestLoop_ModeMismatchNotice_ForcedTriad(t *testing.T) {
 
 	client := newMockClient()
 	client.addResponse("Coder", mockResponse{
-		resp: agent.AgentResponse{Text: "I can answer that simple question right away."},
+		resp: agent.AgentResponse{
+			ToolCalls: []agent.ToolCall{makeMismatchToolCall("task_complete", "{}")},
+		},
 	})
 	client.addResponse("Reviewer", mockResponse{
 		resp: agent.AgentResponse{Text: "APPROVED: simple answer looks fine."},
@@ -135,7 +148,9 @@ func TestLoop_ModeMismatchNotice_ForcedGeneral(t *testing.T) {
 
 	client := newMockClient()
 	client.addResponse("Coder", mockResponse{
-		resp: agent.AgentResponse{Text: "Refactor plan prepared."},
+		resp: agent.AgentResponse{
+			ToolCalls: []agent.ToolCall{makeMismatchToolCall("task_complete", "{}")},
+		},
 	})
 
 	coderCfg := agent.AgentConfig{Name: "Coder"}

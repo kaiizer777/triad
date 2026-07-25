@@ -112,32 +112,37 @@ ready.
 
 ---
 
-## Phase 2 — Mode Mismatch Notice
+## Phase 3 — The Clarify Phase
 
-**Goal:** add the passive FYI note for when a forced mode looks mismatched to
-a task. Small, self-contained, builds directly on Phase 1.
+**Goal:** get the batched upfront clarifying-questions behavior working
+across your existing modes (General Chat, Triad), before Orchestrator and
+twin subagents exist to also need it. This is independent of Phases 1-2 and
+can be built in parallel if you prefer, but is listed here since Phase 4
+depends on it.
 
-- [ ] 2.1 — Implement a lightweight "does this task look mismatched to the
-      current forced mode" check — this can be a simple heuristic for now
-      (e.g. task length/keyword-based) since the real complexity judgment
-      belongs to Orchestrator in Phase 4, not this mismatch-notice feature
-- [ ] 2.2 — When running in a forced mode (`general` or `triad`, not
-      `orchestrator`) and the check flags a mismatch, append a single
-      gentle, non-blocking note to the transcript (e.g. `"[System]: Note —
-      you're in Triad mode; this looks trivial, /mode general would skip the
-      review overhead."`)
-- [ ] 2.3 — Confirm this note is purely informational: it never pauses
-      execution, never asks for confirmation, and never switches modes on
-      its own — the task proceeds in the forced mode regardless
-- [ ] 2.4 — **Test:** set `/mode triad`, submit several trivial tasks,
-      confirm each one still runs full Triad (no silent downgrade) and that
-      the passive mismatch note appears without blocking execution
-- [ ] 2.5 — **Test:** set `/mode general`, submit a task that looks like it
-      needs real oversight (e.g. touches multiple files or sensitive logic),
-      confirm the reverse-direction note appears appropriately
+- [ ] 3.1 — Implement a shared `clarify` step (e.g. `internal/clarify/
+      clarify.go`) that any mode can call before starting real work: given a
+      task description, the relevant agent(s) assess it for ambiguity
+- [ ] 3.2 — If ambiguity exists, **all** questions get batched into a single
+      upfront round — not asked one at a time, not scattered mid-task
+- [ ] 3.3 — Work does not begin until the human answers, or explicitly says
+      something equivalent to "proceed, use your best judgment" — at which
+      point the agent(s) proceed using the most reasonable interpretation
+      and note the assumption made, rather than blocking forever
+- [ ] 3.4 — Wire this into **General Chat** and **Triad** modes first (the
+      two that already exist from Phase 1) — Orchestrator and twin-subagent
+      wiring comes later in Phases 4 and 6, reusing this same shared step
+      rather than duplicating clarify logic
+- [ ] 3.5 — **Test:** give General Chat mode a deliberately ambiguous task,
+      confirm it produces a single batched clarify round rather than
+      guessing or asking piecemeal
+- [ ] 3.6 — **Test:** repeat for Triad mode — confirm Coder/Reviewer clarify
+      before the first proposed action, not mid-task
+- [ ] 3.7 — **Test:** confirm saying "just proceed" after a clarify round
+      correctly unblocks work in both modes, using a stated best-guess
+      interpretation rather than stalling indefinitely
 
-**Checkpoint:** forced modes now give you a gentle heads-up when they seem
-mismatched to the task, without ever taking control away from your explicit
-choice.
+**Checkpoint:** both existing modes now ask batched clarifying questions
+upfront on ambiguous tasks, using one shared, reusable clarify step.
 
 ---
