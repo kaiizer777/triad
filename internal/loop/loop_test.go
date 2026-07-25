@@ -3,6 +3,9 @@ package loop_test
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -446,5 +449,288 @@ func TestMidCycleInterjection(t *testing.T) {
 	if firstProposedIdx >= 0 && interjectionIdx >= firstProposedIdx {
 		t.Errorf("interjection (idx %d) must come BEFORE first Coder proposed_action (idx %d)",
 			interjectionIdx, firstProposedIdx)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Auto-commit tests (docs/work2.md §2.2.8, §2.2.9)
+// ---------------------------------------------------------------------------
+
+// newRepoWorkDir creates a temp dir that is already a git repo with
+// user.name/email set, and an initial empty commit so `git log` works.
+// Mirrors the helper in internal/gitcommit but lives here to keep the
+// loop test self-contained.
+func newRepoWorkDir(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping")
+	}
+	dir := t.TempDir()
+	devNull := "NUL"
+	if _, err := os.Stat(devNull); err != nil {
+		devNull = "/dev/null"
+	}
+	env := append(os.Environ(),
+		"GIT_CONFIG_GLOBAL="+devNull,
+		"GIT_CONFIG_SYSTEM="+devNull,
+	)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...) //nolint:gosec
+		cmd.Dir = dir
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "--local", "user.email", "test@example.com")
+	run("config", "--local", "user.name", "Triad Test")
+	run("commit", "--allow-empty", "-q", "-m", "initial")
+	return dir
+}
+
+func newLoopInRepo(t *testing.T, mc *mockClient, workDir string) (*loop.Loop, *transcript.Transcript, chan string) {
+	t.Helper()
+	tr := transcript.NewTranscript(filepath.Join(workDir, "test_session.jsonl"))
+	coderCfg := agent.AgentConfig{Name: "Coder", HasTools: true}
+	reviewerCfg := agent.AgentConfig{Name: "Reviewer", HasTools: false}
+	l := loop.New(tr, coderCfg, reviewerCfg, mc, workDir)
+	taskChan := make(chan string, 1)
+	return l, tr, taskChan
+}
+
+// lastCommitSubject runs `git log -1 --pretty=%s` in workDir and returns
+// the trimmed subject. Used to verify the auto-commit message format.
+func lastCommitSubject(t *testing.T, workDir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "log", "-1", "--pretty=%s") //nolint:gosec
+	cmd.Dir = workDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// lastCommitShortHash returns the short hash of the HEAD commit.
+func lastCommitShortHash(t *testing.T, workDir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD") //nolint:gosec
+	cmd.Dir = workDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// Test 2.2.8 — Approved write_file produces exactly one commit, with
+// the file actually changed and a useful message.
+func TestAutoCommit_WriteFileProducesOneCommit(t *testing.T) {
+	mc := newMockClient()
+	workDir := newRepoWorkDir(t)
+
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"hello.txt","content":"hi"}`)},
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED.",
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Done.",
+	}})
+
+	l, tr, taskChan := newLoopInRepo(t, mc, workDir)
+	if err := runLoop(t, l, taskChan, "create hello.txt"); err != nil {
+		t.Fatalf("runLoop: %v", err)
+	}
+
+	// File on disk
+	if _, err := os.Stat(filepath.Join(workDir, "hello.txt")); err != nil {
+		t.Fatalf("expected hello.txt on disk: %v", err)
+	}
+
+	// Exactly one new commit (the initial one is the repo's bootstrap).
+	// The initial commit's subject is "initial"; the new one starts with [triad].
+	subject := lastCommitSubject(t, workDir)
+	if !strings.HasPrefix(subject, "[triad] entry #") {
+		t.Errorf("expected subject to start with [triad] entry #, got %q", subject)
+	}
+	if !strings.Contains(subject, "hello.txt") && !strings.Contains(subject, "write") {
+		t.Errorf("expected subject to mention hello.txt or write, got %q", subject)
+	}
+
+	// Transcript must contain a System entry recording the commit hash.
+	found := false
+	for _, e := range tr.Entries() {
+		if e.Speaker == transcript.SpeakerSystem && strings.Contains(e.Content, "auto-commit ") {
+			if !strings.Contains(e.Content, lastCommitShortHash(t, workDir)) {
+				t.Errorf("auto-commit System entry does not reference HEAD hash:\n%s", e.Content)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a System auto-commit entry in the transcript")
+	}
+}
+
+// Test 2.2.9 — run_command that touches multiple files commits them
+// together as a single commit.
+func TestAutoCommit_RunCommandMultiFile(t *testing.T) {
+	mc := newMockClient()
+	workDir := newRepoWorkDir(t)
+
+	// Pre-create a file so the run_command can modify it alongside
+	// creating a new one.
+	preExisting := filepath.Join(workDir, "a.txt")
+	if err := os.WriteFile(preExisting, []byte("original"), 0o644); err != nil {
+		t.Fatalf("seed a.txt: %v", err)
+	}
+	// And commit it as the starting point so `git status` is clean
+	// before the run_command fires.
+	for _, args := range [][]string{
+		{"add", "--", "a.txt"},
+		{"commit", "-q", "-m", "seed"},
+	} {
+		c := exec.Command("git", args...) //nolint:gosec
+		c.Dir = workDir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// run_command that creates a new file and modifies a.txt.
+	cmd := `echo first > b.txt && echo changed > a.txt`
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("run_command", `{"command":"`+cmd+`"}`)},
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED."}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Done."}})
+
+	l, _, taskChan := newLoopInRepo(t, mc, workDir)
+	if err := runLoop(t, l, taskChan, "modify and create files"); err != nil {
+		t.Fatalf("runLoop: %v", err)
+	}
+
+	// Both files should be in the most recent commit together.
+	diffCmd := exec.Command("git", "show", "--name-only", "--pretty=format:", "HEAD") //nolint:gosec
+	diffCmd.Dir = workDir
+	out, err := diffCmd.Output()
+	if err != nil {
+		t.Fatalf("git show: %v", err)
+	}
+	names := strings.TrimSpace(string(out))
+	if !strings.Contains(names, "a.txt") {
+		t.Errorf("expected a.txt in commit, got:\n%s", names)
+	}
+	if !strings.Contains(names, "b.txt") {
+		t.Errorf("expected b.txt in commit, got:\n%s", names)
+	}
+}
+
+// Test 2.2.6 — A write_file with identical content produces no commit.
+func TestAutoCommit_IdenticalContentNoCommit(t *testing.T) {
+	mc := newMockClient()
+	workDir := newRepoWorkDir(t)
+
+	// Seed a file and commit it as the starting point.
+	if err := os.WriteFile(filepath.Join(workDir, "stable.txt"), []byte("same"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	for _, args := range [][]string{
+		{"add", "--", "stable.txt"},
+		{"commit", "-q", "-m", "seed stable"},
+	} {
+		c := exec.Command("git", args...) //nolint:gosec
+		c.Dir = workDir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	// Snapshot HEAD so we can confirm no new commit is created.
+	headBefore := lastCommitShortHash(t, workDir)
+
+	// write_file with identical content.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"stable.txt","content":"same"}`)},
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED."}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Done."}})
+
+	l, tr, taskChan := newLoopInRepo(t, mc, workDir)
+	if err := runLoop(t, l, taskChan, "rewrite same content"); err != nil {
+		t.Fatalf("runLoop: %v", err)
+	}
+
+	headAfter := lastCommitShortHash(t, workDir)
+	if headBefore != headAfter {
+		t.Errorf("HEAD changed (%s -> %s) for a no-op write_file", headBefore, headAfter)
+	}
+	// And the transcript must NOT contain a "[triad] entry" reference
+	// in any System entry (no commit was created, so no commit note).
+	for _, e := range tr.Entries() {
+		if e.Speaker == transcript.SpeakerSystem && strings.Contains(e.Content, "auto-commit ") {
+			t.Errorf("unexpected auto-commit System entry for no-op: %s", e.Content)
+		}
+	}
+}
+
+// Test 2.4.1 — Rejected proposals never touch git.
+func TestAutoCommit_RejectionDoesNotCommit(t *testing.T) {
+	mc := newMockClient()
+	workDir := newRepoWorkDir(t)
+
+	// Coder proposes a bad write_file → Reviewer objects → Coder revises.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"rejected.txt","content":"bad"}`)},
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"rejected.txt","content":"good"}`)},
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "OBJECTION: content is wrong.",
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{
+		Text: "APPROVED. Now correct.",
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Done."}})
+
+	l, _, taskChan := newLoopInRepo(t, mc, workDir)
+	if err := runLoop(t, l, taskChan, "rejected then approved"); err != nil {
+		t.Fatalf("runLoop: %v", err)
+	}
+
+	// Exactly ONE [triad] commit should exist on top of the initial commit
+	// (for the approved revision). The rejected proposal must not have
+	// created a commit. Walk the last 10 subjects and count [triad] ones.
+	listCmd := exec.Command("git", "log", "--pretty=%s", "-n", "10") //nolint:gosec
+	listCmd.Dir = workDir
+	listOut, err := listCmd.Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	triadCount := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(listOut)), "\n") {
+		if strings.HasPrefix(line, "[triad]") {
+			triadCount++
+		}
+	}
+	if triadCount != 1 {
+		t.Errorf("expected exactly 1 [triad] commit (for approved revision), got %d. log:\n%s\n",
+			triadCount, listOut)
 	}
 }

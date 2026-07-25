@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -345,6 +346,13 @@ description: Print session status
 
 (show session status)
 `,
+		"undo.md": `---
+target: system
+description: Revert last [triad] auto-commit
+---
+
+Revert the most recent [triad] auto-commit (docs/work2.md §2.3).
+`,
 		"strict.md": `---
 target: reviewer
 description: Toggle strict mode
@@ -543,6 +551,127 @@ func TestTUI_SlashCommand_TriggersCoderTurnWhenIdle(t *testing.T) {
 	}
 	if m.sessionState != loop.StateActive {
 		t.Errorf("session should be active after /plan, got %v", m.sessionState)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// /undo tests (docs/work2.md §2.3)
+// ---------------------------------------------------------------------------
+
+// makeRepoModelForUndo sets up a Model whose workDir is a real git repo
+// with one prior [triad] commit on top of an initial empty commit, so
+// /undo has something concrete to revert.
+func makeRepoModelForUndo(t *testing.T) (Model, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping")
+	}
+
+	dir := t.TempDir()
+	devNull := "NUL"
+	if _, err := os.Stat(devNull); err != nil {
+		devNull = "/dev/null"
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", devNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", devNull)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...) //nolint:gosec
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "--local", "user.email", "test@example.com")
+	run("config", "--local", "user.name", "Triad Test")
+	run("commit", "--allow-empty", "-q", "-m", "initial")
+
+	// Create a file and commit it (this is the [triad] commit that /undo will revert).
+	if err := os.WriteFile(filepath.Join(dir, "doomed.txt"), []byte("bad content"), 0o644); err != nil {
+		t.Fatalf("write doomed.txt: %v", err)
+	}
+	run("add", "--", "doomed.txt")
+	run("commit", "-q", "-m", "[triad] entry #1: create doomed.txt")
+
+	// Build a model in this dir.
+	client := &mockClient{}
+	sessionPath := filepath.Join(dir, "test_session.jsonl")
+	tr := transcript.NewTranscript(sessionPath)
+	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
+	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
+	reg := loadTestRegistry(t)
+	model := NewModel(tr, coder, reviewer, client, dir, 0, reg)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+	return model, dir
+}
+
+func TestTUI_Undo_NothingToUndo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping")
+	}
+	dir := t.TempDir()
+	client := &mockClient{}
+	tr := transcript.NewTranscript(filepath.Join(dir, "test_session.jsonl"))
+	model := NewModel(tr, agent.AgentConfig{Name: "Coder", HasTools: true},
+		agent.AgentConfig{Name: "Reviewer", HasTools: false},
+		client, dir, 0, loadTestRegistry(t))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+
+	// /undo with no [triad] commit in history should produce a friendly
+	// "nothing to undo" System entry and not panic.
+	updated, _ = model.Update(humanInputMsg{content: "/undo"})
+	m := updated.(Model)
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly 1 System entry, got %d", len(entries))
+	}
+	if !strings.Contains(entries[0].Content, "Nothing to undo") {
+		t.Errorf("expected 'Nothing to undo' in entry, got: %q", entries[0].Content)
+	}
+}
+
+func TestTUI_Undo_RevertsLastCommit(t *testing.T) {
+	model, dir := makeRepoModelForUndo(t)
+
+	// Confirm doomed.txt exists before /undo.
+	if _, err := os.Stat(filepath.Join(dir, "doomed.txt")); err != nil {
+		t.Fatalf("pre-condition: doomed.txt should exist: %v", err)
+	}
+
+	// Invoke /undo.
+	updated, cmd := model.Update(humanInputMsg{content: "/undo"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("/undo should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	// doomed.txt should be gone after the revert.
+	if _, err := os.Stat(filepath.Join(dir, "doomed.txt")); !os.IsNotExist(err) {
+		t.Errorf("expected doomed.txt to be removed by revert, stat err: %v", err)
+	}
+
+	// Transcript should contain a System entry recording the revert.
+	entries := m.transcript.Entries()
+	if len(entries) == 0 {
+		t.Fatal("expected at least one System entry from /undo")
+	}
+	last := entries[len(entries)-1]
+	if last.Speaker != transcript.SpeakerSystem {
+		t.Errorf("expected last entry to be System, got %q", last.Speaker)
+	}
+	if !strings.Contains(last.Content, "/undo") || !strings.Contains(strings.ToLower(last.Content), "revert") {
+		t.Errorf("expected /undo revert summary, got: %q", last.Content)
+	}
+	// And the original [triad] commit should still be in git log —
+	// we used `git revert` (preserves history), not `git reset` (destroys it).
+	logCmd := exec.Command("git", "log", "--pretty=%s", "-n", "10") //nolint:gosec
+	logCmd.Dir = dir
+	logOut, _ := logCmd.Output()
+	if !strings.Contains(string(logOut), "[triad]") {
+		t.Errorf("original [triad] commit should still be in history:\n%s", logOut)
 	}
 }
 

@@ -7,11 +7,13 @@ package loop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -308,6 +310,23 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 				return false, false, fmt.Errorf("loop: failed to append action_result: %w", err)
 			}
 
+			// Auto-commit on every executed edit (docs/work2.md §2.2).
+			// Only acts on successful write_file / run_command; reads
+			// and task_complete never touch the filesystem. Rejected
+			// proposals never reach this branch, so they never touch
+			// git either. The headless loop mirrors the TUI's
+			// auto-commit behaviour so the two paths stay in sync.
+			if execErr == nil {
+				if note := autoCommit(l.workDir, l.transcript.FilePath(), toolCall, resultEntry.ID); note != "" {
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   note,
+						Timestamp: time.Now(),
+					})
+				}
+			}
+
 			return true, false, nil
 
 		case DecisionObject:
@@ -436,5 +455,103 @@ func ParseProposedAction(content string) (*agent.ToolCall, error) {
 			Arguments: args,
 		},
 	}, nil
+}
+
+// autoCommit is the headless equivalent of the TUI's maybeAutoCommit.
+// It returns an empty string when there's nothing to commit, and a
+// one-line note suitable for a System transcript entry on success or
+// on a surfaced error. Permanent misconfiguration is reported once via
+// the returned string; the loop's caller appends it as a System entry.
+//
+// If workDir is not a git repository (the headless loop is used in
+// tests that don't always set one up, and the TUI's main.go does its
+// own EnsureRepo before starting the session), this helper is a
+// no-op — it returns "" without writing anything to the transcript.
+// Production sessions always have a repo by the time the first
+// action runs.
+//
+// This helper is a thin wrapper around gitcommit.CommitAction — it
+// just figures out which file(s) the action touched and builds a
+// minimal intent excerpt. The TUI does the same work but also has
+// access to the Coder's most recent planning message; in the
+// headless loop we don't, so we synthesise a short intent from the
+// tool arguments.
+func autoCommit(workDir, sessionPath string, toolCall agent.ToolCall, resultEntryID int) string {
+	switch toolCall.Function.Name {
+	case "write_file", "run_command":
+		// proceed
+	default:
+		return ""
+	}
+
+	// If we're not in a git repo, silently skip the auto-commit step.
+	// The TUI's main.go has already called EnsureRepo, so the live
+	// path always passes this check; the headless test path may not.
+	if !gitcommit.IsRepo(workDir) {
+		return ""
+	}
+
+	var paths []string
+	intent := ""
+	switch toolCall.Function.Name {
+	case "write_file":
+		var args agent.ExecuteToolArgs
+		if toolCall.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+		}
+		if strings.TrimSpace(args.Path) == "" {
+			return ""
+		}
+		paths = []string{gitcommit.NormalizePath(workDir, args.Path)}
+		intent = "write " + args.Path
+	case "run_command":
+		found, err := gitcommit.ChangedPaths(workDir)
+		if err != nil {
+			// Most commonly: workDir isn't a git repo (the headless
+			// loop is used in tests that don't always set one up).
+			// Treat that as "no auto-commit" rather than spamming
+			// the transcript with a git error. The TUI ensures the
+			// repo exists before the session starts, so this branch
+			// is rare in the live path.
+			if !gitcommit.IsRepo(workDir) {
+				return ""
+			}
+			return fmt.Sprintf("git status failed: %v", err)
+		}
+		paths = found
+		var args agent.ExecuteToolArgs
+		if toolCall.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+		}
+		intent = "run: " + args.Command
+	}
+
+	if len(paths) == 0 {
+		return ""
+	}
+
+	msg := gitcommit.CommitMessage{
+		EntryID:     resultEntryID,
+		Intent:      intent,
+		ToolName:    toolCall.Function.Name,
+		SessionPath: sessionPath,
+		ProposedBy:  transcript.SpeakerCoder,
+		ApprovedBy:  transcript.SpeakerReviewer,
+	}
+
+	res, err := gitcommit.CommitAction(workDir, paths, msg)
+	if err != nil {
+		if gitcommit.IsNotConfigured(err) {
+			return "auto-commit disabled: git user.name / user.email not configured."
+		}
+		return fmt.Sprintf("auto-commit failed: %v", err)
+	}
+	if res.NoChanges {
+		return ""
+	}
+	if res.Hash != "" {
+		return fmt.Sprintf("auto-commit %s: %s", res.Hash, intent)
+	}
+	return ""
 }
 

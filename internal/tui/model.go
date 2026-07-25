@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/commands"
+	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -440,6 +441,26 @@ type Model struct {
 	statusMessage  string
 	initialCmd     tea.Cmd
 
+	// lastCoderMessage is the most recent plain-text message Coder sent
+	// before proposing an action. Captured so the auto-commit message
+	// for an executed action can include a real intent excerpt (the
+	// Coder's stated reasoning) rather than just "write_file" + path.
+	// Cleared when a new proposed_action lands.
+	lastCoderMessage string
+
+	// lastProposedEntryID is the transcript ID of the most recent
+	// proposed_action entry, captured for use in the auto-commit
+	// message body (so the commit references the same entry the user
+	// can see in the transcript).
+	lastProposedEntryID int
+
+	// gitDisabled is set to true when EnsureRepo or CheckUserConfigured
+	// reports the working directory can't host commits. Once set, the
+	// TUI skips the auto-commit step entirely so it doesn't spam the
+	// transcript with the same "not configured" message on every
+	// executed action.
+	gitDisabled bool
+
 	spinner  spinner.Model
 	viewport viewport.Model
 	input    textinput.Model
@@ -728,10 +749,14 @@ func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bo
 	}
 
 	// System-target commands: the command body is addressed to the session
-	// itself, not to either agent. /status is the canonical example — render
-	// a session summary and write it as a System entry, then bail.
+	// itself, not to either agent. Dispatch by name to a small handler
+	// table — each handler writes its own System entry and returns.
+	// /status is the canonical example; /undo reverts the last auto-commit.
 	if cmd.Target == commands.TargetSystem {
-		body := m.describeSession()
+		body, handlerErr := m.handleSystemCommand(name)
+		if handlerErr != "" {
+			return "", false, true, handlerErr
+		}
 		entry := transcript.Entry{
 			Speaker:   transcript.SpeakerSystem,
 			Type:      transcript.TypeMessage,
@@ -739,13 +764,54 @@ func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bo
 			Timestamp: time.Now(),
 		}
 		_ = m.transcript.Append(entry)
-		m.statusMessage = "Status command handled by session."
+		m.statusMessage = "Command /" + name + " handled by session."
 		return "", false, true, ""
 	}
 
 	// Coder / Reviewer target: render the template and inject as a You
 	// message so the relevant agent sees it on the next turn.
 	return cmd.Expand(args), true, false, ""
+}
+
+// handleSystemCommand dispatches a system-target slash command to its
+// handler. Returns the body text that should be written to the transcript
+// as a System entry, and a non-empty errMsg if the command name isn't
+// recognised. The errMsg path is used by the caller to surface "unknown
+// system command" as a separate error entry rather than a System note.
+func (m *Model) handleSystemCommand(name string) (body string, errMsg string) {
+	switch name {
+	case "status":
+		return m.describeSession(), ""
+	case "undo":
+		return m.handleUndo(), ""
+	default:
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /undo).", name)
+	}
+}
+
+// handleUndo reverts the most recent [triad] auto-commit and returns a
+// human-readable summary suitable for a System transcript entry. On
+// failure (no commit to revert, merge conflict, etc.) the returned
+// string is the error description — the caller still writes it as a
+// System entry so the human sees it inline.
+func (m *Model) handleUndo() string {
+	res, err := gitcommit.RevertLast(m.workDir)
+	if err != nil {
+		// Nothing to undo is the common "ok" error path — surface it
+		// as a friendly message rather than a raw git error. Covers
+		// both "no [triad] commits in history" and "not a git repo".
+		if strings.Contains(err.Error(), "nothing to undo") {
+			return "Nothing to undo: no [triad] auto-commits in the working tree's history."
+		}
+		if res.Conflict {
+			return fmt.Sprintf("/undo aborted: reverting %s produced a merge conflict. Resolve with `git add` + `git revert --continue`, or abort with `git revert --abort`. Details: %v", res.OriginalHash, err)
+		}
+		return fmt.Sprintf("/undo failed: %v", err)
+	}
+	if res.RevertCommitMsg != "" {
+		return fmt.Sprintf("/undo: reverted %s. New commit: %s", res.OriginalHash, res.RevertCommitMsg)
+	}
+	return fmt.Sprintf("/undo: reverted %s.", res.OriginalHash)
 }
 
 // describeSession produces a short, human-readable summary of the current

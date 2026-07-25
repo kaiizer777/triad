@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,9 +11,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kaiizer777/triad/internal/agent"
+	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
+
+// jsonUnmarshalRaw is a thin wrapper around encoding/json so the TUI
+// internals can decode tool-call argument strings without each call
+// site spelling out the import. Defined here rather than re-imported
+// from internal/agent to keep the TUI package's import surface small.
+func jsonUnmarshalRaw(data string, dst any) error {
+	return json.Unmarshal([]byte(data), dst)
+}
 
 // MaxPlainTextTurns is the maximum number of consecutive plain-text (no tool call)
 // Coder responses allowed before the TUI treats it as a stall and returns to idle.
@@ -182,6 +193,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Timestamp: time.Now(),
 				}
 				_ = m.transcript.Append(entry)
+				// Remember this reasoning so the auto-commit for the
+				// next executed action can quote it as the "intent".
+				m.lastCoderMessage = msg.resp.Text
 				m.plainTextTurns++
 				m.refreshViewport()
 
@@ -218,6 +232,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Timestamp: time.Now(),
 			}
 			_ = m.transcript.Append(proposedEntry)
+			// Capture the proposed entry's ID so the auto-commit
+			// for the executed action can reference it. The
+			// transcript assigns IDs synchronously inside Append.
+			m.lastProposedEntryID = proposedEntry.ID
 			m.refreshViewport()
 			m.statusMessage = fmt.Sprintf("Reviewer inspecting proposed action %q...", toolCall.Function.Name)
 			return m, cmdReviewerTurn(m.transcript, m.reviewer, m.client)
@@ -332,8 +350,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Timestamp: time.Now(),
 		}
 		_ = m.transcript.Append(resultEntry)
+
+		// Auto-commit on every executed edit (docs/work2.md §2.2).
+		// Only acts on successful write_file / run_command; reads and
+		// task_complete never touch the filesystem. Rejected proposals
+		// never reach this code path, so they can't touch git either.
+		var commitNote string
+		if msg.err == nil && !m.gitDisabled {
+			commitNote = m.maybeAutoCommit(msg.toolCall, resultEntry.ID)
+			if commitNote == gitDisabledSentinel {
+				m.gitDisabled = true
+				commitNote = "Auto-commit disabled for this session: " +
+					"git user.name / user.email not configured. " +
+					"Transcript continues normally; changes are not auto-committed."
+			}
+		}
+		if commitNote != "" {
+			_ = m.transcript.Append(transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeMessage,
+				Content:   commitNote,
+				Timestamp: time.Now(),
+			})
+		}
+
 		m.activeToolCall = nil
 		m.retryCount = 0
+		m.lastCoderMessage = ""
+		m.lastProposedEntryID = 0
 		m.statusMessage = "Action executed. Coder considering next step..."
 		m.refreshViewport()
 		return m, cmdCoderTurn(m.transcript, m.coder, m.client)
@@ -356,4 +400,129 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) refreshViewport() {
 	m.viewport.SetContent(m.renderTranscript())
 	m.viewport.GotoBottom()
+}
+
+// gitDisabledSentinel is the special return value from maybeAutoCommit that
+// signals the caller to flip m.gitDisabled to true (so we don't keep trying
+// to commit on every subsequent action when git is misconfigured). The
+// caller rewrites the sentinel into a human-readable System entry.
+const gitDisabledSentinel = "__GIT_DISABLED__"
+
+// maybeAutoCommit attempts to create a single git commit for an executed
+// action. Returns an empty string when nothing happened (e.g. read_file,
+// task_complete, or write_file with identical content), a one-line note
+// suitable for a System transcript entry on success, or gitDisabledSentinel
+// when the failure is permanent (no user.name/email) and the caller should
+// stop trying for the rest of the session.
+//
+// The caller is responsible for:
+//   - only calling this for actions that may have touched files
+//     (write_file, run_command)
+//   - only calling this when execution succeeded (msg.err == nil)
+//   - writing the returned note as a System transcript entry
+func (m *Model) maybeAutoCommit(toolCall agent.ToolCall, resultEntryID int) string {
+	switch toolCall.Function.Name {
+	case "write_file", "run_command":
+		// proceed
+	default:
+		return ""
+	}
+
+	// Determine the file path(s) the action touched.
+	var paths []string
+	switch toolCall.Function.Name {
+	case "write_file":
+		var args agent.ExecuteToolArgs
+		if err := decodeToolArgs(toolCall.Function.Arguments, &args); err != nil || strings.TrimSpace(args.Path) == "" {
+			return ""
+		}
+		paths = []string{gitcommit.NormalizePath(m.workDir, args.Path)}
+	case "run_command":
+		// Shell commands don't declare which files they touch up front.
+		// Discover via `git status --porcelain` after the fact.
+		found, err := gitcommit.ChangedPaths(m.workDir)
+		if err != nil {
+			// git status itself failed (rare — would mean the repo
+			// disappeared mid-session). Surface the error but don't
+			// disable further attempts, since the issue is transient.
+			return fmt.Sprintf("git status failed: %v", err)
+		}
+		paths = found
+	}
+
+	if len(paths) == 0 {
+		// No filesystem changes (e.g. `go version` command) — skip.
+		return ""
+	}
+
+	// Build the commit message. Use Coder's last plain-text reasoning as
+	// the intent if we have it; fall back to a short tool+path description.
+	intent := strings.TrimSpace(m.lastCoderMessage)
+	if intent == "" {
+		// No planning text — synthesise a minimal intent from the action.
+		if toolCall.Function.Name == "write_file" {
+			intent = "write " + firstJSONField(toolCall.Function.Arguments, "path")
+		} else {
+			intent = "run: " + firstJSONField(toolCall.Function.Arguments, "command")
+		}
+	}
+	// Cap the intent length for the commit subject; the body keeps the
+	// full session path and proposed-by / approved-by attribution.
+	msg := gitcommit.CommitMessage{
+		EntryID:     resultEntryID,
+		Intent:      intent,
+		ToolName:    toolCall.Function.Name,
+		SessionPath: m.transcript.FilePath(),
+		ProposedBy:  transcript.SpeakerCoder,
+		ApprovedBy:  transcript.SpeakerReviewer,
+	}
+
+	res, err := gitcommit.CommitAction(m.workDir, paths, msg)
+	if err != nil {
+		if gitcommit.IsNotConfigured(err) {
+			// Permanent failure — caller flips m.gitDisabled so we
+			// don't surface this on every action.
+			return gitDisabledSentinel
+		}
+		// Transient git failure (e.g. lock contention, missing binary).
+		// Surface the error but keep trying on the next action.
+		return fmt.Sprintf("auto-commit failed: %v", err)
+	}
+	if res.NoChanges {
+		// Identical content / no actual diff — skip silently.
+		return ""
+	}
+	if res.Hash != "" {
+		return fmt.Sprintf("auto-commit %s: %s", res.Hash, intent)
+	}
+	return ""
+}
+
+// decodeToolArgs decodes a tool call's raw JSON arguments into the shared
+// agent.ExecuteToolArgs struct. Returns an error if the JSON is malformed;
+// missing required fields are checked by the caller, since they may be
+// optional for some tools.
+func decodeToolArgs(raw string, dst *agent.ExecuteToolArgs) error {
+	if raw == "" {
+		return nil
+	}
+	return jsonUnmarshalRaw(raw, dst)
+}
+
+// firstJSONField returns the value of the given string field from a JSON
+// object string, or "" if the field is absent or the JSON is malformed.
+// Used to synthesise a short commit intent when Coder didn't provide a
+// plain-text planning message.
+func firstJSONField(raw, field string) string {
+	if raw == "" {
+		return ""
+	}
+	var m map[string]any
+	if err := jsonUnmarshalRaw(raw, &m); err != nil {
+		return ""
+	}
+	if v, ok := m[field].(string); ok {
+		return v
+	}
+	return ""
 }

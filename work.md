@@ -52,9 +52,9 @@ actual instruction/prompt template.
 Adopt the same shape — it's a proven, well-understood convention, and matches
 your existing "config over code" philosophy from v1.
 
-- [ ] 1.2.1 — Create a `commands/` directory in project root (mirrors
+- [x] 1.2.1 — Create a `commands/` directory in project root (mirrors
       `.opencode/commands/`)
-- [ ] 1.2.2 — Define your command file format:
+- [x] 1.2.2 — Define your command file format:
       ```md
       ---
       name: plan
@@ -67,17 +67,17 @@ your existing "config over code" philosophy from v1.
 
       Task: {{args}}
       ```
-- [ ] 1.2.3 — Implement a command parser in `internal/commands/parser.go`:
+- [x] 1.2.3 — Implement a command parser in `internal/commands/parser.go`:
       reads all `.md` files in `commands/`, parses YAML frontmatter (use
       `gopkg.in/yaml.v3`, already a dependency) + body template
-- [ ] 1.2.4 — Implement `{{args}}` substitution: when the human types
+- [x] 1.2.4 — Implement `{{args}}` substitution: when the human types
       `/plan Add Razorpay webhook`, the command loader replaces `{{args}}`
       with `"Add Razorpay webhook"` before injecting the resulting message
       into the transcript as a `You` entry
-- [ ] 1.2.5 — Wire command detection into the TUI input handler (Phase 6 of
+- [x] 1.2.5 — Wire command detection into the TUI input handler (Phase 6 of
       Workflow 1): if the human's input starts with `/`, look it up in the
       loaded command set before treating it as a plain message
-- [ ] 1.2.6 — **Test:** create 2–3 real commands you'll actually use
+- [x] 1.2.6 — **Test:** create 2–3 real commands you'll actually use
       (suggestions below) and confirm each correctly expands and routes
 
 ### 1.3 Suggested first commands (start small, expand as you notice repetition)
@@ -122,19 +122,19 @@ same tension).
 
 ### 2.2 Design for Triad
 
-- [ ] 2.2.1 — On startup, check whether the project working directory is
+- [x] 2.2.1 — On startup, check whether the project working directory is
       already a git repo; if not, run `git init` automatically (surface this
       clearly to the human the first time it happens, don't do it silently)
-- [ ] 2.2.2 — Add a commit step to the **end** of the action-execution path
+- [x] 2.2.2 — Add a commit step to the **end** of the action-execution path
       in the approval loop (`internal/loop/loop.go`, right after a
       `write_file` tool call succeeds and its `action_result` entry is
       appended) — not before, since you want to commit what actually landed
       on disk, not a pre-action snapshot
-- [ ] 2.2.3 — Use `git add <path>` scoped to just the file(s) the action
+- [x] 2.2.3 — Use `git add <path>` scoped to just the file(s) the action
       touched, then `git commit -m "<message>"` — don't blanket `git add .`,
       since that could sweep in unrelated working-tree changes you didn't
       intend to commit
-- [ ] 2.2.4 — Design the commit message format to be genuinely useful later,
+- [x] 2.2.4 — Design the commit message format to be genuinely useful later,
       not just `"auto-commit"` — include the transcript entry ID and a short
       excerpt of Coder's stated intent, e.g.:
       ```
@@ -144,22 +144,22 @@ same tension).
       Approved by: Reviewer
       Session: sessions/2026-07-25-webhook.jsonl
       ```
-- [ ] 2.2.5 — Decide how `run_command` actions that modify files are handled
+- [x] 2.2.5 — Decide how `run_command` actions that modify files are handled
       — a shell command isn't a single known file path the way `write_file`
       is. Simplest approach: after any `run_command` executes, run
       `git status --porcelain` to detect what changed, then commit exactly
       those paths with a similar message format
-- [ ] 2.2.6 — Handle the "nothing changed" case cleanly: if a `run_command`
+- [x] 2.2.6 — Handle the "nothing changed" case cleanly: if a `run_command`
       or `write_file` action results in no actual diff (e.g. writing
       identical content, or a command that only reads), skip the commit
       rather than creating empty/no-op commits
-- [ ] 2.2.7 — Handle commit failures gracefully (e.g. git not configured with
+- [x] 2.2.7 — Handle commit failures gracefully (e.g. git not configured with
       a user.name/user.email on this machine) — surface a clear one-time
       error rather than silently failing on every single action afterward
-- [ ] 2.2.8 — **Test:** run a task through the full approval loop, confirm
+- [x] 2.2.8 — **Test:** run a task through the full approval loop, confirm
       each approved action produces exactly one commit, with the file(s)
       actually changed and a message that matches the format from 2.2.4
-- [ ] 2.2.9 — **Test:** run a `run_command` action that modifies multiple
+- [x] 2.2.9 — **Test:** run a `run_command` action that modifies multiple
       files in one go (e.g. a codegen script), confirm all changed files land
       in a single sensible commit rather than being missed or split oddly
 
@@ -168,21 +168,21 @@ same tension).
 With every action now individually committed, `/undo` (introduced in Section
 1.3) becomes straightforward:
 
-- [ ] 2.3.1 — Implement `/undo` as `git revert <last-triad-commit>
+- [x] 2.3.1 — Implement `/undo` as `git revert <last-triad-commit>
       --no-edit` (revert, not reset — preserves history rather than
       destroying it, which matters since you want the transcript and git log
       to stay in sync as two honest records of what happened, including
       corrections)
-- [ ] 2.3.2 — After reverting, append a `System` entry to the transcript
+- [x] 2.3.2 — After reverting, append a `System` entry to the transcript
       noting what was undone and referencing the original entry ID, so the
       transcript and git history tell the same story
-- [ ] 2.3.3 — **Test:** execute a file write via the normal approval loop,
+- [x] 2.3.3 — **Test:** execute a file write via the normal approval loop,
       run `/undo`, confirm the file reverts on disk, a new revert commit
       appears in git log, and the transcript reflects it
 
 ### 2.4 A decision worth making explicitly: does auto-commit apply during objection loops?
 
-- [ ] 2.4.1 — Decide: should a `proposed_action` that Reviewer *objects to*
+- [x] 2.4.1 — Decide: should a `proposed_action` that Reviewer *objects to*
       ever touch git at all? (Recommended: no — only actions that actually
       execute get committed. A rejected proposal never reaches
       `write_file`/`run_command` in the first place under the v1 design, so
@@ -394,14 +394,15 @@ triad/
 ├── commands/                    # NEW — slash command .md files
 │   ├── plan.md
 │   ├── status.md
-│   └── strict.md
+│   ├── strict.md
+│   └── undo.md                  # NEW (Phase 2.3) — reverts last auto-commit
 ├── hooks.yaml                   # NEW — event → command mapping
 ├── internal/
 │   ├── commands/
 │   │   └── parser.go            # NEW — frontmatter + template parsing
-│   ├── gitcommit/
-│   │   └── gitcommit.go         # NEW — auto-commit on executed actions,
-│   │                              /undo support (Section 2)
+│   ├── gitcommit/               # NEW (Phase 2) — auto-commit on every
+│   │   ├── gitcommit.go            executed action, /undo support
+│   │   └── gitcommit_test.go
 │   ├── hooks/
 │   │   └── hooks.go             # NEW — hook execution
 │   ├── subagent/

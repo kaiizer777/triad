@@ -14,6 +14,7 @@ import (
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/commands"
+	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/tui"
@@ -120,6 +121,22 @@ func main() {
 	workDir, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// --- Ensure workDir is a git repository (docs/work2.md §2.2.1) ---
+	// Auto-commit-on-every-edit depends on git. If the project isn't a
+	// repo yet, initialise one and surface a clear one-time notice in
+	// the log. The TUI will additionally write a System entry to the
+	// first session so the human sees it inline.
+	if err := gitcommit.EnsureRepo(workDir); err != nil {
+		if _, ok := err.(gitcommit.ErrAlreadyRepo); ok {
+			logger.L().Info("git repo already initialised", "workDir", workDir)
+		} else {
+			logger.L().Warn("git init failed; auto-commit will be disabled for this session",
+				"workDir", workDir, "error", err.Error())
+			fmt.Fprintf(os.Stderr, "Warning: could not initialise git repository: %v\n", err)
+			fmt.Fprintln(os.Stderr, "Auto-commit on every edit will be skipped this session.")
+		}
 	}
 
 	// --- Load slash command registry ---
