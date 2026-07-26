@@ -16,6 +16,7 @@ import (
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -46,7 +47,13 @@ func (m *mockClient) Respond(ctx context.Context, cfg agent.AgentConfig, entries
 }
 
 func setupTestModel(t *testing.T, client loop.AgentClient) (Model, func()) {
-	return setupTestModelWithRegistry(t, client, &commands.Registry{})
+	// Default test setup uses loadTestRegistry so system
+	// commands like /help, /status, /skill are registered
+	// (the TUI's slash-command parser only routes
+	// target=system commands that have a .md file in the
+	// registry). Tests that need a different command set
+	// call setupTestModelWithRegistry directly.
+	return setupTestModelWithRegistry(t, client, loadTestRegistry(t))
 }
 
 func setupTestModelWithRegistry(t *testing.T, client loop.AgentClient, reg *commands.Registry) (Model, func()) {
@@ -353,6 +360,20 @@ description: Revert last [triad] auto-commit
 
 Revert the most recent [triad] auto-commit (docs/work2.md §2.3).
 `,
+		"skill.md": `---
+target: system
+description: Manage skills (list, view, add, delete, force, edit)
+---
+
+Skill management subcommands — handled by the TUI.
+`,
+		"help.md": `---
+target: system
+description: List available slash commands
+---
+
+Show help.
+`,
 		"strict.md": `---
 target: reviewer
 description: Toggle strict mode
@@ -371,6 +392,317 @@ Be strict.
 		t.Fatalf("setup: Load: %v", err)
 	}
 	return reg
+}
+
+// loadTestSkillsRegistry writes a single skill .md file
+// (main + mini) into a temp dir, plus a second skill that's
+// intentionally left out so the tests can exercise "added
+// after load" flow without restarts. Returns the registry
+// plus the temp dir (so tests can write to the same dir
+// after /skill add and verify reload behavior).
+//
+// Tests that need the on-disk files to align with the
+// model's workDir (e.g. for /skill delete) should use
+// `loadTestSkillsRegistryIn(dir)` instead.
+func loadTestSkillsRegistry(t *testing.T) (*skills.Registry, string) {
+	return loadTestSkillsRegistryIn(t, t.TempDir())
+}
+
+// loadTestSkillsRegistryIn writes the seed skills to the
+// given dir (which should match the model's workDir for
+// tests that read/write files via the slash command path).
+func loadTestSkillsRegistryIn(t *testing.T, dir string) (*skills.Registry, string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	main := "---\nname: frontend\nsection: frontend\ndescription: UI work.\ntier: main\nmini_ref: frontend-mini.md\ntoken_budget_main: 1000\ntoken_budget_mini: 500\n---\n\nFrontend main body.\n"
+	mini := "---\nname: frontend\nsection: frontend\ndescription: UI work.\ntier: mini\n---\n\nFrontend mini body.\n"
+	mainPath := filepath.Join(dir, "frontend.md")
+	if err := os.WriteFile(mainPath, []byte(main), 0o644); err != nil {
+		t.Fatalf("write frontend main to %q: %v", mainPath, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "frontend-mini.md"), []byte(mini), 0o644); err != nil {
+		t.Fatalf("write frontend mini: %v", err)
+	}
+	reg, err := skills.Load(dir)
+	if err != nil {
+		t.Fatalf("skills.Load: %v", err)
+	}
+	return reg, dir
+}
+
+// TestTUI_SlashCommand_SkillList covers /skill list: the
+// command must be routed to the system-handler path, write a
+// System entry to the transcript that mentions the seeded
+// skill, and not trigger a Coder turn.
+func TestTUI_SlashCommand_SkillList(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	skillsReg, _ := loadTestSkillsRegistry(t)
+	// Attach the skills registry BEFORE the first /skill
+	// invocation so the listing is real (rather than
+	// "no skills" because we tried before wiring).
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+	updated, cmd := model.Update(humanInputMsg{content: "/skill list"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("expected nil cmd (no Coder turn) for /skill list, got %v", cmd)
+	}
+	entries := m.transcript.Entries()
+	if len(entries) == 0 {
+		t.Fatal("expected at least 1 transcript entry from /skill list")
+	}
+	last := entries[len(entries)-1]
+	if last.Speaker != transcript.SpeakerSystem {
+		t.Errorf("expected system entry, got %q", last.Speaker)
+	}
+	if !strings.Contains(last.Content, "frontend") {
+		t.Errorf("expected list body to mention frontend, got: %q", last.Content)
+	}
+}
+
+// TestTUI_SlashCommand_SkillView covers /skill view <name>:
+// the System entry must include the Main body delimiter and
+// the actual body content.
+func TestTUI_SlashCommand_SkillView(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	skillsReg, _ := loadTestSkillsRegistry(t)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+	updated, cmd := model.Update(humanInputMsg{content: "/skill view frontend"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("expected nil cmd, got %v", cmd)
+	}
+	entries := m.transcript.Entries()
+	if len(entries) == 0 {
+		t.Fatal("expected at least 1 transcript entry")
+	}
+	last := entries[len(entries)-1]
+	if !strings.Contains(last.Content, "MAIN BODY") {
+		t.Errorf("expected MAIN BODY delimiter, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "Frontend main body") {
+		t.Errorf("expected main body content, got: %q", last.Content)
+	}
+}
+
+// TestTUI_SlashCommand_SkillAddThenList covers the Phase 3.7
+// flow: /skill add creates a new file on disk, the registry
+// is reloaded in the same session, and /skill list now shows
+// the new skill without any code change or process restart.
+func TestTUI_SlashCommand_SkillAddThenList(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	// Match the model's workDir so the registry's Dir
+	// matches where /skill add will write the new files.
+	skillsReg, _ := loadTestSkillsRegistryIn(t, model.workDir)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	// /skill add backend → scaffold two files on disk.
+	updated, _ := model.Update(humanInputMsg{content: "/skill add backend"})
+	m := updated.(Model)
+	if _, err := os.Stat(filepath.Join(model.workDir, "backend.md")); err != nil {
+		t.Fatalf("expected backend.md to exist after add: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(model.workDir, "backend-mini.md")); err != nil {
+		t.Fatalf("expected backend-mini.md to exist after add: %v", err)
+	}
+	// Registry must reflect the new skill after the same
+	// session — that's the Phase 3.7 invariant.
+	if sk, ok := m.skillsRegistry.Get("backend"); !ok || sk.Name != "backend" {
+		t.Errorf("expected backend to be in the live registry, got ok=%v sk=%#v", ok, sk)
+	}
+
+	// /skill list → both frontend and backend show up.
+	updated, _ = m.Update(humanInputMsg{content: "/skill list"})
+	m = updated.(Model)
+	entries := m.transcript.Entries()
+	last := entries[len(entries)-1]
+	if !strings.Contains(last.Content, "frontend") {
+		t.Errorf("list should still include frontend, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "backend") {
+		t.Errorf("list should include the newly-added backend, got: %q", last.Content)
+	}
+}
+
+// TestTUI_SlashCommand_SkillAddOpensEditor covers the
+// "drop into edit mode" follow-up: /skill add sets the
+// inline editor state on the model so the next KeyMsg
+// routes to the textarea, not the input box.
+func TestTUI_SlashCommand_SkillAddOpensEditor(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	// Seed a real registry in the model's workDir so the
+	// follow-up path can re-look up the just-added skill
+	// and open the editor on its source path.
+	skillsReg, _ := loadTestSkillsRegistryIn(t, model.workDir)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	updated, _ := model.Update(humanInputMsg{content: "/skill add newone"})
+	m := updated.(Model)
+	if m.skillEditor == nil {
+		t.Fatal("expected m.skillEditor to be set after /skill add")
+	}
+	if m.skillEditor.name != "newone" {
+		t.Errorf("expected editor name=newone, got %q", m.skillEditor.name)
+	}
+	if m.skillEditor.path == "" {
+		t.Error("expected editor path to be set")
+	}
+	// The pending action should also be recorded so
+	// post-handler follow-up paths can read it.
+	if m.pendingSkillAction == nil {
+		t.Error("expected pendingSkillAction to be queued")
+	}
+}
+
+// TestTUI_SlashCommand_SkillDeleteRequiresConfirmation
+// covers the destructive-command gate: /skill delete queues
+// a pending confirmation, and the next user message is
+// consumed as the confirmation reply rather than a new task.
+func TestTUI_SlashCommand_SkillDeleteRequiresConfirmation(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	// Match the model's workDir so the registry loads the
+	// seed files from the same dir the model will write
+	// to. The TUI's /skill add/delete/edit paths use
+	// m.workDir (or m.skillsRegistry.Dir) as their base.
+	skillsReg, _ := loadTestSkillsRegistryIn(t, model.workDir)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	// Step 1: user types /skill delete frontend → the
+	// command is queued but the file is NOT removed yet.
+	updated, _ := model.Update(humanInputMsg{content: "/skill delete frontend"})
+	m := updated.(Model)
+	if m.pendingSkillAction == nil || m.pendingSkillAction.Kind != skillActionDelete {
+		t.Fatalf("expected pendingSkillAction=delete, got %#v", m.pendingSkillAction)
+	}
+	mainPath := filepath.Join(m.workDir, "frontend.md")
+	if _, err := os.Stat(mainPath); err != nil {
+		t.Errorf("expected frontend.md to still exist before confirm, got: %v", err)
+	}
+
+	// Step 2: user types "yes" — file is removed.
+	updated, _ = m.Update(humanInputMsg{content: "yes"})
+	m = updated.(Model)
+	if m.pendingSkillAction != nil {
+		t.Error("expected pendingSkillAction to be cleared after confirmation")
+	}
+	if _, err := os.Stat(mainPath); !os.IsNotExist(err) {
+		t.Errorf("expected frontend.md to be removed after confirm, got err=%v", err)
+	}
+}
+
+// TestTUI_SlashCommand_SkillDeleteCancel covers the
+// "anything other than yes" path: the file must remain
+// intact when the user cancels the confirmation.
+func TestTUI_SlashCommand_SkillDeleteCancel(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	skillsReg, _ := loadTestSkillsRegistryIn(t, model.workDir)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	updated, _ := model.Update(humanInputMsg{content: "/skill delete frontend"})
+	m := updated.(Model)
+	if m.pendingSkillAction == nil {
+		t.Fatal("expected pending action")
+	}
+	// Cancel with "no".
+	updated, _ = m.Update(humanInputMsg{content: "no"})
+	m = updated.(Model)
+	if m.pendingSkillAction != nil {
+		t.Error("expected pending action cleared")
+	}
+	mainPath := filepath.Join(model.workDir, "frontend.md")
+	if _, err := os.Stat(mainPath); err != nil {
+		t.Errorf("expected frontend.md to still exist after cancel, got: %v", err)
+	}
+}
+
+// TestTUI_SlashCommand_SkillForce covers the /skill force
+// manual override: after force, the loaded set reports
+// IsForced for that section.
+func TestTUI_SlashCommand_SkillForce(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	skillsReg, _ := loadTestSkillsRegistry(t)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	updated, _ := model.Update(humanInputMsg{content: "/skill force frontend"})
+	m := updated.(Model)
+	if !m.loadedSkills.IsForced("frontend") {
+		t.Error("expected frontend to be forced after /skill force")
+	}
+	entries := m.transcript.Entries()
+	last := entries[len(entries)-1]
+	if !strings.Contains(last.Content, "Forced") {
+		t.Errorf("expected System entry to mention Forced, got: %q", last.Content)
+	}
+}
+
+// TestTUI_SkillEditor_EscCancels covers the editor cancel
+// path: when the editor is open, an Esc key dismisses it
+// without writing to disk.
+func TestTUI_SkillEditor_EscCancels(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	skillsReg, _ := loadTestSkillsRegistryIn(t, model.workDir)
+	model.skillsRegistry = skillsReg
+	model.loadedSkills = skills.NewLoadedSet()
+
+	updated, _ := model.Update(humanInputMsg{content: "/skill add tobecancelled"})
+	m := updated.(Model)
+	if m.skillEditor == nil {
+		t.Fatal("expected editor to open on /skill add")
+	}
+	// Esc closes the editor. tea.KeyPressMsg is the v2
+	// concrete type for a key event; we synthesize one with
+	// the Escape key code.
+	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	m = updated.(Model)
+	if m.skillEditor != nil {
+		t.Error("expected Esc to close the editor")
+	}
+	if m.pendingSkillAction != nil {
+		t.Error("expected pendingSkillAction to clear on cancel")
+	}
+}
+
+// TestTUI_SlashCommand_SkillHelpEntry checks that /help
+// mentions the /skill subcommand, so a new user can find
+// the management surface without reading docs.
+func TestTUI_SlashCommand_SkillHelpEntry(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+	updated, _ := model.Update(humanInputMsg{content: "/help"})
+	m := updated.(Model)
+	entries := m.transcript.Entries()
+	last := entries[len(entries)-1]
+	if !strings.Contains(last.Content, "/skill") {
+		t.Errorf("/help should mention /skill, got: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "list") || !strings.Contains(last.Content, "view") {
+		t.Errorf("/help should reference /skill subcommands, got: %q", last.Content)
+	}
 }
 
 func TestTUI_SlashCommand_PlanExpandsArgs(t *testing.T) {
@@ -1457,6 +1789,71 @@ func TestTUI_JourneyCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(m2.workDir, "journey_report.html")); os.IsNotExist(err) {
 		t.Errorf("expected journey_report.html to be created")
+	}
+}
+
+func TestTUI_LiveSessionTokenStats(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	model.coder.InputCostPerToken = 0.000003
+	model.coder.OutputCostPerToken = 0.000015
+	model.coder.ContextWindow = 1000000
+
+	model.reviewer.InputCostPerToken = 0.000003
+	model.reviewer.OutputCostPerToken = 0.000015
+	model.reviewer.ContextWindow = 1000000
+
+	// 1. Send Coder agentResponseMsg with token usage and cache info
+	coderResp := agentResponseMsg{
+		speaker: transcript.SpeakerCoder,
+		resp: agent.AgentResponse{
+			Text: "I will refactor the code.",
+			Usage: agent.Usage{
+				PromptTokens:     26000,
+				CompletionTokens: 1200,
+				TotalTokens:      27200,
+				PromptTokensDetails: &agent.PromptTokensDetails{
+					CachedTokens: 20000,
+				},
+			},
+		},
+	}
+	up1, _ := model.Update(coderResp)
+	m1 := up1.(Model)
+
+	// 2. Send Reviewer agentResponseMsg with token usage
+	reviewerResp := agentResponseMsg{
+		speaker: transcript.SpeakerReviewer,
+		resp: agent.AgentResponse{
+			Text: "APPROVED",
+			Usage: agent.Usage{
+				PromptTokens:     5000,
+				CompletionTokens: 500,
+				TotalTokens:      5500,
+			},
+		},
+	}
+	up2, _ := m1.Update(reviewerResp)
+	m2 := up2.(Model)
+
+	summary := m2.renderStatsSummary()
+
+	// Verify 3 fields: 1) Session context token usage vs max context window (5k/1M), 2) % context used (0.5%), 3) Running cost ($...)
+	if !strings.Contains(summary, "5k/1M") {
+		t.Errorf("Expected summary to contain '5k/1M', got: %s", summary)
+	}
+	if !strings.Contains(summary, "(0.5%)") {
+		t.Errorf("Expected summary to contain '(0.5%%)', got: %s", summary)
+	}
+	if !strings.Contains(summary, "$") {
+		t.Errorf("Expected summary to contain '$', got: %s", summary)
+	}
+
+	titleBar := m2.renderTitleBar(140)
+	if !strings.Contains(titleBar, "5k/1M") {
+		t.Errorf("Expected renderTitleBar output to include live stats, got: %s", titleBar)
 	}
 }
 

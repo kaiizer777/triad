@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -112,6 +114,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sysViewport.GotoBottom()
 
 	case tea.KeyMsg:
+		// Skill editor intercept: when the inline editor is
+		// open (m.skillEditor != nil), ALL keystrokes go to
+		// the editor until it closes. This is the same
+		// single-focus shape the input box uses when it has
+		// focus — we just route to a different component.
+		// Ctrl-S saves, Esc/Ctrl-C cancel, anything else
+		// falls through to the textarea.
+		if m.skillEditor != nil {
+			if keyMatchesCancel(msg) {
+				m.skillEditor = nil
+				m.pendingSkillAction = nil
+				m.statusMessage = "Skill edit cancelled (changes discarded)."
+				m.refreshViewport()
+				return m, nil
+			}
+			if keyMatchesCtrlS(msg) {
+				if _, err := saveSkillEditor(m.skillEditor); err != nil {
+					m.statusMessage = fmt.Sprintf("Save failed: %v", err)
+					return m, nil
+				}
+				saved := m.skillEditor
+				m.skillEditor = nil
+				m.pendingSkillAction = nil
+				// Re-load the registry so the next Stage 1
+				// scan reflects the new file content. This is
+				// what Phase 3.7 wants: "add a new custom
+				// skill via /skill add, confirm it immediately
+				// shows up in the next session's Stage 1
+				// section scan without any code change or
+				// restart." Within the same session, the same
+				// effect comes from re-loading here.
+				m.reloadSkillsRegistry()
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   fmt.Sprintf("[Skill] Saved %s.", saved.path),
+					Timestamp: time.Now(),
+				})
+				m.statusMessage = fmt.Sprintf("Saved %s.", filepath.Base(saved.path))
+				m.refreshViewport()
+				return m, nil
+			}
+			var taCmd tea.Cmd
+			m.skillEditor.textarea, taCmd = m.skillEditor.textarea.Update(msg)
+			return m, taCmd
+		}
 		if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
 			switch msg.String() {
 			case "ctrl+c":
@@ -169,6 +217,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case humanInputMsg:
+		// Skill delete confirmation gate: if the previous
+		// `/skill delete <name>` set a pendingSkillAction of
+		// kind skillActionDelete, this human input IS the
+		// confirmation reply — not a new task. We consume it
+		// here, run or cancel the delete accordingly, and
+		// never let it reach the slash-command or Coder path.
+		if m.pendingSkillAction != nil && m.pendingSkillAction.Kind == skillActionDelete {
+			reply := strings.TrimSpace(strings.ToLower(msg.content))
+			targetName := m.pendingSkillAction.Name
+			// Clear the gate before we recurse into the
+			// handler, so a nested slash command in the
+			// reply (e.g. `/status`) doesn't see a stale
+			// pending action.
+			m.pendingSkillAction = nil
+			if reply == "yes" || reply == "y" {
+				// Run the deferred delete via the
+				// skills-package ExecutePending so the
+				// actual file removal lives in one place
+				// (cmd.go) and is testable in isolation.
+				res := skills.ExecutePending(
+					&skills.PendingAction{
+						Kind: skills.PendingActionDelete,
+						Name: targetName,
+					},
+					m.skillsRegistry,
+					m.workDir,
+				)
+				if res.Reload {
+					m.reloadSkillsRegistry()
+				}
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   res.Body,
+					Timestamp: time.Now(),
+				})
+				m.statusMessage = fmt.Sprintf("Skill %q deleted.", targetName)
+			} else {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   fmt.Sprintf("[Skill] Delete of %q cancelled.", targetName),
+					Timestamp: time.Now(),
+				})
+				m.statusMessage = "Delete cancelled."
+			}
+			m.refreshViewport()
+			return m, nil
+		}
+
 		// Phase 3 (clarify): handle the /proceed slash command as a
 		// first-class signal BEFORE the slash-command lookup, so the
 		// user can say "/proceed" or "proceed" interchangeably to
@@ -308,7 +406,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshViewport()
 			}
 			m.statusMessage = "Coder is thinking..."
-			return m, cmdCoderTurn(m.transcript, m.coder, m.client)
+			return m, m.coderTurnCmd()
 		}
 
 		// Active cycle human interjection mid-flight.
@@ -333,6 +431,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "Error encountered. Returned to idle."
 			m.refreshViewport()
 			return m, nil
+		}
+
+		// Record token usage metrics
+		if msg.speaker == transcript.SpeakerCoder {
+			m.stats.Coder.PromptTokens += msg.resp.Usage.PromptTokens
+			m.stats.Coder.CompletionTokens += msg.resp.Usage.CompletionTokens
+			m.stats.Coder.CachedTokens += msg.resp.Usage.GetCachedTokens()
+		} else if msg.speaker == transcript.SpeakerReviewer {
+			m.stats.Reviewer.PromptTokens += msg.resp.Usage.PromptTokens
+			m.stats.Reviewer.CompletionTokens += msg.resp.Usage.CompletionTokens
+			m.stats.Reviewer.CachedTokens += msg.resp.Usage.GetCachedTokens()
+		}
+		if msg.resp.Usage.PromptTokens > 0 {
+			m.stats.LastPromptTokens = msg.resp.Usage.PromptTokens
+		}
+		if msg.resp.Usage.GetCachedTokens() > 0 {
+			m.stats.HasCacheData = true
 		}
 
 		if msg.speaker == transcript.SpeakerCoder {
@@ -388,6 +503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.client,
 						m.commandTimeout,
 						toolCall,
+						m.skillsRegistry,
 					)
 				}
 				if browser.IsBrowserTool(toolCall.Function.Name) {
@@ -435,7 +551,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.statusMessage = fmt.Sprintf("Coder sent plan/message (%d/%d). Awaiting action proposal...", m.plainTextTurns, MaxPlainTextTurns)
-				return m, cmdCoderTurn(m.transcript, m.coder, m.client)
+				return m, m.coderTurnCmd()
 			}
 
 			// Coder proposed an action — reset the plain-text stall counter.
@@ -510,6 +626,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.client,
 							m.commandTimeout,
 							tc,
+							m.skillsRegistry,
 						)
 					}
 					if browser.IsBrowserTool(tc.Function.Name) {
@@ -532,7 +649,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.retryCount++
 				if m.retryCount < m.MaxRetries {
 					m.statusMessage = fmt.Sprintf("Reviewer objected (%d/%d). Coder revising...", m.retryCount, m.MaxRetries)
-					return m, cmdCoderTurn(m.transcript, m.coder, m.client)
+					return m, m.coderTurnCmd()
 				}
 
 				// Retry cap reached
@@ -637,7 +754,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = "Action executed. Coder considering next step..."
 		m.refreshViewport()
-		return m, cmdCoderTurn(m.transcript, m.coder, m.client)
+		return m, m.coderTurnCmd()
 	}
 
 	// Update textinput component

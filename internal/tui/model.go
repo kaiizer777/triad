@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/kaiizer777/triad/internal/learn"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/memory"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
@@ -448,6 +451,63 @@ func DefaultStyles() Styles {
 	}
 }
 
+// AgentTokenStats tracks cumulative token usage for a single agent.
+type AgentTokenStats struct {
+	PromptTokens     int
+	CompletionTokens int
+	CachedTokens     int
+}
+
+// SessionTokenStats tracks live token usage across Coder and Reviewer agents.
+type SessionTokenStats struct {
+	Coder            AgentTokenStats
+	Reviewer         AgentTokenStats
+	HasCacheData     bool
+	LastPromptTokens int
+}
+
+// skillAction is the optional follow-up state a /skill subcommand
+// can request the TUI to enter after writing the System entry.
+// Currently used by /skill edit and /skill add to drop the user
+// into an inline TUI editing pane, and by /skill delete to show
+// a confirmation prompt before actually deleting. Implemented as
+// a tagged union so the TUI's update loop can pattern-match on
+// it.
+//
+// All variants carry the original System body so the TUI can
+// emit the entry once, before applying the follow-up. This keeps
+// the existing "every System-target command writes exactly one
+// entry" invariant intact.
+type skillAction struct {
+	// Kind selects which follow-up to run.
+	Kind skillActionKind
+	// Name is the skill name the action targets (edit/add/delete).
+	Name string
+	// Body is the System-entry text the TUI already wrote. Kept
+	// here so tests can assert on it without re-reading the
+	// transcript.
+	Body string
+	// Confirm is the prompt text for the delete confirmation.
+	// Empty for non-confirming actions.
+	Confirm string
+}
+
+type skillActionKind int
+
+const (
+	skillActionNone skillActionKind = iota
+	// skillActionEdit opens the inline editor for an existing
+	// skill file (Main or Mini, selected via a follow-up
+	// prompt — see handleSkill).
+	skillActionEdit
+	// skillActionAdd opens the inline editor for a freshly
+	// scaffolded Main file.
+	skillActionAdd
+	// skillActionDelete asks the user to confirm the delete
+	// before running it.
+	skillActionDelete
+)
+
 // Model represents the top-level Bubbletea application state.
 type Model struct {
 	transcript *transcript.Transcript
@@ -457,6 +517,8 @@ type Model struct {
 	workDir    string
 	// commandTimeout caps run_command execution time (from config.yaml).
 	commandTimeout time.Duration
+
+	stats SessionTokenStats
 
 	MaxRetries     int
 	sessionState   loop.SessionState
@@ -531,6 +593,37 @@ type Model struct {
 	memory   *memory.Manager
 	learnSvc *learn.Service
 
+	// skillsRegistry is the loaded skills directory (Workflow 5).
+	// When non-nil and non-empty, the Model runs the Stage-1 /
+	// Stage-2 selection funnel on every Coder turn via
+	// coderTurnCmd: bare section labels get injected into
+	// Coder's system prompt (Stage 1, cheap), and Coder's
+	// SELECTED_SECTIONS line is parsed out of the response and
+	// applied to the loaded set (Stage 2). When nil or empty,
+	// coderTurnCmd is a no-op wrapper and Coder sees the
+	// unmodified system prompt. Mirrors Loop.SkillsRegistry.
+	skillsRegistry *skills.Registry
+
+	// loadedSkills tracks which sections have had their Main
+	// fire this session, in the TUI path. Lives for the
+	// process lifetime — re-created on every program start.
+	loadedSkills *skills.LoadedSet
+
+	// pendingSkillAction is the optional follow-up state a
+	// /skill subcommand set when the user typed it. nil when
+	// no follow-up is queued. The TUI checks this on the
+	// humanInputMsg path right after writing the System entry
+	// and dispatches accordingly (open editor, ask for
+	// confirmation, etc.). Cleared as soon as the follow-up
+	// runs — this is one-shot state, not a persistent mode.
+	pendingSkillAction *skillAction
+
+	// skillEditor is the inline text editor pane for /skill
+	// edit (and /skill add). When non-nil, the viewport is
+	// hidden and the editor takes its place in the right
+	// panel. Saves on Ctrl-S, cancels on Esc.
+	skillEditor *skillEditorState
+
 	width  int
 	height int
 	ready  bool
@@ -543,6 +636,62 @@ func (m *Model) SetMemory(mem *memory.Manager) {
 		s, _ := learn.NewService(mem)
 		m.learnSvc = s
 	}
+}
+
+// SetSkillsRegistry attaches a loaded skills.Registry to the TUI
+// Model, enabling the Stage-1 / Stage-2 selection funnel on every
+// Coder turn. Pass nil to disable the funnel (Coder then sees the
+// unmodified base system prompt).
+//
+// The loaded-skills set is created lazily here if it wasn't set
+// during NewModel — that way a Model constructed before
+// SetSkillsRegistry (e.g. in tests) still gets a valid set the
+// moment skills are attached, instead of panicking on the first
+// Coder turn.
+func (m *Model) SetSkillsRegistry(reg *skills.Registry) {
+	m.skillsRegistry = reg
+	if m.loadedSkills == nil {
+		m.loadedSkills = skills.NewLoadedSet()
+	}
+}
+
+// coderTurnCmd returns the bubbletea Cmd for a Coder turn with
+// the Stage-1 / Stage-2 skills funnel applied. It's a thin
+// wrapper over cmdCoderTurn that fills in the per-Model state
+// (registry, loaded set, most recent human task) so the call
+// sites in update.go and RestoreSessionState stay short.
+//
+// When m.skillsRegistry is nil or empty, the wrapper passes
+// (nil, m.loadedSkills, recentTask) into cmdCoderTurn — the
+// skills package's BuildCoderSystemPromptExtension returns "" in
+// that case, so the resulting Coder turn is identical to the
+// pre-Phase-2 behavior (no system-prompt extension, no selection
+// parsing). Call sites don't need to special-case it.
+func (m *Model) coderTurnCmd() tea.Cmd {
+	return cmdCoderTurn(
+		m.transcript,
+		m.coder,
+		m.client,
+		m.skillsRegistry,
+		m.loadedSkills,
+		m.mostRecentHumanTask(),
+	)
+}
+
+// mostRecentHumanTask returns the most recent You (human) message
+// in the transcript. Used by the funnel to include a short task
+// excerpt in the [Skills] system entry so the observability layer
+// can correlate skill choices with the task that triggered them.
+// Returns "" if no human message exists yet (e.g. crash-resume
+// before any You entry, or fresh session before the first task).
+func (m *Model) mostRecentHumanTask() string {
+	entries := m.transcript.Entries()
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Speaker == transcript.SpeakerYou {
+			return entries[i].Content
+		}
+	}
+	return ""
 }
 
 // NewModel initializes a new Model for the Bubbletea program.
@@ -642,7 +791,7 @@ func (m *Model) RestoreSessionState() {
 	if last.Speaker == transcript.SpeakerYou {
 		m.sessionState = loop.StateActive
 		m.statusMessage = "Resuming session: Coder is thinking..."
-		m.initialCmd = cmdCoderTurn(m.transcript, m.coder, m.client)
+		m.initialCmd = m.coderTurnCmd()
 		return
 	}
 
@@ -670,7 +819,7 @@ func (m *Model) RestoreSessionState() {
 		}
 		m.sessionState = loop.StateActive
 		m.statusMessage = "Resuming session: Coder considering next step..."
-		m.initialCmd = cmdCoderTurn(m.transcript, m.coder, m.client)
+		m.initialCmd = m.coderTurnCmd()
 		return
 	}
 
@@ -694,7 +843,7 @@ func (m *Model) RestoreSessionState() {
 					if actionResultExistsAfter(entries, propEntry) {
 						m.sessionState = loop.StateActive
 						m.statusMessage = "Resuming session: Action already executed. Coder considering next step..."
-						m.initialCmd = cmdCoderTurn(m.transcript, m.coder, m.client)
+						m.initialCmd = m.coderTurnCmd()
 						return
 					}
 					m.activeToolCall = tc
@@ -714,7 +863,7 @@ func (m *Model) RestoreSessionState() {
 			m.retryCount = countObjectionsForProposal(entries)
 			m.sessionState = loop.StateActive
 			m.statusMessage = fmt.Sprintf("Resuming session: Reviewer objected (%d/%d). Coder revising...", m.retryCount, m.MaxRetries)
-			m.initialCmd = cmdCoderTurn(m.transcript, m.coder, m.client)
+			m.initialCmd = m.coderTurnCmd()
 			return
 		}
 	}
@@ -723,7 +872,7 @@ func (m *Model) RestoreSessionState() {
 	if last.Type == transcript.TypeActionResult {
 		m.sessionState = loop.StateActive
 		m.statusMessage = "Resuming session: Action executed. Coder considering next step..."
-		m.initialCmd = cmdCoderTurn(m.transcript, m.coder, m.client)
+		m.initialCmd = m.coderTurnCmd()
 		return
 	}
 
@@ -796,6 +945,24 @@ func actionResultExistsAfter(entries []transcript.Entry, propEntry transcript.En
 // ---------------------------------------------------------------------------
 // Slash command handling (docs/work2.md §1)
 // ---------------------------------------------------------------------------
+
+// splitFirstToken splits `s` on the first run of whitespace and
+// returns (first, rest). Both are TrimSpace'd. If `s` has no
+// whitespace, rest is "". Used by sub-dispatching inside
+// /skill, where the first token is a subcommand (list, view,
+// add, ...) and the rest is the per-subcommand args.
+//
+// Mirrors the splitting logic in expandSlashCommand so the
+// two parsers agree on tokenization rules.
+func splitFirstToken(s string) (string, string) {
+	s = strings.TrimSpace(s)
+	for i, r := range s {
+		if r == ' ' || r == '\t' {
+			return s[:i], strings.TrimSpace(s[i+1:])
+		}
+	}
+	return s, ""
+}
 
 // expandSlashCommand inspects the human's input and, if it begins with "/",
 // looks it up in the command registry.
@@ -900,8 +1067,10 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return m.handleLearn(args)
 	case "journey":
 		return m.handleJourney(args)
+	case "skill":
+		return m.handleSkill(args)
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill).", name)
 	}
 }
 
@@ -1022,18 +1191,34 @@ func (m *Model) handleMode(args string) (body string, errMsg string) {
 
 // handleHelp formats a list of all registered slash commands and their descriptions.
 func (m *Model) handleHelp() string {
-	if m.commands == nil || m.commands.Count() == 0 {
-		return "No slash commands registered."
-	}
 	var sb strings.Builder
-	sb.WriteString("Available Slash Commands:\n")
-	for _, cmd := range m.commands.List() {
-		desc := cmd.Description
-		if desc == "" {
-			desc = "No description provided."
+	if m.commands != nil && m.commands.Count() > 0 {
+		sb.WriteString("Available Slash Commands:\n")
+		for _, cmd := range m.commands.List() {
+			desc := cmd.Description
+			if desc == "" {
+				desc = "No description provided."
+			}
+			fmt.Fprintf(&sb, "  /%s — %s\n", cmd.Name, desc)
 		}
-		fmt.Fprintf(&sb, "  /%s — %s\n", cmd.Name, desc)
+	} else {
+		sb.WriteString("No template-driven slash commands registered.\n")
 	}
+	// System commands (target=system in the TUI's switch
+	// table) aren't in the .md registry, so /help lists them
+	// separately. Subcommands of system commands (e.g.
+	// `/skill list` / `/skill view`) are noted inline. This
+	// keeps the help output self-contained.
+	sb.WriteString("\nSystem commands (handled in-session, no LLM call):\n")
+	sb.WriteString("  /status  — Show session status (idle/active, counts, current task)\n")
+	sb.WriteString("  /summary — Render a git-based report of changes made this session\n")
+	sb.WriteString("  /undo    — Revert the last [triad] auto-commit\n")
+	sb.WriteString("  /help    — Show this help\n")
+	sb.WriteString("  /mode [orchestrator|general|triad] — View or set the routing mode\n")
+	sb.WriteString("  /trace   — Show the cross-agent trace log\n")
+	sb.WriteString("  /learn [digest|promote|dismiss|...] — Self-learning workflow\n")
+	sb.WriteString("  /journey [on|off|--export <file>] — Commit journey timeline\n")
+	sb.WriteString("  /skill   — Skill management (list, view, add, delete, force, edit)\n")
 	return sb.String()
 }
 
@@ -1133,6 +1318,186 @@ func (m *Model) handleJourney(args string) (body string, errMsg string) {
 	}
 
 	return fmt.Sprintf("Commit Journey view activated in left panel (%d commit(s)). Enter /journey again to toggle overview.", len(journeyEntries)), ""
+}
+
+// handleSkill dispatches "/skill <subcmd> [args]". The skill
+// registry + loaded set are read off the model. The TUI's
+// follow-up path (e.g. entering the inline editor after
+// /skill add) is driven by setting m.pendingSkillAction,
+// which the humanInputMsg path picks up after writing the
+// System entry.
+//
+// We do NOT touch m.skillsRegistry or m.loadedSkills here
+// beyond trivial inspection — instead, mutations that need to
+// be reflected immediately (e.g. /skill add creating a new
+// file) trigger a re-Load via m.reloadSkillsRegistry(), which
+// is the same defensive pattern main.go uses at startup.
+func (m *Model) handleSkill(args string) (body string, errMsg string) {
+	// Split into subcmd + rest, mirroring the standard
+	// slash-command parser in expandSlashCommand. We do it
+	// inline here because /skill takes its own args (the
+	// first token is a subcommand, not a Coder instruction).
+	subcmd, rest := splitFirstToken(args)
+
+	// For "view", "force", "list" we run the handler
+	// synchronously and apply any registry reload.
+	res := skills.HandleSubcommand(subcmd, rest, m.skillsRegistry, m.loadedSkills, m.workDir)
+	if res.Reload {
+		m.reloadSkillsRegistry()
+	}
+	// Forward the skills-package PendingAction (currently
+	// only Delete) into the TUI's own pendingSkillAction so
+	// the humanInputMsg path can intercept the next user
+	// reply as a confirmation answer.
+	if res.PendingAction != nil {
+		m.pendingSkillAction = skillsActionToTUI(res.PendingAction, res.Body)
+	}
+	// handleSkill does its own follow-up setup for the
+	// interactive subcommands (add / delete / edit) so the
+	// TUI's normal "write System entry, return" flow can
+	// take over from there.
+	m.maybeQueueSkillFollowUp(subcmd, rest, res)
+	return res.Body, ""
+}
+
+// skillsActionToTUI maps a skills.PendingAction to the TUI's
+// internal skillAction. Kept in one place so the two enums
+// don't drift apart silently.
+func skillsActionToTUI(pa *skills.PendingAction, body string) *skillAction {
+	if pa == nil {
+		return nil
+	}
+	out := &skillAction{Name: pa.Name, Body: body}
+	switch pa.Kind {
+	case skills.PendingActionDelete:
+		out.Kind = skillActionDelete
+		out.Confirm = fmt.Sprintf("Delete skill %q? Type `yes` to confirm, or anything else to cancel.", pa.Name)
+	default:
+		return nil
+	}
+	return out
+}
+
+// reloadSkillsRegistry re-loads m.skillsRegistry from the
+// `skills/` directory under m.workDir. Used after /skill add
+// or /skill delete to pick up the on-disk change immediately
+// in the current session. On failure (e.g. user deleted the
+// skills/ dir), we log a warning and keep the previous
+// registry — never crash the TUI.
+func (m *Model) reloadSkillsRegistry() {
+	dir := "skills"
+	if m.skillsRegistry != nil && m.skillsRegistry.Dir != "" {
+		dir = m.skillsRegistry.Dir
+	} else if m.workDir != "" {
+		dir = m.workDir + string(filepath.Separator) + "skills"
+	}
+	reg, err := skills.Load(dir)
+	if err != nil {
+		// Fall back to empty registry rather than crashing.
+		// The TUI's next /skill invocation will surface the
+		// load error in its System entry.
+		return
+	}
+	m.skillsRegistry = reg
+}
+
+// maybeQueueSkillFollowUp inspects the result of
+// HandleSubcommand and, for subcommands that need a
+// follow-up, sets m.pendingSkillAction so the humanInputMsg
+// path can run it after the System entry is written.
+//
+// Follow-ups we set up here:
+//   - /skill add <name>      → open the inline editor on the
+//                              freshly scaffolded Main file.
+//   - /skill edit <name>     → open the inline editor on the
+//                              Main file (we could prompt for
+//                              Main vs Mini; for now we open
+//                              Main, which is the common case
+//                              and matches /skill add's drop-
+//                              into-editor behavior).
+//
+// Note: /skill delete's follow-up is set up by
+// handleSkill via the skills-package PendingAction (so
+// the TUI gets the right Body from the same place that
+// queued the action), not here. Keeping the two paths
+// separate avoids double-queuing the confirmation.
+func (m *Model) maybeQueueSkillFollowUp(subcmd, args string, res skills.HandlerResult) {
+	switch subcmd {
+	case "add", "new":
+		// Successful add: res.Body mentions "Scaffolded".
+		// Drop into the editor on the new Main file.
+		if !strings.Contains(res.Body, "Scaffolded") {
+			return
+		}
+		name := strings.ToLower(strings.TrimSpace(args))
+		if name == "" || m.skillsRegistry == nil {
+			return
+		}
+		sk, ok := m.skillsRegistry.Get(name)
+		if !ok {
+			return
+		}
+		m.pendingSkillAction = &skillAction{
+			Kind: skillActionAdd,
+			Name: name,
+			Body: res.Body,
+		}
+		m.openSkillEditor(sk.SourcePath, name, "main")
+	case "edit":
+		name := strings.ToLower(strings.TrimSpace(args))
+		if name == "" || m.skillsRegistry == nil {
+			return
+		}
+		sk, ok := m.skillsRegistry.Get(name)
+		if !ok {
+			return
+		}
+		m.pendingSkillAction = &skillAction{
+			Kind: skillActionEdit,
+			Name: name,
+			Body: res.Body,
+		}
+		m.openSkillEditor(sk.SourcePath, name, "main")
+	}
+}
+
+// openSkillEditor reads `path` from disk and seeds the
+// textarea with its contents. The editor is open until the
+// user saves (Ctrl-S) or cancels (Esc). On save, the file is
+// written back and the registry is reloaded.
+func (m *Model) openSkillEditor(path, name, tier string) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		// Surface the error as a System entry rather than a
+		// silent failure.
+		_ = m.transcript.Append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   fmt.Sprintf("[Skill] Could not open %q for editing: %v", path, err),
+			Timestamp: time.Now(),
+		})
+		m.statusMessage = "Could not open file for editing."
+		return
+	}
+	ta := newSkillTextarea()
+	ta.SetValue(string(raw))
+	m.skillEditor = &skillEditorState{
+		path:     path,
+		name:     name,
+		tier:     tier,
+		textarea: ta,
+	}
+	m.statusMessage = fmt.Sprintf("Editing %s — Ctrl-S to save, Esc to cancel.", filepath.Base(path))
+}
+
+// skillEditorState holds the inline TUI editor for a single
+// skill file. Lives in Model so the update loop can hand
+// keystrokes to the textarea.
+type skillEditorState struct {
+	path     string
+	name     string
+	tier     string
+	textarea skillTextarea
 }
 
 

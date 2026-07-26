@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/loop"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -89,6 +90,25 @@ func (m Model) View() tea.View {
 	// Clip ONLY the scrollable viewport portion — never the pinned bottom dock.
 	scrollableArea := clipLines(vpContainer, vpContentHeight)
 
+	// Skill editor swap: when m.skillEditor is non-nil, the
+	// right panel's scrollable area becomes the inline
+	// textarea instead of the conversation viewport. The
+	// input bar still docks at the bottom (so Esc / Ctrl-S
+	// work via the same keystroke pipeline), and the
+	// textarea is sized to fit the available height.
+	//
+	// Work.md §3.3 specifies "inline TUI editing pane (not
+	// shelling out to an external editor)"; the in-place
+	// swap is the simplest expression of that constraint.
+	if m.skillEditor != nil {
+		editorStr := renderSkillEditor(m.skillEditor, vpContentWidth)
+		// Pad / clip to vpContentHeight so the bottom dock
+		// doesn't shift when the editor opens. We use
+		// clipLines on the rendered string to enforce the
+		// exact line count.
+		scrollableArea = clipLines(editorStr, vpContentHeight)
+	}
+
 	// Pin bottom: (statusBar if no sidebar) + (popup if active) + input are always rendered last.
 	var bottomDock string
 	if sidebarWidth == 0 {
@@ -145,8 +165,14 @@ func (m Model) View() tea.View {
 	)
 
 	formattedContent := fitToCanvas(content, width, height)
+	// Bubble Tea v2 is declarative: alt screen and mouse mode live on the
+	// View, not as NewProgram options. The runtime's diff-based renderer
+	// (cursed_renderer.go: shouldUpdateAltScreen) compares this view's
+	// AltScreen to the previous frame's and writes the enter/exit sequences
+	// accordingly — including on the final frame after a graceful Quit.
 	v := tea.NewView(formattedContent)
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -191,12 +217,55 @@ func (m Model) renderTitleBar(width int) string {
 
 	centerFrameW := m.styles.TitleCenter.GetHorizontalFrameSize()
 	centerStyleW := max(0, centerWidth-centerFrameW)
-	sessFile := truncatePath(m.transcript.FilePath(), max(5, centerStyleW-lipgloss.Width(stateStr)-4))
-	centerContent := " " + sessFile + "  " + stateStr + " "
+	statsSummary := m.renderStatsSummary()
+	sessFile := truncatePath(m.transcript.FilePath(), max(5, centerStyleW-lipgloss.Width(stateStr)-lipgloss.Width(statsSummary)-6))
+	centerContent := " " + sessFile + "  " + stateStr + "  " + statsSummary + " "
 	center := m.styles.TitleCenter.Width(centerStyleW).Render(truncateLine(centerContent, centerStyleW))
 
 	res := lipgloss.JoinHorizontal(lipgloss.Top, left, center, right)
 	return clipLines(res, 1)
+}
+
+func formatCompactTokens(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 1000000 {
+		val := float64(n) / 1000.0
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%dk", int(val))
+		}
+		return fmt.Sprintf("%.1fk", val)
+	}
+	val := float64(n) / 1000000.0
+	if val == float64(int(val)) {
+		return fmt.Sprintf("%dM", int(val))
+	}
+	return fmt.Sprintf("%.1fM", val)
+}
+
+func (m Model) renderStatsSummary() string {
+	winSize := m.coder.ContextWindow
+	if winSize <= 0 {
+		winSize = agent.DefaultContextWindow
+	}
+
+	usedTokens := m.stats.LastPromptTokens
+	fillPct := 0.0
+	if usedTokens > 0 && winSize > 0 {
+		fillPct = (float64(usedTokens) / float64(winSize)) * 100.0
+	}
+
+	cost := (float64(m.stats.Coder.PromptTokens) * m.coder.InputCostPerToken) +
+		(float64(m.stats.Coder.CompletionTokens) * m.coder.OutputCostPerToken) +
+		(float64(m.stats.Reviewer.PromptTokens) * m.reviewer.InputCostPerToken) +
+		(float64(m.stats.Reviewer.CompletionTokens) * m.reviewer.OutputCostPerToken)
+
+	contextUsageStr := fmt.Sprintf("%s/%s", formatCompactTokens(usedTokens), formatCompactTokens(winSize))
+	pctStr := fmt.Sprintf("(%.1f%%)", fillPct)
+	costStr := fmt.Sprintf("$%.3f", cost)
+
+	return fmt.Sprintf("%s %s %s", contextUsageStr, pctStr, costStr)
 }
 
 // renderSidebar builds the left panel with glowing section headers, agent info,
