@@ -596,6 +596,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastProposedEntryID = entries[len(entries)-1].ID
 			}
 			m.refreshViewport()
+
+			// Orchestrator mode: the orchestrator agent itself doesn't
+			// use a reviewer — it routes tasks to general or triad.
+			// Execute directly, same as general mode.
+			if m.currentMode == loop.ModeOrchestrator {
+				if toolCall.Function.Name == "spawn_subagent" {
+					m.statusMessage = "Running subagent..."
+					return m, cmdSpawnSubagent(
+						m.transcript.FilePath(),
+						m.workDir,
+						m.coder,
+						m.client,
+						m.commandTimeout,
+						toolCall,
+						m.skillsRegistry,
+					)
+				}
+				if browser.IsBrowserTool(toolCall.Function.Name) {
+					m.statusMessage = fmt.Sprintf("Executing browser tool %q...", toolCall.Function.Name)
+					return m, cmdExecuteBrowserTool(m.workDir, m.browser, toolCall)
+				}
+				if toolCall.Function.Name == "web_search" {
+					m.statusMessage = "Searching the web..."
+					return m, cmdExecuteWebSearch(m.searchAPIKey, toolCall)
+				}
+				m.statusMessage = fmt.Sprintf("Executing tool %q...", toolCall.Function.Name)
+				return m, cmdExecuteTool(m.workDir, toolCall, m.commandTimeout)
+			}
+
 			m.statusMessage = fmt.Sprintf("Reviewer inspecting proposed action %q...", toolCall.Function.Name)
 			return m, cmdReviewerTurn(m.transcript, m.reviewer, m.client)
 		}

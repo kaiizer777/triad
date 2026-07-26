@@ -346,7 +346,10 @@ func (m Model) renderSidebar(width int, height int) string {
 	sb.WriteString("\n")
 
 	// ── DUAL AGENT ENGINE ────────────────────────────────────────
-	if innerHeight >= 11 {
+	// Only show the dual-agent section when the mode actually uses
+	// a Reviewer (triad). Orchestrator and General modes are
+	// single-agent paths where the Reviewer pill would be misleading.
+	if innerHeight >= 11 && m.currentMode == loop.ModeTriad {
 		sb.WriteString("\n")
 		sb.WriteString(m.styles.SidebarHeader.Render("▸ DUAL AGENT ENGINE"))
 		sb.WriteString("\n")
@@ -365,6 +368,20 @@ func (m Model) renderSidebar(width int, height int) string {
 		sb.WriteString(m.styles.ReviewerPill.Render(" REVIEWER "))
 		sb.WriteString(" ")
 		sb.WriteString(m.styles.SidebarValue.Render(revVal))
+		sb.WriteString("\n")
+	} else if innerHeight >= 11 {
+		// Single-agent modes: show only the Coder.
+		sb.WriteString("\n")
+		sb.WriteString(m.styles.SidebarHeader.Render("▸ AGENT ENGINE"))
+		sb.WriteString("\n")
+		sb.WriteString(rule)
+		sb.WriteString("\n")
+
+		coderPillW := lipgloss.Width(m.styles.CoderPill.Render(" CODER ")) + 1
+		coderVal := truncatePath(m.coder.Model, max(3, innerWidth-coderPillW))
+		sb.WriteString(m.styles.CoderPill.Render(" CODER "))
+		sb.WriteString(" ")
+		sb.WriteString(m.styles.SidebarValue.Render(coderVal))
 		sb.WriteString("\n")
 	}
 
