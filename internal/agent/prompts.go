@@ -180,7 +180,36 @@ Three kinds of wait_for are supported:
 timeout_ms is optional (default 30s, capped at 2 minutes). Default
 timeout is plenty for almost every page; raise it only when you know
 the page is genuinely slow. Never pass a value over 2 minutes — the
-cap protects the loop from a runaway hang.`
+cap protects the loop from a runaway hang.
+
+SESSION ISOLATION (browser_reset_context, browser_save_storage_state,
+browser_clear_saved_storage — Workflow 4 Phase 4):
+The browser shares state (cookies, localStorage, navigation history)
+across all tool calls in a session. This is usually convenient — you
+stay logged into a test site across multiple sequential tasks.
+
+However, when moving to a completely new/unrelated task, call
+browser_reset_context to wipe all state and start fresh. This
+prevents stale form data, leftover logins, or cached navigation
+from contaminating the next task.
+
+If you need login state to persist ACROSS a context reset (e.g. you
+logged in during Task A and need the same login for Task B after a
+reset), call browser_save_storage_state after logging in. The next
+browser_reset_context will seed the new context with that saved state.
+
+browser_clear_saved_storage removes the saved state, so the next
+reset creates a truly empty context.
+
+RULE OF THUMB:
+- Within one task (e.g. navigate → click → type → verify), do NOT
+  reset the context — you need the shared state.
+- Between unrelated tasks, DO reset the context to prevent pollution.
+- Only save storage state when you explicitly need login persistence
+  across resets — don't save it "just in case".
+
+The same selector strategy chain applies: always prefer role/text/label
+over CSS, never positional.`
 
 // ReviewerBrowserSuffix is the *optional* extension to ReviewerSystemPrompt
 // appended when browser_* tools are registered. It instructs Reviewer to
@@ -196,7 +225,14 @@ When reviewing browser_click / browser_type / browser_get_text proposals, also c
 - If the selector is purely positional (e.g. "nav > ul > li:nth-child(3) > a", "form > div:nth-of-type(2) > input", "the third button"), object with: "OBJECTION: positional selector — replace with a role+name or text selector, or a stable id/testid. Layout-coupled selectors break on the next page revision."
 - The same selector with strategy="css" + a literal id selector like "#submit-btn" is fine. The objection is reserved for positional chains, not all CSS.
 - browser_wait_for: confirm the condition is specific and bounded. If Coder proposes a 30-second wait for a text that's normally visible in 100ms, it's almost always wrong — either the selector is wrong, or the page logic has changed, or the wait should be condition-based (e.g. wait_for a navigation, not a fixed timeout). Object if the wait doesn't match what the page is actually doing.
-- Fixed sleeps are not a tool. If Coder proposes run_command with "sleep 2", that's almost always a smell -- they should be using browser_wait_for instead. Object.`
+- Fixed sleeps are not a tool. If Coder proposes run_command with "sleep 2", that's almost always a smell -- they should be using browser_wait_for instead. Object.
+
+SESSION ISOLATION REVIEW (Workflow 4 Phase 4):
+When reviewing browser_reset_context / browser_save_storage_state / browser_clear_saved_storage:
+- browser_reset_context: confirm this is at a genuine task boundary (moving to a new/unrelated task). Object if Coder resets mid-task — e.g. after a failed click they want to retry — since resetting wipes the page state they need to continue.
+- browser_save_storage_state: only approve if the current task genuinely needs login state to persist across a future reset. Don't approve "just in case" saves — they create unnecessary complexity.
+- browser_clear_saved_storage: approve freely — this is always safe and just clears saved state.
+- Object if Coder uses browser_reset_context as a "fix" for a broken selector or failed action — resetting the context is not a recovery strategy. Use browser_wait_for or the selector recovery mechanism instead.`
 
 // ReviewerSystemPrompt is the system prompt injected at the start of every Reviewer request.
 // It defines Reviewer's role and the strict decision format the loop parses.

@@ -261,6 +261,8 @@ func (m *Manager) recoverZeroMatch(failure *SelectorFailure) *RecoveryResult {
 // When a selector matched multiple elements (strict-mode violation),
 // this attempts to narrow by finding an element with exact visible
 // text matching the selector's intent.
+//
+// IMPORTANT: This method must be called with m.mu already held.
 func (m *Manager) recoverAmbiguousMatch(failure *SelectorFailure) *RecoveryResult {
 	// Strategy 1: Try to find a single element with exact text match
 	// among the ambiguous set. This mirrors Playwright's
@@ -278,21 +280,72 @@ func (m *Manager) recoverAmbiguousMatch(failure *SelectorFailure) *RecoveryResul
 	}
 
 	// Strategy 2: If the original was a role-based selector, try
-	// narrowing by appending visible text context from the page.
+	// narrowing by finding a surrounding context (nearest heading
+	// or parent section) that uniquely identifies one of the
+	// matches, then apply it via Locator.Filter({HasText: ...}).
+	// This is the documented Playwright disambiguation pattern and
+	// produces a real, working narrowed selector rather than the
+	// same ambiguous one.
 	if failure.Strategy == StrategyRole {
 		narrowed := m.narrowRoleSelector(failure.Selector)
-		if narrowed != "" && narrowed != failure.Selector {
-			result, err := m.executeRecoveredAction(failure, narrowed, StrategyRole)
+		if narrowed != nil && narrowed.HasText != "" {
+			role, name, err := splitRoleName(failure.Selector)
 			if err == nil {
-				return &RecoveryResult{
-					Recovered: true,
-					Result:    result,
+				opts := playwright.PageGetByRoleOptions{Name: name}
+				loc := m.page.GetByRole(playwright.AriaRole(role), opts)
+				filtered := loc.Filter(playwright.LocatorFilterOptions{
+					HasText: narrowed.HasText,
+				})
+				result, execErr := m.executeActionOnLocator(failure, filtered, narrowed)
+				if execErr == nil {
+					return &RecoveryResult{
+						Recovered: true,
+						Result:    result,
+					}
 				}
+				// Filter didn't resolve to a unique element — fall
+				// through to LLM-assisted recovery.
 			}
 		}
 	}
 
 	return nil
+}
+
+// executeActionOnLocator runs the original tool action against a
+// pre-built Playwright Locator. Used by recoverAmbiguousMatch's
+// role-narrowing path, where the corrected target is a filtered
+// Locator (Locator.Filter(HasText: ...)) rather than a re-parsable
+// selector+strategy string.
+//
+// IMPORTANT: This method must be called with m.mu already held.
+func (m *Manager) executeActionOnLocator(failure *SelectorFailure, loc playwright.Locator, narrowed *narrowedRoleTarget) (string, error) {
+	switch failure.ToolName {
+	case "browser_click":
+		if err := loc.Click(playwright.LocatorClickOptions{
+			Timeout: playwright.Float(float64(DefaultTimeout.Milliseconds())),
+		}); err != nil {
+			return "", fmt.Errorf("browser_click: failed to click narrowed [%s] %q (filter=%q): %w",
+				failure.Strategy, failure.Selector, narrowed.HasText, err)
+		}
+		return fmt.Sprintf("browser_click: clicked [%s] %q narrowed by %s=%q",
+			failure.Strategy, failure.Selector, narrowed.Source, narrowed.HasText), nil
+
+	case "browser_get_text":
+		text, err := loc.InnerText(playwright.LocatorInnerTextOptions{
+			Timeout: playwright.Float(float64(DefaultTimeout.Milliseconds())),
+		})
+		if err != nil {
+			return "", fmt.Errorf("browser_get_text: failed to read narrowed [%s] %q (filter=%q): %w",
+				failure.Strategy, failure.Selector, narrowed.HasText, err)
+		}
+		return fmt.Sprintf("browser_get_text: [%s] %q (narrowed by %s=%q) =\n%s",
+			failure.Strategy, failure.Selector, narrowed.Source,
+			narrowed.HasText, truncateResult(text, MaxResultBytes)), nil
+
+	default:
+		return "", fmt.Errorf("recovery: unsupported tool %q for narrowed-locator recovery", failure.ToolName)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -469,21 +522,44 @@ func (m *Manager) findExactTextMatch(selector string, strategy SelectStrategy) s
 	return ""
 }
 
-// narrowRoleSelector attempts to narrow a role-based selector that
-// matched multiple elements by finding the most specific accessible
-// name from the page. For example, if "button:OK" matched 2 elements,
-// but one is in a dialog and one is in a form, we might suggest
-// "button:OK" with a more specific text filter.
+// narrowedRoleTarget is the output of narrowRoleSelector. It carries
+// the role selector to use together with a HasText filter to apply
+// via Playwright's Locator.Filter — the documented pattern for
+// disambiguating a role+name locator that matches multiple elements.
 //
-// Returns empty string if no narrowing is possible.
-func (m *Manager) narrowRoleSelector(selector string) string {
+// Example: if "button:OK" matches three buttons, but only one of
+// them is inside a section whose visible text is "Dialog", then
+// narrowRoleSelector returns:
+//
+//   {Selector: "button:OK", HasText: "Dialog"}
+//
+// which the caller applies as
+//   page.GetByRole("button", {name:"OK"}).Filter({HasText:"Dialog"})
+type narrowedRoleTarget struct {
+	Selector string // the role:name selector, unchanged
+	HasText  string // a substring that uniquely identifies one of the matches
+	// Source describes where HasText came from ("parent section",
+	// "nearest heading", etc.). Useful for the human reading the
+	// transcript; not used by the caller.
+	Source string
+}
+
+// narrowRoleSelector attempts to narrow a role-based selector that
+// matched multiple elements by finding a surrounding context
+// (parent section text, nearest heading) that uniquely identifies
+// one of the matches. The returned HasText is applied via
+// Locator.Filter — the standard Playwright disambiguation pattern.
+//
+// Returns nil if no narrowing is possible (e.g. all matches live in
+// the same parent with no distinguishing heading).
+func (m *Manager) narrowRoleSelector(selector string) *narrowedRoleTarget {
 	role, name := splitRoleNameFast(selector)
 	if role == "" || name == "" {
-		return ""
+		return nil
 	}
 
-	// Use JavaScript to find all elements with this role and count
-	// how many have the same accessible name.
+	// Use JavaScript to find all elements with this role and gather
+	// their surrounding context (parent section text + nearest heading).
 	js := fmt.Sprintf(`() => {
 		const role = %q;
 		const name = %q;
@@ -508,83 +584,115 @@ func (m *Manager) narrowRoleSelector(selector string) string {
 			const text = (el.innerText || '').trim();
 			const label = el.getAttribute('aria-label') || '';
 			const accessibleName = label || text;
-			if (accessibleName) {
-				candidates.push({
-					text: text.substring(0, 200),
-					label: label.substring(0, 200),
-					parent: el.parentElement ? el.parentElement.tagName.toLowerCase() : '',
-					parentText: el.parentElement ? (el.parentElement.innerText || '').trim().substring(0, 100) : '',
-				});
+			if (!accessibleName) continue;
+			// Only consider elements whose accessible name contains
+			// the requested name (substring match, matching the
+			// GetByRole default).
+			if (!(label === name || text === name ||
+				  (label && label.indexOf(name) >= 0) ||
+				  (text && text.indexOf(name) >= 0))) {
+				continue;
 			}
+			// Find the nearest heading (h1..h6) above this element
+			// — it usually gives a tight, human-meaningful context.
+			let heading = '';
+			let cur = el.parentElement;
+			while (cur && !heading) {
+				const prev = (cur.previousElementSibling ||
+					(cur.parentElement ? cur.parentElement : null));
+				// Walk previous siblings looking for a heading.
+				let walker = cur.previousElementSibling;
+				while (walker && !heading) {
+					if (/^H[1-6]$/.test(walker.tagName)) {
+						heading = (walker.innerText || '').trim();
+						break;
+					}
+					walker = walker.previousElementSibling;
+				}
+				cur = cur.parentElement;
+			}
+			// Fallback: section-level text (truncated).
+			const parentText = el.parentElement ?
+				(el.parentElement.innerText || '').trim().substring(0, 100) : '';
+			candidates.push({
+				text: text.substring(0, 200),
+				label: label.substring(0, 200),
+				heading: heading.substring(0, 100),
+				parentText: parentText,
+			});
 		}
 		return JSON.stringify(candidates);
 	}`, role, name)
 
 	raw, err := m.page.Evaluate(js)
 	if err != nil {
-		return ""
+		return nil
 	}
 
 	rawStr, ok := raw.(string)
 	if !ok {
-		return ""
+		return nil
 	}
 
 	var candidates []struct {
-		Text      string `json:"text"`
-		Label     string `json:"label"`
-		Parent    string `json:"parent"`
+		Text       string `json:"text"`
+		Label      string `json:"label"`
+		Heading    string `json:"heading"`
 		ParentText string `json:"parentText"`
 	}
 	if err := json.Unmarshal([]byte(rawStr), &candidates); err != nil {
-		return ""
+		return nil
 	}
 
-	// Count how many have the same name.
-	matching := 0
+	// We need at least 2 candidates to disambiguate.
+	if len(candidates) < 2 {
+		return nil
+	}
+
+	// Strategy A: find a heading that is unique to ONE of the
+	// matching elements. "button:OK" inside <h2>Dialog</h2> → use
+	// "Dialog" as the disambiguator. This is the tightest, most
+	// human-meaningful narrowing and is what reviewers / humans
+	// reading the transcript most easily recognise.
+	headingCounts := make(map[string]int)
 	for _, c := range candidates {
-		displayName := c.Label
-		if displayName == "" {
-			displayName = c.Text
-		}
-		if displayName == name || strings.Contains(displayName, name) {
-			matching++
+		if c.Heading != "" {
+			headingCounts[c.Heading]++
 		}
 	}
-
-	if matching <= 1 {
-		// Already unique — no narrowing needed.
-		return selector
-	}
-
-	// Find elements with unique parent context that could disambiguate.
 	for _, c := range candidates {
-		displayName := c.Label
-		if displayName == "" {
-			displayName = c.Text
-		}
-		if displayName == name && c.ParentText != "" {
-			// Check if the parent context is unique enough.
-			uniqueInParent := 0
-			for _, other := range candidates {
-				otherName := other.Label
-				if otherName == "" {
-					otherName = other.Text
-				}
-				if otherName == name && other.ParentText == c.ParentText {
-					uniqueInParent++
-				}
-			}
-			if uniqueInParent == 1 {
-				// This element is unique within its parent context.
-				// Return the original selector — the caller should
-				// try with a more specific approach.
-				return selector
+		if c.Heading != "" && headingCounts[c.Heading] == 1 {
+			return &narrowedRoleTarget{
+				Selector: selector,
+				HasText:  c.Heading,
+				Source:   "nearest heading",
 			}
 		}
 	}
 
-	return ""
+	// Strategy B: fall back to parentText (the section the element
+	// lives in). Less tight than a heading but still meaningful —
+	// it captures the containing card / dialog / form.
+	parentCounts := make(map[string]int)
+	for _, c := range candidates {
+		if c.ParentText != "" {
+			parentCounts[c.ParentText]++
+		}
+	}
+	for _, c := range candidates {
+		if c.ParentText != "" && parentCounts[c.ParentText] == 1 {
+			return &narrowedRoleTarget{
+				Selector: selector,
+				HasText:  c.ParentText,
+				Source:   "parent section",
+			}
+		}
+	}
+
+	// No unique context found — all matches live in identical
+	// surrounding text. Caller should fall through to LLM-assisted
+	// recovery.
+	return nil
 }
 
 // executeRecoveredAction runs the original tool action against a

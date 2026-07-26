@@ -329,6 +329,45 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	// Session isolation tools (Work 4 Phase 4). These manage the browser
+	// context lifecycle — resetting state between tasks, and optionally
+	// preserving login sessions across resets.
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_reset_context",
+			Description: "Create a fresh browser context, closing the old one. This resets cookies, localStorage, sessionStorage, and navigation history — all state from previous tasks is wiped. Call this at task boundaries to prevent cross-task contamination. If a storage state was previously saved via browser_save_storage_state, the new context will be seeded with that state (preserving login sessions). No arguments required.",
+			Parameters: ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ToolParamProperty{},
+				Required:   []string{},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_save_storage_state",
+			Description: "Capture the current browser context's cookies and localStorage as a saved state. The next browser_reset_context call will restore this state into the new context, preserving login sessions across task boundaries. Use this after logging in to a site if you need the login to persist. Returns a summary of what was captured. No arguments required.",
+			Parameters: ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ToolParamProperty{},
+				Required:   []string{},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "browser_clear_saved_storage",
+			Description: "Clear any previously saved storage state. After this call, browser_reset_context will create a truly empty context with no login state. Use when you no longer need the saved login to persist. No arguments required.",
+			Parameters: ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ToolParamProperty{},
+				Required:   []string{},
+			},
+		},
+	},
 	{
 		Type: "function",
 		Function: ToolFunctionSpec{

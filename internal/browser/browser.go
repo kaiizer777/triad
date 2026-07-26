@@ -44,11 +44,17 @@ var ErrBrowserNotInstalled = errors.New("browser: Playwright browser binary not 
 // Manager owns the long-lived Playwright browser process and current page.
 // All exported methods are safe for concurrent calls — the underlying
 // Playwright API is not, so the Manager serialises them with a mutex.
+//
+// Work 4 Phase 4: The Manager now supports context-based session
+// isolation. Each "task" can optionally get a fresh BrowserContext,
+// resetting cookies, localStorage, and navigation history while
+// optionally preserving login state via storageState.
 type Manager struct {
 	mu sync.Mutex
 
 	pw      *playwright.Playwright
 	browser playwright.Browser
+	context playwright.BrowserContext
 	page    playwright.Page
 
 	// headless controls whether Chromium runs with a visible UI. We always
@@ -69,6 +75,12 @@ type Manager struct {
 	// Chromium process too; Close() is here for tests and graceful
 	// shutdown paths.
 	closed bool
+
+	// savedStorage holds the serialized storageState (cookies + localStorage)
+	// from a previous SaveStorageState call. When non-nil, the next
+	// ResetContext call will load this state into the new context, preserving
+	// login sessions across task boundaries.
+	savedStorage *playwright.OptionalStorageState
 }
 
 // NewManager returns a Manager that has not yet launched a browser process.
@@ -95,6 +107,12 @@ func (m *Manager) Close() error {
 			firstErr = fmt.Errorf("browser: failed to close page: %w", err)
 		}
 		m.page = nil
+	}
+	if m.context != nil {
+		if err := m.context.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("browser: failed to close context: %w", err)
+		}
+		m.context = nil
 	}
 	if m.browser != nil {
 		if err := m.browser.Close(); err != nil && firstErr == nil {
@@ -143,8 +161,17 @@ func (m *Manager) ensureLaunched() error {
 		return wrapLaunchError(err)
 	}
 
-	page, err := browser.NewPage()
+	// Create initial context and page.
+	context, err := browser.NewContext()
 	if err != nil {
+		_ = browser.Close()
+		_ = pw.Stop()
+		return fmt.Errorf("browser: failed to create new context: %w", err)
+	}
+
+	page, err := context.NewPage()
+	if err != nil {
+		_ = context.Close()
 		_ = browser.Close()
 		_ = pw.Stop()
 		return fmt.Errorf("browser: failed to open new page after launch: %w", err)
@@ -152,6 +179,7 @@ func (m *Manager) ensureLaunched() error {
 
 	m.pw = pw
 	m.browser = browser
+	m.context = context
 	m.page = page
 	m.launched = true
 	return nil
@@ -176,4 +204,134 @@ func wrapLaunchError(err error) error {
 	default:
 		return fmt.Errorf("browser: failed to launch Chromium: %w", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Work 4 Phase 4 — Session & State Isolation
+// ---------------------------------------------------------------------------
+
+// ResetContext creates a new browser context and page, closing the previous
+// ones. This implements the "fresh context per task" pattern:
+//   - Cookies, localStorage, sessionStorage are all reset.
+//   - Navigation history is cleared (new page starts at about:blank).
+//   - If savedStorage was set via SaveStorageState, the new context is
+//     seeded with that state, preserving login sessions across tasks.
+//
+// This is the recommended boundary for state isolation — call it between
+// distinct tasks rather than between every tool call (which would be
+// expensive) or never (which would leak state indefinitely).
+//
+// The mutex is NOT acquired here — callers must hold m.mu. This is an
+// internal method; the public API is ExecuteResetContext.
+func (m *Manager) resetContextUnlocked() error {
+	if err := m.ensureLaunched(); err != nil {
+		return err
+	}
+
+	// Close the old page and context.
+	if m.page != nil {
+		_ = m.page.Close()
+		m.page = nil
+	}
+	if m.context != nil {
+		_ = m.context.Close()
+		m.context = nil
+	}
+
+	// Create new context. If we have saved storage state, load it.
+	var ctxOpts playwright.BrowserNewContextOptions
+	if m.savedStorage != nil {
+		ctxOpts.StorageState = m.savedStorage
+	}
+
+	context, err := m.browser.NewContext(ctxOpts)
+	if err != nil {
+		return fmt.Errorf("browser: failed to create new context: %w", err)
+	}
+
+	page, err := context.NewPage()
+	if err != nil {
+		_ = context.Close()
+		return fmt.Errorf("browser: failed to create new page: %w", err)
+	}
+
+	m.context = context
+	m.page = page
+	return nil
+}
+
+// ExecuteResetContext creates a fresh browser context, closing the old one.
+// This is the public API for task-boundary state isolation.
+func (m *Manager) ExecuteResetContext() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.resetContextUnlocked(); err != nil {
+		return "", err
+	}
+
+	msg := "browser_reset_context: fresh context created"
+	if m.savedStorage != nil {
+		msg += " (with saved storage state restored)"
+	}
+	return msg, nil
+}
+
+// SaveStorageState captures the current context's cookies and localStorage
+// as a JSON string, stored in memory. The next ResetContext call will
+// restore this state into the new context, preserving login sessions.
+//
+// This is the deliberate "save your login" mechanism — Coder must
+// explicitly call this after logging in if the login should persist
+// across task boundaries. Without it, ResetContext wipes everything.
+//
+// Returns the JSON string for informational purposes.
+func (m *Manager) ExecuteSaveStorageState() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.ensureLaunched(); err != nil {
+		return "", err
+	}
+	if m.context == nil {
+		return "", fmt.Errorf("browser: no active context")
+	}
+
+	state, err := m.context.StorageState()
+	if err != nil {
+		return "", fmt.Errorf("browser: failed to get storage state: %w", err)
+	}
+
+	m.savedStorage = state.ToOptionalStorageState()
+	return fmt.Sprintf("browser_save_storage_state: captured %d cookies, %d origins", len(state.Cookies), len(state.Origins)), nil
+}
+
+// ClearSavedStorage clears any previously saved storage state. The next
+// ResetContext will create a truly empty context with no login state.
+func (m *Manager) ExecuteClearSavedStorage() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.savedStorage = nil
+	return "browser_clear_saved_storage: saved storage state cleared", nil
+}
+
+// CurrentURL returns the current page URL. Useful for debugging and
+// for Coder to verify navigation state.
+func (m *Manager) CurrentURL() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.page == nil {
+		return ""
+	}
+	return m.page.URL()
+}
+
+// HasSavedStorage reports whether a storage state has been saved that
+// would be restored on the next ResetContext call.
+func (m *Manager) HasSavedStorage() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.savedStorage != nil
 }

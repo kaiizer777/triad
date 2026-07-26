@@ -38,7 +38,10 @@ func IsBrowserTool(name string) bool {
 		"browser_type",
 		"browser_get_text",
 		"browser_screenshot",
-		"browser_wait_for":
+		"browser_wait_for",
+		"browser_reset_context",
+		"browser_save_storage_state",
+		"browser_clear_saved_storage":
 		return true
 	}
 	return false
@@ -236,6 +239,12 @@ func (m *Manager) ExecuteTool(workDir, name, rawArgs string) (string, error) {
 		return m.ExecuteScreenshot(workDir, rawArgs)
 	case "browser_wait_for":
 		return m.ExecuteWaitFor(rawArgs)
+	case "browser_reset_context":
+		return m.ExecuteResetContext()
+	case "browser_save_storage_state":
+		return m.ExecuteSaveStorageState()
+	case "browser_clear_saved_storage":
+		return m.ExecuteClearSavedStorage()
 	default:
 		return "", fmt.Errorf("browser.ExecuteTool: %q is not a browser tool", name)
 	}

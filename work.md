@@ -218,56 +218,32 @@ browser tools currently share one long-lived page (locked in Workflow 2
 §6.1's design notes), confirm this doesn't create cross-task contamination
 as usage grows.
 
-- [ ] 4.1 — Audit what state persists across tasks in the current shared-page
+- [x] 4.1 — Audit what state persists across tasks in the current shared-page
       design: cookies, localStorage, open tabs, login sessions, previous
       navigation history
-- [ ] 4.2 — Decide, explicitly, whether this persistence is desired
+- [x] 4.2 — Decide, explicitly, whether this persistence is desired
       (e.g. staying logged into a test site across multiple tasks in one
       session is convenient) or should be reset at clear boundaries (e.g. a
       fresh browser context per top-level task, not per session) — this is
       a real design choice, not an oversight, and should be made
       deliberately rather than left as "whatever Playwright happens to do
       by default"
-- [ ] 4.3 — If session boundaries should reset between tasks, implement this
+- [x] 4.3 — If session boundaries should reset between tasks, implement this
       via Playwright's context/storageState mechanism (creating a fresh
       browser context, optionally seeded with a saved storageState for
       login persistence where that's genuinely wanted) rather than closing
       and relaunching the whole browser process each time, which is far more
       expensive
-- [ ] 4.4 — **Test:** confirm state behaves as decided in 4.2 — either
+- [x] 4.4 — **Test:** confirm state behaves as decided in 4.2 — either
       correctly persists across tasks in the same session, or correctly
       resets at task boundaries, whichever was chosen
-- [ ] 4.5 — **Test:** run two sequential unrelated tasks in the same
+- [x] 4.5 — **Test:** run two sequential unrelated tasks in the same
       session, confirm no unexpected leftover state (a stale form fill, a
       leftover navigation) causes the second task to behave unexpectedly
       because of the first
 
 **Checkpoint:** browser state behavior across tasks is an explicit, tested
-decision, not an accidental side effect of the shared-page design.
-
----
-
-## Phase 5 — Multi-Tab / Multi-Page Support 
-
-**Goal:** revisit the "one shared page, not a new page per tool call"
-decision from Workflow 2 §4.3, now that real usage may call for juggling
-multiple tabs — but only build this if you've actually hit the need.
-
-- [ ] 5.1 — Before building anything here, confirm with real usage whether
-      you've actually needed multiple tabs/pages simultaneously. If you
-      haven't hit this yet, skip this phase entirely rather than building
-      speculative capability
-- [ ] 5.2 — If needed: add `browser_new_tab()` and `browser_switch_tab(id)`
-      tools, keeping the existing single-page tools' default behavior
-      (operate on "the current tab") unchanged for backward compatibility
-      with tasks that don't need multi-tab awareness
-- [ ] 5.3 — Ensure Reviewer sees tab-switching as a visible, reviewable
-      action like any other — not an invisible side effect
-- [ ] 5.4 — **Test:** a task genuinely requiring two open tabs, confirm it
-      works correctly through the full approval loop across both tabs
-
-**Checkpoint:** multi-tab support exists only if real usage demonstrated the
-need, and even then, single-tab tasks are unaffected.
+  decision, not an accidental side effect of the shared-page design. **DONE**
 
 ---
 
@@ -283,7 +259,6 @@ Phase 1 (Selector Strategy)      ← foundation
 Phase 2 (Waiting & Timing)       ← foundation
 Phase 3 (Failure Recovery)       ← depends on 1 and 2 being solid
 Phase 4 (Session Isolation)      ← independent, do anytime
-Phase 5 (Multi-Tab Support)      ← only if actually needed, skip otherwise
 ```
 
 ---
