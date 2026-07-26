@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project 25 | Modern Design</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563EB; /* Electric Blue */
+            --primary-light: #3B82F6;
+            --primary-dark: #1D4ED8;
+            --accent: #F0F7FF; /* Very light blue tint */
+            --text: #0F172A;
+            --text-muted: #64748B;
+            --bg: #FFFFFF;
+            --bg-glass: rgba(255, 255, 255, 0.8);
+            --border: #E2E8F0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* --- Header --- */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 1.5rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-glass);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            z-index: 1000;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: var(--primary);
+            letter-spacing: -0.05em;
+        }
+
+        nav ul {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        nav a {
+            text-decoration: none;
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+
+        nav a:hover {
+            color: var(--primary);
+        }
+
+        .cta-btn {
+            background: var(--primary);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .cta-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
+        }
+
+        /* --- Hero Section (Stripe/Vercel Inspired) --- */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 2rem;
+            position: relative;
+            overflow: hidden;
+            background: 
+                radial-gradient(circle at 50% 0%, rgba(236, 252, 255, 0.8) 0%, transparent 60%),
+                radial-gradient(circle at 80% 80%, rgba(219, 234, 254, 0.4) 0%, transparent 40%);
+        }
+
+        .hero-badge {
+            background: var(--accent);
+            color: var(--primary);
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 1px solid rgba(37, 99, 235, 0.2);
+            margin-bottom: 2rem;
+            display: inline-block;
+        }
+
+        h1 {
+            font-size: 4.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.04em;
+            margin-bottom: 1.5rem;
+            max-width: 800px;
+            background: linear-gradient(145deg, var(--text), var(--primary-dark));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin-bottom: 3rem;
+            font-weight: 400;
+        }
+
+        /* Geometric Abstract Background Element */
+        .abstract-shape {
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(96, 165, 250, 0.05));
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: -1;
+            top: -10%;
+            left: -10%;
+        }
+
+        /* --- Features Section --- */
+        .section-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 6rem 2rem;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.5rem;
+            transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary-light);
+        }
+
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--accent);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+            font-size: 1.5rem;
+        }
+
+        .card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        /* --- Grid Lines (Modern Touch) --- */
+        .grid-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 80px 80px;
+            opacity: 0.3;
+            z-index: -1;
+            mask-image: radial-gradient(circle, black 30%, transparent 80%);
+            -webkit-mask-image: radial-gradient(circle, black 30%, transparent 80%);
+        }
+
+        /* --- Code Block Preview (Vercel Style) --- */
+        .code-preview {
+            background: var(--text);
+            color: #E2E8F0;
+            padding: 2rem;
+            border-radius: 12px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #334155;
+            margin-top: 4rem;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: left;
+        }
+
+        .code-header {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #334155;
+        }
+
+        .dot { width: 12px; height: 12px; border-radius: 50%; background: #475569; }
+        .dot:nth-child(1) { background: #EF4444; }
+        .dot:nth-child(2) { background: #F59E0B; }
+        .dot:nth-child(3) { background: #10B981; }
+
+        .syntax-keyword { color: #818CF8; }
+        .syntax-string { color: #34D399; }
+        .syntax-comment { color: #64748B; }
+
+        /* --- Footer --- */
+        footer {
+            text-align: center;
+            padding: 4rem 2rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2.5rem; }
+            .grid-layout { grid-template-columns: 1fr; }
+            nav { display: none; } /* Simplified for demo */
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">Design<span style="color: var(--text)">25</span></div>
+        <nav>
+            <ul>
+                <li><a href="#">Product</a></li>
+                <li><a href="#">Solutions</a></li>
+                <li><a href="#">Developers</a></li>
+                <li><a href="#">Pricing</a></li>
+            </ul>
+        </nav>
+        <a href="#" class="cta-btn">Start Building</a>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="grid-bg"></div>
+            <div class="abstract-shape"></div>
+            
+            <div class="hero-badge">v2.0 is now available &rarr;</div>
+            
+            <h1>Build faster.<br>Scale instantly.</h1>
+            
+            <p class="subtitle">
+                The modern infrastructure for enterprise-grade applications. 
+                Deploys in seconds, scales to millions, with zero configuration overhead.
+            </p>
+            
+            <div style="display: flex; gap: 1rem;">
+                <a href="#" class="cta-btn">Get Started Free</a>
+                <a href="#" style="
+                    background: transparent;
+                    border: 1px solid var(--border);
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 9999px;
+                    color: var(--text);
+                    font-weight: 600;
+                    text-decoration: none;
+                    transition: background 0.2s;
+                ">Documentation</a>
+            </div>
+
+            <!-- Fake Code Snippet -->
+            <div class="code-preview">
+                <div class="code-header">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+                <span class="syntax-comment">// Initialize your project</span><br>
+                <span class="syntax-keyword">const</span> app = <span class="syntax-keyword">new</span> <span class="syntax-string">Design25</span>({<br>
+                &nbsp;&nbsp;region: <span class="syntax-string">"global"</span>,<br>
+                &nbsp;&nbsp;scaling: <span class="syntax-string">"auto"</span><br>
+                });<br><br>
+                <span class="syntax-keyword">await</span> app.<span class="syntax-string">deploy</span>();
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="section-container">
+            <div style="text-align: center; margin-bottom: 4rem;">
+                <h2>Everything you need</h2>
+                <p style="color: var(--text-muted); max-width: 600px; margin: 1rem auto;">
+                    Built by engineers, for engineers. We handle the hard parts so you can focus on shipping code.
+                </p>
+            </div>
+
+            <div class="grid-layout">
+                <div class="card">
+                    <div class="card-icon">&lt;/&gt;</div>
+                    <h3>Edge Functions</h3>
+                    <p>Deploy serverless functions to the edge with zero cold starts. Run code closer to your users.</p>
+                </div>
+                
+                <div class="card">
+                    <div class="card-icon">⚡</div>
+                    <h3>Instant Deploys</h3>
+                    <p>Push to main and we handle the rest. Git-integrated workflows with automatic preview environments.</p>
+                </div>
+                
+                <div class="card">
+                    <div class="card-icon">🛡️</div>
+                    <h3>Enterprise Security</h3>
+                    <p>SOC2 compliant, DDoS protection included by default, and automatic SSL certificate management.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Project Design 25. All rights reserved.</p>
+    </footer>
+
+</body>
+</html>
