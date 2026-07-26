@@ -49,6 +49,10 @@ var ErrBrowserNotInstalled = errors.New("browser: Playwright browser binary not 
 // isolation. Each "task" can optionally get a fresh BrowserContext,
 // resetting cookies, localStorage, and navigation history while
 // optionally preserving login state via storageState.
+//
+// Work 5 Phase 2: The Manager now supports a real-Chrome CDP mode.
+// When realChrome is true, ensureLaunched connects to the user's own
+// Chrome via ConnectOverCDP instead of launching a private Chromium.
 type Manager struct {
 	mu sync.Mutex
 
@@ -57,12 +61,19 @@ type Manager struct {
 	context playwright.BrowserContext
 	page    playwright.Page
 
-	// headless controls whether Chromium runs with a visible UI. We always
-	// default to true — Triad is a CLI tool, there's no display server in
-	// the test environment, and a headed Chromium would just hang waiting
-	// for someone to close a window that never opens. We expose the flag
-	// anyway because some future debug-only mode might want headed.
+	// headless controls whether Chromium runs with a visible UI.
 	headless bool
+
+	// realChrome, when true, makes ensureLaunched use ConnectOverCDP
+	// to attach to the user's real Chrome instead of launching Playwright's
+	// own Chromium. cdpPort is the port Chrome is listening on.
+	realChrome bool
+	cdpPort    int
+
+	// chromeCmd is the *exec.Cmd for a Chrome process we launched ourselves
+	// (via LaunchRealChrome). Nil if we connected to an already-running
+	// Chrome. Used by Close() to decide whether to kill the process.
+	chromeCmd interface{ Wait() error }
 
 	// launched is true once Manager has successfully launched a browser
 	// process. We don't track "current URL" here because playwright.Page
@@ -70,23 +81,26 @@ type Manager struct {
 	launched bool
 
 	// closed is set by Close() so we can fail fast on later calls without
-	// trying to talk to a torn-down browser. We don't enforce close-on-
-	// exit because the process tear-down at the OS level cleans up the
-	// Chromium process too; Close() is here for tests and graceful
-	// shutdown paths.
+	// trying to talk to a torn-down browser.
 	closed bool
 
 	// savedStorage holds the serialized storageState (cookies + localStorage)
-	// from a previous SaveStorageState call. When non-nil, the next
-	// ResetContext call will load this state into the new context, preserving
-	// login sessions across task boundaries.
+	// from a previous SaveStorageState call.
 	savedStorage *playwright.OptionalStorageState
 }
 
-// NewManager returns a Manager that has not yet launched a browser process.
+// NewManager returns a Manager configured for headless Playwright Chromium.
 // The first call to a tool method will trigger the launch.
 func NewManager() *Manager {
 	return &Manager{headless: true}
+}
+
+// NewRealChromeManager returns a Manager that will connect to the user's real
+// Chrome browser via CDP on the given port. Call this instead of NewManager
+// when you want Triad to control visible Chrome with the user's real logins.
+// Pass CDPDefaultPort (9222) as the port unless you have a reason to differ.
+func NewRealChromeManager(cdpPort int) *Manager {
+	return &Manager{realChrome: true, cdpPort: cdpPort}
 }
 
 // Close tears down the browser process. Safe to call multiple times.
@@ -126,15 +140,23 @@ func (m *Manager) Close() error {
 		}
 		m.pw = nil
 	}
+	// Only kill Chrome if we launched it ourselves. If the user had Chrome
+	// open already (IsCDPRunning returned true before we launched), chromeCmd
+	// is nil and we leave their browser alone.
+	if m.chromeCmd != nil {
+		// We don't care about the exit error — the process may already be gone.
+		_ = m.chromeCmd.Wait()
+		m.chromeCmd = nil
+	}
 	return firstErr
 }
 
 // ensureLaunched starts the browser on first use. Idempotent — subsequent
 // calls just return nil. The mutex is held by the caller.
 //
-// The error returned here is the single source of truth for "is the browser
-// installed?" — every tool method funnels through here, so the not-installed
-// detection logic only has to live in one place.
+// Two launch paths:
+//   - Default (headless=true): launch Playwright's own Chromium.
+//   - Real Chrome (realChrome=true): attach to the user's Chrome via CDP.
 func (m *Manager) ensureLaunched() error {
 	if m.closed {
 		return fmt.Errorf("browser: manager is closed")
@@ -143,10 +165,14 @@ func (m *Manager) ensureLaunched() error {
 		return nil
 	}
 
-	// First-time launch path. We deliberately use a short timeout for the
-	// launch itself — if Chromium isn't installed, the executable lookup
-	// fails almost immediately, and we don't want a 30s default timeout
-	// to mask that as a generic hang.
+	if m.realChrome {
+		return m.ensureLaunchedCDP()
+	}
+	return m.ensureLaunchedHeadless()
+}
+
+// ensureLaunchedHeadless is the original path: launch Playwright's own Chromium.
+func (m *Manager) ensureLaunchedHeadless() error {
 	pw, err := playwright.Run()
 	if err != nil {
 		return wrapLaunchError(err)
@@ -156,12 +182,10 @@ func (m *Manager) ensureLaunched() error {
 		Headless: &m.headless,
 	})
 	if err != nil {
-		// Tear down pw immediately — leaving it running is a leak.
 		_ = pw.Stop()
 		return wrapLaunchError(err)
 	}
 
-	// Create initial context and page.
 	context, err := browser.NewContext()
 	if err != nil {
 		_ = browser.Close()
@@ -175,6 +199,79 @@ func (m *Manager) ensureLaunched() error {
 		_ = browser.Close()
 		_ = pw.Stop()
 		return fmt.Errorf("browser: failed to open new page after launch: %w", err)
+	}
+
+	m.pw = pw
+	m.browser = browser
+	m.context = context
+	m.page = page
+	m.launched = true
+	return nil
+}
+
+// ensureLaunchedCDP is the real-Chrome path:
+//  1. If Chrome is already listening on cdpPort, connect to it directly.
+//  2. Otherwise, launch Chrome ourselves with --remote-debugging-port,
+//     wait for the CDP endpoint, then connect.
+func (m *Manager) ensureLaunchedCDP() error {
+	pw, err := playwright.Run()
+	if err != nil {
+		return fmt.Errorf("browser: failed to start Playwright runtime: %w", err)
+	}
+
+	// If Chrome isn't already running with CDP, launch it.
+	if !IsCDPRunning(m.cdpPort) {
+		// Kill any existing Chrome processes so the profile isn't locked
+		// and Chrome doesn't show the profile picker or delegate to itself.
+		KillExistingChrome()
+
+		cmd, err := LaunchRealChrome(m.cdpPort)
+		if err != nil {
+			_ = pw.Stop()
+			return fmt.Errorf("browser: %w", err)
+		}
+		m.chromeCmd = cmd
+
+		// Wait for the debug server to be ready.
+		if err := WaitForCDP(m.cdpPort, CDPReadyTimeout); err != nil {
+			_ = pw.Stop()
+			return fmt.Errorf("browser: %w", err)
+		}
+	}
+
+	endpointURL := fmt.Sprintf("http://localhost:%d", m.cdpPort)
+	browser, err := pw.Chromium.ConnectOverCDP(endpointURL)
+	if err != nil {
+		_ = pw.Stop()
+		return fmt.Errorf("browser: ConnectOverCDP failed: %w", err)
+	}
+
+	// ConnectOverCDP gives us the existing contexts/pages. Reuse the first
+	// available context+page if present, otherwise create fresh ones.
+	var context playwright.BrowserContext
+	var page playwright.Page
+
+	if ctxs := browser.Contexts(); len(ctxs) > 0 {
+		context = ctxs[0]
+		if pages := context.Pages(); len(pages) > 0 {
+			page = pages[0]
+		}
+	}
+	if context == nil {
+		context, err = browser.NewContext()
+		if err != nil {
+			_ = browser.Close()
+			_ = pw.Stop()
+			return fmt.Errorf("browser: failed to create context on real Chrome: %w", err)
+		}
+	}
+	if page == nil {
+		page, err = context.NewPage()
+		if err != nil {
+			_ = browser.Close()
+			_ = pw.Stop()
+			return fmt.Errorf("browser: failed to open page on real Chrome: %w", err)
+		}
 	}
 
 	m.pw = pw

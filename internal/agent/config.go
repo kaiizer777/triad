@@ -35,6 +35,13 @@ type Config struct {
 	// CommandTimeoutSeconds caps run_command execution time (default 30).
 	// Set to 0 or omit in config.yaml to use the default.
 	CommandTimeoutSeconds int    `yaml:"command_timeout_seconds"`
+	// BrowserMode controls which browser Triad uses:
+	//   "headless"    — Playwright's own Chromium, invisible (default)
+	//   "real_chrome" — the user's installed Chrome, visible, with real logins
+	BrowserMode   string `yaml:"browser_mode"`
+	// ChromeCDPPort is the remote debugging port used in real_chrome mode.
+	// Defaults to 9222 if not set.
+	ChromeCDPPort int    `yaml:"chrome_cdp_port"`
 	Coder    AgentConfig
 	Reviewer AgentConfig
 }
@@ -43,6 +50,8 @@ const (
 	DefaultBaseURL            = "https://opencode.ai/zen/v1"
 	DefaultModel              = "mimo-v2.5-free"
 	DefaultCommandTimeoutSecs = 30
+	DefaultBrowserMode        = "headless"
+	DefaultChromeCDPPort      = 9222
 )
 
 // LoadConfig attempts to load configuration from path (e.g., config.yaml).
@@ -81,6 +90,12 @@ func LoadConfig(path string) (*Config, error) {
 		if yamlCfg.CommandTimeoutSeconds > 0 {
 			rawCfg.CommandTimeoutSeconds = yamlCfg.CommandTimeoutSeconds
 		}
+		if yamlCfg.BrowserMode != "" {
+			rawCfg.BrowserMode = yamlCfg.BrowserMode
+		}
+		if yamlCfg.ChromeCDPPort > 0 {
+			rawCfg.ChromeCDPPort = yamlCfg.ChromeCDPPort
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("error reading config file at %s: %w", path, err)
 	}
@@ -94,6 +109,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if rawCfg.CommandTimeoutSeconds <= 0 {
 		rawCfg.CommandTimeoutSeconds = DefaultCommandTimeoutSecs
+	}
+	if rawCfg.BrowserMode == "" {
+		rawCfg.BrowserMode = DefaultBrowserMode
+	}
+	if rawCfg.ChromeCDPPort <= 0 {
+		rawCfg.ChromeCDPPort = DefaultChromeCDPPort
 	}
 
 	rawCfg.Coder = AgentConfig{

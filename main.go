@@ -25,6 +25,7 @@ func main() {
 	// --- Parse CLI flags ---
 	sessionFlag := flag.String("session", "", "Path to a specific session file (.jsonl) to load/resume")
 	resumeFlag := flag.Bool("resume", false, "Resume the most recent session from the sessions directory")
+	browserFlag := flag.String("browser", "", `Browser mode override: "real" uses your installed Chrome with visible window and real logins (equivalent to browser_mode: real_chrome in config.yaml)`)
 	flag.Parse()
 
 	// --- Initialise file-based debug logger ---
@@ -163,24 +164,33 @@ func main() {
 	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
 	model.SetSearchAPIKey(cfg.SearchAPIKey)
 
-	// --- Browser manager (docs/work2.md §4.2) ---
-	// The TUI owns the long-lived Playwright process. Browser launch
-	// is lazy — the first browser_navigate call will trigger it —
-	// so creating the manager here is cheap and never fails. If
-	// the Chromium binary isn't installed, that surfaces as a clear
-	// error on the first browser_* tool call rather than crashing
-	// at startup.
-	//
-	// We also do a one-line startup probe (rough edge #8 in the
-	// final project summary) so the user gets a friendly notice
-	// at session start, not on their first browser_navigate call.
-	// The probe is a best-effort filesystem check; it does not
-	// launch Chromium and adds no startup latency.
-	if !browser.IsChromiumInstalled() {
-		fmt.Fprintln(os.Stderr,
-			"Browser tools enabled, but Chromium isn't installed — run `playwright install chromium` to use browser_* tools.")
+	// --- Browser manager ---
+	// Mode selection priority: --browser flag > config browser_mode > default (headless).
+	// "real" / "real_chrome" → connect to the user's actual Chrome via CDP.
+	// Anything else          → launch Playwright's own hidden Chromium.
+	useRealChrome := cfg.BrowserMode == "real_chrome"
+	if *browserFlag == "real" || *browserFlag == "real_chrome" {
+		useRealChrome = true
 	}
-	browserMgr := browser.NewManager()
+
+	var browserMgr *browser.Manager
+	if useRealChrome {
+		if !browser.IsRealChromeAvailable() {
+			fmt.Fprintln(os.Stderr,
+				"Browser mode: real_chrome requested but Chrome not found. "+
+					"Set CHROME_PATH or install Chrome, then retry.")
+			os.Exit(1)
+		}
+		port := cfg.ChromeCDPPort
+		fmt.Fprintf(os.Stderr, "Browser: real Chrome (CDP on port %d) — your Chrome window will open.\n", port)
+		browserMgr = browser.NewRealChromeManager(port)
+	} else {
+		if !browser.IsChromiumInstalled() {
+			fmt.Fprintln(os.Stderr,
+				"Browser tools enabled, but Chromium isn't installed — run `playwright install chromium` to use browser_* tools.")
+		}
+		browserMgr = browser.NewManager()
+	}
 	model.SetBrowser(browserMgr)
 	defer func() {
 		if err := browserMgr.Close(); err != nil {
