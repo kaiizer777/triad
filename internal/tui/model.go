@@ -109,6 +109,8 @@ type Styles struct {
 	AutocompleteItem    lipgloss.Style
 	AutocompleteDesc    lipgloss.Style
 	AutocompleteBadge   lipgloss.Style
+
+	RootCanvas lipgloss.Style
 }
 
 // DefaultStyles returns an ultra-premium obsidian dark palette with glowing accents,
@@ -119,41 +121,45 @@ func DefaultStyles() Styles {
 		obsidianAlt = lipgloss.Color("#0D1526")
 		surface     = lipgloss.Color("#111827")
 		surfaceHigh = lipgloss.Color("#172032")
-		border      = lipgloss.Color("#1E2D45")
-		borderSoft  = lipgloss.Color("#253348")
-		muted       = lipgloss.Color("#4B5E78")
-		mutedSoft   = lipgloss.Color("#5A7090")
-		textPrimary = lipgloss.Color("#E8EDF5")
-		textDim     = lipgloss.Color("#8899B4")
+		border      = lipgloss.Color("#2E4A6B")
+		borderSoft  = lipgloss.Color("#3A5878")
+		borderVivid = lipgloss.Color("#4B6FA0")  // extra-vivid for section dividers
+		muted       = lipgloss.Color("#6478A0")
+		mutedSoft   = lipgloss.Color("#7B90B8")
+		textPrimary = lipgloss.Color("#F0F4FC")  // near-white for max contrast
+		textDim     = lipgloss.Color("#A8BAD4")
 
-		violetMd = lipgloss.Color("#8B5CF6")
-		violetLt = lipgloss.Color("#A78BFA")
+		violetMd = lipgloss.Color("#9B6DF6")
+		violetLt = lipgloss.Color("#C4A8FF")  // brighter violet
 		violetBg = lipgloss.Color("#1A0A3A")
 
-		cyan   = lipgloss.Color("#0891B2")
-		cyanLt = lipgloss.Color("#67E8F9")
+		cyan   = lipgloss.Color("#0EA5C9")
+		cyanLt = lipgloss.Color("#7EEEFF")  // extra bright cyan
 
-		emerald   = lipgloss.Color("#059669")
-		emeraldLt = lipgloss.Color("#6EE7B7")
+		emerald   = lipgloss.Color("#10B981")
+		emeraldLt = lipgloss.Color("#86EFBA")  // vivid emerald
 		emeraldBg = lipgloss.Color("#022C22")
 
-		amber   = lipgloss.Color("#D97706")
-		amberLt = lipgloss.Color("#FCD34D")
+		amber   = lipgloss.Color("#F59E0B")
+		amberLt = lipgloss.Color("#FFE066")  // bright amber
 		amberBg = lipgloss.Color("#261A08")
 
-		blue   = lipgloss.Color("#2563EB")
-		blueMd = lipgloss.Color("#3B82F6")
-		blueLt = lipgloss.Color("#93C5FD")
+		blue   = lipgloss.Color("#3B6EEA")
+		blueMd = lipgloss.Color("#5B9BF8")
+		blueLt = lipgloss.Color("#B0D0FF")  // very bright blue
 		blueBg = lipgloss.Color("#0A1628")
 
-		red   = lipgloss.Color("#BE123C")
-		redLt = lipgloss.Color("#FDA4AF")
+		red   = lipgloss.Color("#E11D48")
+		redLt = lipgloss.Color("#FFA8B8")
 		redBg = lipgloss.Color("#2D0A14")
 
-		pink = lipgloss.Color("#EC4899")
+		pink = lipgloss.Color("#F472B6")
 	)
 
 	return Styles{
+		RootCanvas: lipgloss.NewStyle().
+			Background(obsidian),
+
 		// ── Header Strip ──────────────────────────────────────────────
 		TitleBrand: lipgloss.NewStyle().
 			Bold(true).
@@ -169,7 +175,6 @@ func DefaultStyles() Styles {
 
 		TitleCenter: lipgloss.NewStyle().
 			Foreground(textDim).
-			Background(obsidianAlt).
 			Padding(0, 1),
 
 		TitleKeycapKey: lipgloss.NewStyle().
@@ -180,31 +185,31 @@ func DefaultStyles() Styles {
 
 		TitleKeycapLabel: lipgloss.NewStyle().
 			Foreground(mutedSoft).
-			Background(obsidianAlt).
 			Padding(0, 1),
 
 		// ── Sidebar Panel ─────────────────────────────────────────────
 		SidebarContainer: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(border).
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(borderVivid).
 			Background(obsidian).
 			Padding(0, 1),
 
 		SidebarHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(violetLt),
+			Foreground(cyanLt),
 
 		SidebarSubHeader: lipgloss.NewStyle().
-			Foreground(muted),
+			Foreground(mutedSoft),
 
 		SidebarRule: lipgloss.NewStyle().
-			Foreground(border),
+			Foreground(borderVivid),
 
 		SidebarLabel: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(textDim),
+			Foreground(blueLt),
 
 		SidebarValue: lipgloss.NewStyle().
+			Bold(true).
 			Foreground(textPrimary),
 
 		SidebarBadgeIdle: lipgloss.NewStyle().
@@ -229,7 +234,7 @@ func DefaultStyles() Styles {
 			Foreground(emeraldLt),
 
 		SidebarMeterEmpty: lipgloss.NewStyle().
-			Foreground(border),
+			Foreground(borderSoft),
 
 		// ── Speaker Name Pills ────────────────────────────────────────
 		YouPill: lipgloss.NewStyle().
@@ -311,7 +316,7 @@ func DefaultStyles() Styles {
 			Padding(0, 2),
 
 		EntryDivider: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#1A2535")),
+			Foreground(borderVivid),
 
 		// ── Markdown Formatting ───────────────────────────────────────
 		MdBold: lipgloss.NewStyle().
@@ -325,7 +330,7 @@ func DefaultStyles() Styles {
 
 		MdCodeBlock: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderSoft).
+			BorderForeground(border).
 			Background(obsidianAlt).
 			Padding(0, 1),
 
@@ -381,8 +386,8 @@ func DefaultStyles() Styles {
 
 		// ── Right Panel & Viewport ────────────────────────────────────
 		RightCardContainer: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(border).
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(borderVivid).
 			Background(obsidian),
 
 		ViewportContainer: lipgloss.NewStyle().
@@ -413,13 +418,13 @@ func DefaultStyles() Styles {
 		// ── Welcome Screen ────────────────────────────────────────────
 		WelcomeTitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(violetLt),
+			Foreground(cyanLt),
 
 		WelcomeSub: lipgloss.NewStyle().
-			Foreground(textDim),
+			Foreground(textPrimary),
 
 		WelcomeTip: lipgloss.NewStyle().
-			Foreground(mutedSoft).
+			Foreground(textDim).
 			Italic(true),
 
 		// ── Autocomplete Overlay ──────────────────────────────────────

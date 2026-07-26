@@ -814,13 +814,16 @@ func (m Model) renderWelcomeScreen() string {
 		vw = 10
 	}
 
+	divLine := m.styles.SidebarRule.Render(strings.Repeat("━", max(10, vw-2)))
+
 	// ── Hero banner ──────────────────────────────────────────────
 	sb.WriteString("\n")
-	sb.WriteString(m.styles.WelcomeTitle.Render("  ◈  TRIAD STUDIO"))
-	sb.WriteString("  ")
+	sb.WriteString(divLine)
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.WelcomeTitle.Render("  ◈  TRIAD STUDIO  "))
 	sb.WriteString(m.styles.WelcomeSub.Render("Dual-Agent Coding Engine"))
 	sb.WriteString("\n")
-	sb.WriteString(m.styles.SidebarRule.Render("  " + strings.Repeat("─", max(10, vw-4))))
+	sb.WriteString(divLine)
 	sb.WriteString("\n\n")
 
 	// ── Agent descriptions ────────────────────────────────────────
@@ -842,19 +845,21 @@ func (m Model) renderWelcomeScreen() string {
 	sb.WriteString(m.styles.SidebarRule.Render("  " + strings.Repeat("─", max(10, vw-4))))
 	sb.WriteString("\n")
 
-	caps := []string{
-		"Write, edit & refactor code across your entire codebase",
-		"Run shell commands, builds, and test suites",
-		"Debug, trace errors, and propose targeted fixes",
-		"Plan multi-step features with Reviewer safety gates",
+	caps := []struct{ icon, text string }{
+		{"◆", "Write, edit & refactor code across your entire codebase"},
+		{"◆", "Run shell commands, builds, and test suites"},
+		{"◆", "Debug, trace errors, and propose targeted fixes"},
+		{"◆", "Plan multi-step features with Reviewer safety gates"},
 	}
 	for _, c := range caps {
 		sb.WriteString("  ")
-		sb.WriteString(m.styles.MdBullet.Render(" ▸ "))
-		sb.WriteString(m.styles.WelcomeSub.Render(c))
+		sb.WriteString(m.styles.MdBullet.Render(" " + c.icon + " "))
+		sb.WriteString(m.styles.WelcomeSub.Render(c.text))
 		sb.WriteString("\n")
 	}
 
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.SidebarRule.Render("  " + strings.Repeat("─", max(10, vw-4))))
 	sb.WriteString("\n")
 	sb.WriteString("  ")
 	sb.WriteString(m.styles.TitleKeycapKey.Render(" TIP "))
