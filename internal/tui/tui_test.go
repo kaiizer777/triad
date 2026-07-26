@@ -46,6 +46,32 @@ func (m *mockClient) Respond(ctx context.Context, cfg agent.AgentConfig, entries
 	return agent.AgentResponse{Text: "APPROVED: default mock approval"}, nil
 }
 
+// ListModels implements loop.AgentClient for the test mock. Returns
+// a small canned list so /models tests have something to render.
+func (m *mockClient) ListModels(ctx context.Context, cfg agent.AgentConfig) ([]agent.ModelInfo, error) {
+	return []agent.ModelInfo{
+		{ID: "mimo-v2.5-free", OwnedBy: "opencode_zen"},
+		{ID: "mimo-v2.5-pro", OwnedBy: "opencode_zen"},
+	}, nil
+}
+
+// ListAllModels implements loop.AgentClient. Returns the same
+// canned list wrapped as AnnotatedModels so /models tests work
+// without a real HTTP server.
+func (m *mockClient) ListAllModels(ctx context.Context, cfg *agent.Config) ([]agent.AnnotatedModel, []agent.ModelError) {
+	if cfg == nil || len(cfg.Providers) == 0 {
+		return nil, nil
+	}
+	var out []agent.AnnotatedModel
+	for name := range cfg.Providers {
+		out = append(out,
+			agent.AnnotatedModel{Provider: name, Info: agent.ModelInfo{ID: "mimo-v2.5-free", OwnedBy: name}},
+			agent.AnnotatedModel{Provider: name, Info: agent.ModelInfo{ID: "mimo-v2.5-pro", OwnedBy: name}},
+		)
+	}
+	return out, nil
+}
+
 func setupTestModel(t *testing.T, client loop.AgentClient) (Model, func()) {
 	// Default test setup uses loadTestRegistry so system
 	// commands like /help, /status, /skill are registered
@@ -64,7 +90,7 @@ func setupTestModelWithRegistry(t *testing.T, client loop.AgentClient, reg *comm
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg, "", nil)
 	// Simulate WindowSizeMsg to initialize viewport
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
@@ -1139,7 +1165,7 @@ func makeRepoModelForUndo(t *testing.T) (Model, string) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 	reg := loadTestRegistry(t)
-	model := NewModel(tr, coder, reviewer, client, dir, 0, reg)
+	model := NewModel(tr, coder, reviewer, client, dir, 0, reg, "", nil)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updated.(Model)
 	return model, dir
@@ -1154,7 +1180,7 @@ func TestTUI_Undo_NothingToUndo(t *testing.T) {
 	tr := transcript.NewTranscript(filepath.Join(dir, "test_session.jsonl"))
 	model := NewModel(tr, agent.AgentConfig{Name: "Coder", HasTools: true},
 		agent.AgentConfig{Name: "Reviewer", HasTools: false},
-		client, dir, 0, loadTestRegistry(t))
+		client, dir, 0, loadTestRegistry(t), "", nil)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updated.(Model)
 

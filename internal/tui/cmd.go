@@ -13,15 +13,60 @@ import (
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/browser"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
-// cmdCoderTurn invokes the Coder agent asynchronously.
-func cmdCoderTurn(tr *transcript.Transcript, coder agent.AgentConfig, client loop.AgentClient) tea.Cmd {
+// cmdCoderTurn invokes the Coder agent asynchronously with the
+// Stage-1 / Stage-2 skills funnel applied. The funnel wrapper:
+//   1. Builds a per-turn Coder config with Stage 1 (bare section
+//      labels) + Stage 2 (Mini bodies for already-loaded sections)
+//      appended to the system prompt.
+//   2. Calls the model with the modified config.
+//   3. If Coder returned plain text, parses out the
+//      SELECTED_SECTIONS line, applies the selection to the loaded
+//      set, and returns the cleaned text. Tool-call responses pass
+//      through unchanged.
+//
+// Pass `reg == nil` (or an empty registry) to disable the funnel —
+// the call becomes a plain Coder turn identical to the pre-Phase-2
+// behavior. The TUI's NewModel pre-allocates an empty
+// `skills.NewLoadedSet()` so `loaded` is always non-nil at the
+// call sites; the loop, which has its own loaded set, threads a
+// separate one in when it constructs Coder turns.
+//
+// `recentTask` is the most recent You message — included in the
+// [Skills] system entry ApplySelection writes so the
+// observability layer can correlate skill choices with the task
+// that triggered them. Pass "" if no human message exists yet
+// (e.g. crash-resume before any You entry).
+func cmdCoderTurn(
+	tr *transcript.Transcript,
+	coder agent.AgentConfig,
+	client loop.AgentClient,
+	reg *skills.Registry,
+	loaded *skills.LoadedSet,
+	recentTask string,
+) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
+		coder.SystemPrompt = coder.SystemPrompt + skills.BuildCoderSystemPromptExtension(reg, loaded)
 		resp, err := client.Respond(ctx, coder, tr.Entries())
+		if err != nil {
+			return agentResponseMsg{
+				speaker: transcript.SpeakerCoder,
+				resp:    resp,
+				err:     err,
+			}
+		}
+		// Post-call: parse a selection out of any plain-text
+		// response. Tool-call responses have no plain text to
+		// scan, so the parse is a no-op in that case.
+		if len(resp.ToolCalls) == 0 {
+			cleaned, _ := skills.ParseAndApply(resp.Text, reg, loaded, tr, recentTask)
+			resp.Text = cleaned
+		}
 		return agentResponseMsg{
 			speaker: transcript.SpeakerCoder,
 			resp:    resp,
@@ -111,7 +156,11 @@ func cmdExecuteWebSearch(apiKey string, toolCall agent.ToolCall) tea.Cmd {
 // sessionFilePath is the parent session's JSONL file path; the
 // subagent's own transcript lands next to it under <dir>/subagents/.
 // coder is the parent Coder config — the subagent inherits BaseURL /
-// APIKey / Model from it. client is the shared agent client. The
+// APIKey / Model from it. client is the shared agent client.
+// skillsReg is the parent session's skills registry — propagated
+// to the subagent so its Coder turns go through the same Stage-1
+// / Stage-2 funnel as the parent (work.md §3: coding subagents
+// spawned under Orchestrator mode receive skill content). The
 // subagent's own system prompt, tool set, and depth guard all live in
 // the subagent package.
 func cmdSpawnSubagent(
@@ -120,6 +169,7 @@ func cmdSpawnSubagent(
 	client loop.AgentClient,
 	commandTimeout time.Duration,
 	toolCall agent.ToolCall,
+	skillsReg *skills.Registry,
 ) tea.Cmd {
 	return func() tea.Msg {
 		var args agent.SpawnSubagentArgs
@@ -159,6 +209,13 @@ func cmdSpawnSubagent(
 				err:      err,
 			}
 		}
+		// Propagate the parent session's skills registry so the
+		// subagent's Coder turns go through the same Stage-1 /
+		// Stage-2 funnel. The subagent gets a per-run loaded set
+		// (independent of the parent's), so a subagent's first
+		// selection of any section fires Main regardless of
+		// whether the parent already loaded it.
+		runner.SetSkillsRegistry(skillsReg)
 
 		id := subagent.NewID()
 		res, runErr := runner.Run(context.Background(), id, args.Task, args.Context, coder)

@@ -216,9 +216,9 @@ func cleanChromeLockFiles() {
 const CDPDefaultPort = 9222
 
 // CDPReadyTimeout is how long we wait for Chrome's debug server to start
-// accepting connections before giving up. 15s to handle cold starts with
-// real user profiles (first-launch Chrome with a real profile takes longer).
-const CDPReadyTimeout = 15 * time.Second
+// accepting connections before giving up. 30s to handle cold starts and
+// profile-unlock delays after a KillExistingChrome().
+const CDPReadyTimeout = 30 * time.Second
 
 // LaunchRealChrome starts the user's real Chrome with remote-debugging enabled
 // on the given port. It returns the running *exec.Cmd so the caller can kill
@@ -241,19 +241,29 @@ func LaunchRealChrome(port int) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("LaunchRealChrome: %w", err)
 	}
 
-	userDataDir := chromeUserDataDir()
+	// Use a Triad-specific user data dir rather than the real Chrome profile.
+	// This is the critical fix for the profile-lock / delegation problem:
+	// when Chrome is already running (or auto-restarts from the tray after
+	// KillExistingChrome), it holds a lock on the real profile. A second
+	// Chrome instance pointing at the same dir silently delegates to the
+	// running instance and exits immediately — without opening a CDP port.
+	// A separate dir avoids the lock entirely. The dir is persistent (not
+	// a temp dir) so cookies/logins survive across Triad restarts.
+	userDataDir := triadChromeDataDir()
 
 	args := []string{
 		fmt.Sprintf("--remote-debugging-port=%d", port),
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--profile-directory=Default",
-		"--disable-features=ProfilePicker",
-		// Suppress crash-recovery UI after a force-kill, so Chrome starts
-		// the CDP server immediately rather than waiting for user interaction.
+		"--disable-features=ProfilePicker,TranslateUI",
+		// Suppress crash-recovery / session-restore UI after a force-kill.
+		// Chrome must open the CDP port immediately, not wait for user input.
 		"--disable-session-crashed-bubble",
 		"--disable-infobars",
-		"--no-restore-state",
+		"--restore-last-session=false",
+		// Prevent Chrome from showing the "welcome" interstitial.
+		"--suppress-message-center-popups",
 	}
 	if userDataDir != "" {
 		args = append(args, fmt.Sprintf("--user-data-dir=%s", userDataDir))
@@ -265,6 +275,31 @@ func LaunchRealChrome(port int) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("LaunchRealChrome: failed to start Chrome process: %w", err)
 	}
 	return cmd, nil
+}
+
+// triadChromeDataDir returns a persistent, Triad-owned Chrome user data
+// directory. Using a dedicated dir (rather than the real Chrome profile)
+// prevents Chrome from delegating a new CDP-flagged launch to an already-
+// running instance that holds a lock on the real profile.
+//
+// The directory is persistent across runs so that logins (cookies, localStorage)
+// survive Triad restarts — the user only needs to log in once.
+func triadChromeDataDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			return filepath.Join(local, "Triad", "ChromeProfile")
+		}
+	case "darwin":
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "Library", "Application Support", "Triad", "ChromeProfile")
+		}
+	default: // Linux
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, ".local", "share", "triad", "chrome-profile")
+		}
+	}
+	return ""
 }
 
 // LaunchRealChromeWithDataDir is like LaunchRealChrome but uses an explicit

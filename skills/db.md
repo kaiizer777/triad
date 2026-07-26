@@ -1,0 +1,513 @@
+---
+name: db
+section: db
+description: "Triad's persistence layer — append-only JSONL session logs in internal/loop/sessions/, the per-session trace log (internal/loop/sessions/traces/), git as a content-addressed history, and (when added) any future relational/SQL store. Pick this for any task touching internal/transcript/*, internal/loop/sessions/*, internal/tracelog/*, internal/gitcommit/*, or a real DB driver if Triad grows one."
+tier: main
+mini_ref: db-mini.md
+token_budget_main: 5500
+token_budget_mini: 2500
+---
+
+# Triad DB (Persistence) — Main Skill
+
+Triad has **no SQL database**. The "db" section here covers the
+persistence layer Triad actually has, plus a template for what a real
+DB skill would look like the day Triad grows one. Treat this as two
+mini-skills in one:
+
+1. **JSONL sessions + git history** — the persistence Triad has today.
+2. **Generic DB conventions** — the conventions you'd apply if/when
+   a SQL or key-value store shows up.
+
+If the task is purely "how do I read a session file" or "the trace log
+is missing a row", part 1 is what you need. If the task is "we're
+adding Postgres for X", part 2 is the template; fill it in with the
+specific store.
+
+## Part 1 — JSONL sessions and the per-session trace log
+
+### What's persisted, and where
+
+- **Session transcript** —
+  `internal/loop/sessions/<session-id>.jsonl`. One JSON object per
+  line, shape defined by `internal/transcript.Entry`:
+  ```go
+  type Entry struct {
+      ID        int
+      Speaker   string // "You" | "Coder" | "Reviewer" | "System"
+      Type      string // "message" | "proposed_action" | "action_result"
+      Content   string
+      Timestamp time.Time
+  }
+  ```
+  Append-only. Never rewritten. If a line is "wrong", append a
+  correction entry that references the prior ID — do not edit
+  history.
+
+- **Per-session trace log** —
+  `internal/loop/sessions/traces/<session-id>.jsonl`. Structured
+  EventType-keyed events for `/trace` and any structured-log
+  consumer. EventType is a string enum in `internal/tracelog/`. New
+  event types: add the constant in `tracelog`, never write to the
+  trace JSONL directly.
+
+- **Git history** — every approved Coder action triggers a
+  per-action `git commit` (see `internal/gitcommit/`). This is the
+  durable record of "what changed" — `/undo` reverts a commit,
+  `/summary` reads the local commit log (not the LLM). Don't put
+  transient state in git; it's for code changes only.
+
+### Conventions (apply to anything you write to disk)
+
+1. **Append-only, always.** `transcript.Transcript.Append` and
+   `tracelog.Append` are the only writers. They are deliberately
+   not exposed to do partial overwrites. If a new use case "needs
+   to update a line", the right answer is to append a correcting
+   line, not extend the API.
+2. **One JSON object per line.** Don't pretty-print the JSON
+   (compact `json.Marshal` is the right call — see how
+   `transcript.Transcript` already serializes). Pretty-print
+   makes the file 3-4x larger and breaks per-line parsing.
+3. **Stable field order.** Use `json.Marshal` on the same struct
+   shape; the resulting key order is deterministic per type. Don't
+   construct `map[string]any` for entries — it loses ordering and
+   can produce subtly different files across runs.
+4. **Time is `time.Time` UTC.** Every `Timestamp` field goes out
+   as UTC. Localized timestamps cause cross-machine replay bugs
+   and break `/trace` ordering when the human and the agent
+   process live in different timezones.
+5. **IDs are monotonically increasing per session.** The `Entry`
+   `ID` field is set by `transcript.Transcript` as a per-session
+   counter. Don't set it manually — let the API do it.
+6. **Speaker is one of the four constants.** `SpeakerYou`,
+   `SpeakerCoder`, `SpeakerReviewer`, `SpeakerSystem` in
+   `internal/transcript/entry.go`. Anything else is a typo. New
+   participant type? Add a constant, don't widen the string type.
+7. **Type is `"message"`, `"proposed_action"`, or
+   `"action_result"`.** Same rule. New entry type? Add a constant.
+
+### What the trace log is for
+
+The trace log is **structured observability** — separate from the
+human-readable transcript. Where the transcript is
+"[Coder]: I'm going to write file X", the trace is
+`{event: "tool_proposed", tool: "write_file", args: {...},
+reviewer_verdict: "approved", ts: ...}`.
+
+Use the trace log for:
+
+- Programmatic consumers (the TUI's `/trace` view, future
+  dashboards, automated test fixtures).
+- Anything that needs fields, not prose.
+- Cross-cutting events (skill selection, commit records, trace
+  flush markers, reviewer override events).
+
+Do **not** use the trace log for:
+
+- Human-readable session replay. That's the transcript's job.
+- Things that need to be visible to Coder or Reviewer. Trace
+  events don't flow back into the model — the transcript is
+  the model-facing surface.
+
+### File path conventions
+
+- Session files: `internal/loop/sessions/<session-id>.jsonl`.
+  Session ID is generated by the loop; don't construct one by
+  hand.
+- Trace files: `internal/loop/sessions/traces/<session-id>.jsonl`.
+  Path is derived via `tracelog.TracePathForSession(sessionPath)`.
+- Both are inside `internal/loop/sessions/`, which is in `.gitignore`
+  — these are runtime artifacts, not source.
+
+### Recovery and crash safety
+
+Triad flushes after every append (`O_APPEND` semantics on POSIX,
+`_O_APPEND` on Windows). A crash mid-turn may lose the most
+recent un-flushed entry but won't corrupt the file. The
+replay-on-startup path in `internal/transcript` is robust to
+truncated trailing lines — if a JSON parse fails on the last
+line, it's treated as a partial write and the file is left
+alone. Don't add a "truncate-and-rebuild" recovery path; append
+a `[System]: recovered from partial write at line N` entry
+instead.
+
+## Part 2 — Generic DB conventions (template — apply when a real DB is added)
+
+If/when Triad grows a real database (Postgres, SQLite, key-value
+store, etc.), these are the conventions to follow. The current
+JSONL setup already follows most of them; the new store should
+match.
+
+### Schema design
+
+1. **One append-only event table.** Even for a relational DB,
+   the canonical write is "append a row to the events table"
+   rather than `UPDATE`. Materialized state (the "current view
+   of the world") is built by projecting from the event log
+   when needed. This is CQRS/event-sourcing 101; do it because
+   it matches the rest of the project's persistence model, not
+   because it's clever.
+2. **Timestamps are `timestamptz` (Postgres) or
+   `INTEGER` Unix-epoch seconds (SQLite).** Never `TIMESTAMP
+   WITHOUT TIME ZONE` — that bites you the first time you
+   spin up a replica in another region.
+3. **IDs are UUIDs or ULIDs, not auto-increment integers.**
+   Auto-increment couples the writer's row order to the ID
+   generator, which makes multi-writer scenarios fragile and
+   the trace log harder to cross-reference.
+4. **Foreign keys are advisory.** Use them in dev, but the
+   write path must be tolerant of a missing FK target (e.g.
+   the referenced event hasn't been replayed yet). Don't
+   `INSERT ... REFERENCES` in a transaction that also
+   inserts the parent — that's a chicken-and-egg the
+   append-only model doesn't fit.
+5. **Migrations live in `migrations/`** with a sequential
+   numeric prefix (`0001_init.sql`, `0002_add_skills.sql`,
+   …). Each migration is a single up-file. No "down"
+   migrations — append-only systems don't roll back, they
+   append a corrective migration.
+
+### Connection and pooling
+
+1. **One `*sql.DB` per process, shared across goroutines.**
+   `database/sql` is concurrency-safe; don't open a new
+   connection per call.
+2. **`SetMaxOpenConns(25)`, `SetMaxIdleConns(5)`,
+   `SetConnMaxLifetime(5*time.Minute)`** as a starting
+   point for Postgres. Tune from there with
+   `pg_stat_activity` snapshots, not guesses.
+3. **Every query has a context.** `db.QueryContext(ctx, ...)`,
+   not `db.Query(...)`. The loop's approval step can be
+   cancelled by a human override; the DB call needs to be
+   too, otherwise the next Coder turn waits on a query
+   that nobody wants anymore.
+4. **Time-bounded queries.** `context.WithTimeout(parent,
+   2*time.Second)` for "fast" reads, longer for writes.
+   Triad is interactive — a 30-second query is a UX bug,
+   not a perf optimization opportunity.
+
+### Querying patterns
+
+1. **Always use named parameters** (`sqlx.Named` /
+   `sql.Named`) — never `fmt.Sprintf` a query. String-
+   interpolated SQL is a CVE waiting to happen even
+   for "trusted" inputs.
+2. **`SELECT` only the columns you read.** Don't
+   `SELECT *` in a hot path. The transcript/logs are
+   the wide-row surface; the relational view should
+   be narrow.
+3. **Use `EXPLAIN ANALYZE` before adding a new index.**
+   "I think this query is slow" → run the EXPLAIN,
+   confirm, *then* add the index. Triad's expected
+   session volume is small (one process, one human),
+   so most "I think we need an index" instincts are
+   premature.
+4. **Batch writes when you can.** Single-row
+   `INSERT`s in a loop are a code smell in event-
+   sourced systems. Use a staging table + `COPY`
+   (Postgres) or a multi-row `INSERT` (SQLite) for
+   any backfill.
+
+### Testing
+
+1. **Test against a real DB in CI**, not a mock.
+   SQLite in-memory is fine for most tests. For
+   Postgres-specific behavior, use a containerized
+   test or a `dockertest`-style helper — but never
+   ship a `db *MockDB` interface and call it
+   "tested."
+2. **Each test gets a fresh schema.** Run migrations
+   from scratch in `TestMain`, not against a shared
+   dev DB. Cross-test pollution is the #1 source of
+   flaky CI on a DB-backed project.
+3. **The events table is append-only in tests too.**
+   If a test "needs to update", append a corrective
+   event and read the projected view. This forces
+   the production code to handle the correction
+   case correctly, not the test-only shortcut.
+
+## What this skill does NOT cover
+
+- TUI rendering, keybindings, layout, sidebar — `frontend`
+  skill.
+- Agent loop, approval flow, Reviewer config, subagent
+  mechanics — `backend` skill.
+- The actual content of the JSONL files (transcript
+  message text, action proposals). Read those directly
+  when needed; this skill is about the *format* and
+  *conventions*, not the values.
+
+If the task is "read line 47 of session XYZ", the answer
+is `cat internal/loop/sessions/<id>.jsonl | sed -n '47p'`
+plus `jq` — not a skill lookup. Use this skill when
+*adding* a new persistence path, *changing* the schema,
+or *building* a new consumer (e.g. a `/sessions` command
+that lists past runs).
+
+## Worked example — adding a new EventType to the trace log
+
+Concrete walkthrough so the abstract conventions have a
+shape.
+
+**Task:** "Log every Coder tool call (proposed and
+executed) to the trace log with the tool name, args hash,
+and reviewer verdict, so `/trace` can show a per-tool
+history."
+
+**Step 1 — Add the EventType constant in
+`internal/tracelog/`.** Convention: PascalCase for the
+event, snake_case for the constant.
+
+```go
+const EventToolLifecycle = "tool_lifecycle"
+```
+
+If the event has structured data, define a payload struct
+in the same file:
+
+```go
+type ToolLifecycleData struct {
+    Tool         string `json:"tool"`
+    ArgsHash     string `json:"args_hash"`     // sha256 of canonicalized args
+    Verdict      string `json:"verdict"`        // "proposed" | "approved" | "rejected" | "executed" | "errored"
+    LatencyMS    int64  `json:"latency_ms"`
+    ErrSnippet   string `json:"err_snippet,omitempty"`
+}
+```
+
+Keep the struct small. The trace log is the wide-row
+surface — every byte here multiplies by the number of
+events per session.
+
+**Step 2 — Emit the event at the right point in the
+loop.** The loop has explicit points for "Coder proposed
+tool X", "Reviewer approved/rejected", "Executor
+returned", and "Executor errored". Add a
+`tracelog.Append(tracePath, tracelog.Entry{...})` call
+at each. Don't batch them — per-event is what `/trace`
+relies on for ordering.
+
+**Step 3 — Update `/trace` to render the new event.**
+The renderer is in `commands/trace.md` (slash command)
+plus its handler in `internal/tui/`. The new event
+type adds a renderer case that formats the data
+struct into a one-line display.
+
+**Step 4 — Test.** Pin the exact JSON shape the
+renderer expects via a fixture:
+
+```go
+// in internal/tracelog/tracelog_test.go
+func TestToolLifecycleJSONShape(t *testing.T) {
+    e := tracelog.Entry{
+        Entity:    "loop",
+        EventType: tracelog.EventToolLifecycle,
+        Data: tracelog.ToolLifecycleData{
+            Tool:      "write_file",
+            ArgsHash:  "abc123",
+            Verdict:   "executed",
+            LatencyMS: 42,
+        },
+    }
+    raw, _ := json.Marshal(e)
+    // assert the JSON has the expected keys, types, and
+    // absence of empty fields
+}
+```
+
+**Common mistakes on this exact change:**
+
+- Emitting the event in the wrong order (executor before
+  reviewer approval). The trace is a timeline; wrong
+  order makes it useless for debugging.
+- Including the full tool args in the trace (huge,
+  might contain secrets). Hash + tool name is enough;
+  the full args are in the transcript's
+  `proposed_action` entry.
+- Putting a `*sync.Mutex` around the trace append
+  because you're seeing a race. The trace log is
+  append-only and the append is already atomic; the
+  race is somewhere else (probably two goroutines
+  emitting for the same logical event). Fix the
+  upstream coordination, not the trace.
+
+## Patterns that work (read these before inventing a new one)
+
+- **Event sourcing for the relational side too.** Even
+  when the project grows a SQL DB, the canonical write
+  is "append a row to the events table." Updates
+  happen via "append a corrective event." The
+  materialized view is built by a projection (a
+  `SELECT` or a view) when needed. This keeps the
+  persistence model uniform — JSONL session and the
+  relational store follow the same shape, so the
+  mental model doesn't fragment as the project grows.
+- **One append per logical event.** Don't batch two
+  events into one trace line "to save space." The
+  trace log is a timeline, and `/trace` assumes one
+  event per entry. If two things happen "at once",
+  they get two entries with adjacent timestamps.
+- **Stable field names in the Data struct.** Once a
+  field name is in the JSONL, it's a contract with
+  every future consumer. Renaming requires a
+  migration. Pick names that are stable across
+  refactors (`tool`, not `tool_name_2`); use the
+  `json:"..."` tag explicitly to lock the wire shape.
+- **Time arithmetic in the consumer, not the writer.**
+  Don't store "elapsed_ms" or "duration_s" in the
+  Data struct — store the timestamp, let the
+  consumer compute the difference from the prior
+  event. This makes replay correct and avoids
+  clock-skew bugs at write time.
+- **`omitempty` on every field that can be empty.**
+  Trace JSONLs grow fast; a few hundred bytes per
+  entry is a few hundred KB per session per day.
+  `omitempty` is the difference between a tool you
+  can grep over the trace log for a year and a tool
+  that becomes unusable after a month.
+- **Schema migrations as code.** Don't hand-edit
+  `migrations/0001_init.sql` after it's been run
+  anywhere. Add `0002_*.sql`. The project enforces
+  this convention; tools will fail to start if a
+  migration file is altered after the fact.
+- **Read with `SELECT` projections, not `*`.** Even
+  for "I just want everything," the wide table has
+  fields the consumer doesn't need. `SELECT id,
+  event_type, ts, data->>'tool' AS tool FROM trace
+  WHERE ts > now() - interval '1 hour'` is
+  dramatically faster than `SELECT *` once the
+  table has a few million rows.
+
+## Common pitfalls (all hit at least once)
+
+- **Editing a transcript line in place to "fix" a
+  typo** — append a `[System]: correcting entry #N
+  ...` line instead. The append-only contract is
+  load-bearing for replay tools, `/summary`, and
+  the diff-based undo path.
+- **Writing to `default.jsonl` without a bound
+  session** — cross-session pollution. Use
+  `tracelog.TracePathForSession(sessionPath)`. The
+  no-bound-session no-op is a feature, not a bug —
+  it prevents the loop from accidentally writing to
+  the wrong session's trace.
+- **Using `time.Now()` without UTC for `Timestamp`**
+  — breaks cross-timezone ordering. Always
+  `time.Now().UTC()`.
+- **Constructing entries as `map[string]any`** —
+  non-deterministic field order produces subtly
+  different files across runs and makes diff-based
+  regression tests flaky. Marshal the struct.
+- **Forgetting `.gitignore` for new persistence
+  paths** under `internal/loop/sessions/` — runtime
+  artifacts committed by accident bloat the repo
+  and leak session content into the git history.
+- **Pretty-printing JSON for "human readability"** —
+  file 3-4x larger, breaks per-line parsing. Compact
+  marshal only. If you need a pretty view, run
+  `jq .` on the file at read time, not at write
+  time.
+- **Calling `json.MarshalIndent` on a struct that
+  embeds a `time.Time`** — the default
+  `time.Time.MarshalJSON` uses RFC 3339, but the
+  pretty-printer escapes the `:` in the timezone
+  offset as `\u003a` (or doesn't, depending on Go
+  version). Always test the on-disk shape with
+  `cat | jq` before committing the format.
+- **Forgetting to flush the writer.** Go's
+  `bufio.Writer` over an `*os.File` does not flush
+  on every write. If the process crashes between
+  `Write` and `Flush`, the entry is lost. The
+  existing code calls `Flush` after every
+  `Append`; match that pattern. If a new code path
+  accumulates entries for batched flush, document
+  the batch window in the function comment and add
+  a `defer Flush` so partial batches aren't lost
+  on panic.
+- **Reading the trace log into memory all at once**
+  — `/trace` should stream entries, not slurp.
+  Long sessions can have tens of thousands of
+  trace events; loading them into a `[]tracelog.Entry`
+  for rendering makes the TUI freeze on open.
+  Stream, paginate, or filter at the file
+  boundary.
+
+## Session replay walkthrough (end-to-end)
+
+To make the conventions above less abstract, here is
+how a real session flows through the persistence
+layer. The shape is what a `/sessions` command (if
+you build one) would reconstruct.
+
+1. The loop starts and binds a session file at
+   `internal/loop/sessions/<id>.jsonl`. The first
+   append is the `[You]:` initial task.
+2. Coder thinks, returns a `proposed_action` entry
+   with `[Coder]:` speaker and `Type =
+   "proposed_action"`. The trace log gets a
+   `coder_turn_completed` event with token usage.
+3. Reviewer reads the proposed action, returns
+   approval. The loop appends a `proposed_action`
+   decision entry (or a System note), and the
+   trace gets a `reviewer_verdict` event.
+4. Executor runs. The result is appended as
+   `[Coder]:` with `Type = "action_result"`. The
+   trace gets a `tool_lifecycle` event with the
+   tool name and latency.
+5. On approval, the loop invokes
+   `internal/gitcommit.Commit`, which creates a
+   real git commit with the changes. The
+   commit's SHA is appended to the trace as a
+   `git_commit` event. The git history is the
+   durable "what changed" record; the transcript
+   is the "what was decided."
+6. Coder signals done. Reviewer confirms. The
+   session idles. No new entries are written
+   until the next user prompt.
+7. On `/undo`, the loop reads the most recent
+   trace event with a `git_commit` payload,
+   extracts the SHA, and calls `git revert`. The
+   transcript gets a `[System]: undo` entry
+   pointing at the reverted commit. The trace
+   gets an `undo` event.
+
+A `/summary` command reads the local git log (not
+the LLM) to produce a per-session report — that's
+why the project has both a transcript (for replay)
+and a git history (for diff-based summaries). The
+two are correlated by the `git_commit` trace
+events but stored independently.
+
+A `/trace` command reads the trace JSONL
+line-by-line, groups by event type, and renders a
+table. The grouping is per the `Entity` field on
+the entry (`"loop"`, `"skills"`, `"browser"`,
+`"subagent"`, etc.) so a noisy browser session
+doesn't drown the loop events.
+
+## Storage size expectations
+
+For sizing decisions, a typical Triad session:
+
+- Transcript: 50-200 entries per turn, 1-5 KB
+  per entry, 20-50 turns per session = roughly
+  2-10 MB per session for a moderately complex
+  task. Heavy tasks (multi-agent orchestration,
+  long debug sessions) can hit 50-100 MB.
+- Trace log: 5-20 events per turn, 200-500
+  bytes per event = roughly 2-10x the transcript
+  size in bytes. Trace logs are larger than the
+  transcript in practice because the structured
+  payload repeats tool names and hashes.
+- Git history: bounded by the number of approved
+  Coder actions. The per-action commit
+  granularity is the right size for `git revert`
+  precision; bigger commits (e.g. bundling 10
+  actions into one commit) would break `/undo`'s
+  single-action contract.
+
+`.gitignore` already covers `internal/loop/sessions/`.
+If you add a new persistence path (e.g. a
+`/screenshots/` for browser automation), make
+sure it's gitignored too — these are runtime
+artifacts, not source.

@@ -250,3 +250,386 @@
 {"timestamp":"2026-07-26T14:18:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
 {"timestamp":"2026-07-26T14:18:02Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
 {"timestamp":"2026-07-26T14:18:02Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:05:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:05:36Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:05:41Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:05:41Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:05:42Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:05:43Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:05:44Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:05:44Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:05:45Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:06:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:06:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:06:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:06:23Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:06:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:06:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:06:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:06:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:20Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:10:21Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:10:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:10:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:10:23Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:10:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:43Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:10:44Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:55Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:10:56Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:10:57Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:10:57Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:10:58Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:10:59Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:10:59Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:21:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:21:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:21:26Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:21:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:21:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:21:28Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:21:29Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:21:30Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:38:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:38:17Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:38:17Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:38:19Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:38:19Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:19Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:38Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:38:39Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:38:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:38:47Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:38:47Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:38:48Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:38:49Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:38:49Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:41:14Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (1 question(s)) for task: build a Button component"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:43:17Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:43:23Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:43:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:43:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:43:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:43:26Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:43:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:43:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:45:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:53Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:53Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:53Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T17:45:53Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:46:00Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:46:00Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:46:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T17:46:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T17:46:03Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T17:46:03Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T17:46:03Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:01Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:04:02Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:04:08Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:04:08Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:04:09Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:04:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:04:11Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:04:11Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:04:12Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:23:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:23:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:23:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:23:23Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:23:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:23:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:23:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:23:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:25:13Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:25:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:25:19Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:25:20Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:25:20Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:25:21Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:25:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:25:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"skills","event_type":"skill_selection","description":"sections: [frontend(main)]","data":{"decisions":[{"section":"frontend","tier":"main","token_cost":42}],"selected":["frontend"],"task":"create button.tsx with a Button component","total_tokens":42,"truncated":false}}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"skills","event_type":"skill_selection","description":"sections: [frontend(mini)]","data":{"decisions":[{"section":"frontend","tier":"mini","token_cost":42}],"selected":["frontend"],"task":"create button.tsx with a Button component","total_tokens":42,"truncated":false}}
+{"timestamp":"2026-07-26T18:38:25Z","entity":"skills","event_type":"skill_selection","description":"sections: [backend(main), db(main), frontend(main)]","data":{"decisions":[{"section":"backend","tier":"main","token_cost":42},{"section":"db","tier":"main","token_cost":41},{"section":"frontend","tier":"main","token_cost":42}],"selected":["backend","db","frontend"],"task":"create stack.txt with content ok","total_tokens":125,"truncated":false}}
+{"timestamp":"2026-07-26T18:38:26Z","entity":"skills","event_type":"skill_selection","description":"sections: [backend(main), db(main), extra(main)] [cap-truncated]","data":{"decisions":[{"section":"backend","tier":"main","token_cost":33},{"section":"db","tier":"main","token_cost":32},{"section":"extra","tier":"main","token_cost":33}],"selected":["backend","db","extra"],"task":"create cap.txt with content ok","total_tokens":98,"truncated":true}}
+{"timestamp":"2026-07-26T18:38:26Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:38:31Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:38:31Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:38:32Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:38:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:38:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:38:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:38:35Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:33Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:39:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:39:39Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:39:39Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:39:40Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:39:41Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:39:42Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:39:42Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:39:42Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:08Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:46:09Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:46:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:46:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:46:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:46:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:46:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:46:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:46:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:26Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:48:32Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:48:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:48:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:48:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:48:35Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:48:36Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:48:36Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:52Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T18:48:53Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:48:58Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:48:58Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:48:59Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T18:48:59Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T18:49:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T18:49:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T18:49:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:06:05Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:06:14Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:06:14Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:06:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:06:16Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:06:17Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T19:06:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:06:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:25Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:20:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:20:32Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:20:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:20:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:20:34Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:20:35Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T19:20:36Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:20:36Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:02Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:22:04Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:22:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:22:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:22:11Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:22:12Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:22:13Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T19:22:14Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:22:14Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:09Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:23:11Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:23:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:23:18Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:23:19Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:23:20Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:23:21Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T19:23:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:23:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:03Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T19:57:05Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:57:09Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:57:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:57:10Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T19:57:11Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T19:57:12Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T19:57:13Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T19:57:13Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:15:54Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:54Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:54Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:54Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:54Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:55Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:15:56Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:16:01Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:16:02Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:16:02Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:16:03Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:16:04Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T20:16:05Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:16:05Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:46Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:22:47Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:22:53Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:22:54Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:22:55Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:22:55Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:22:56Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T20:22:57Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:22:57Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:37Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:25:38Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:25:45Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:25:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:25:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:25:47Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:25:48Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T20:25:49Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:25:49Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:35Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:26:37Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:26:44Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:26:45Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:26:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:26:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:26:47Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T20:26:48Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:26:48Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:22Z","entity":"clarify","event_type":"clarify_trigger","description":"Clarification requested (2 question(s)) for task: fix it"}
+{"timestamp":"2026-07-26T20:28:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:28:29Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:28:30Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:28:31Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-26T20:28:31Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-26T20:28:32Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-26T20:28:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-26T20:28:33Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}

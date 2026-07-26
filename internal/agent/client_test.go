@@ -404,3 +404,46 @@ func TestClient_Respond_ToolsAttachedOnlyForCoder(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_Respond_UsageParsing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ChatCompletionResponse{
+			Choices: []ChatChoice{
+				{Message: ResponseChatMessage{Content: "Test reply"}},
+			},
+			Usage: Usage{
+				PromptTokens:     100,
+				CompletionTokens: 25,
+				TotalTokens:      125,
+				PromptTokensDetails: &PromptTokensDetails{
+					CachedTokens: 80,
+				},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewClient(2 * time.Second)
+	cfg := AgentConfig{
+		Name:    "Coder",
+		BaseURL: server.URL,
+		Model:   "mimo-v2.5-free",
+	}
+
+	resp, err := client.Respond(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Usage.PromptTokens != 100 {
+		t.Errorf("Expected PromptTokens 100, got %d", resp.Usage.PromptTokens)
+	}
+	if resp.Usage.CompletionTokens != 25 {
+		t.Errorf("Expected CompletionTokens 25, got %d", resp.Usage.CompletionTokens)
+	}
+	if resp.Usage.GetCachedTokens() != 80 {
+		t.Errorf("Expected CachedTokens 80, got %d", resp.Usage.GetCachedTokens())
+	}
+}

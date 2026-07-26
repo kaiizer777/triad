@@ -20,6 +20,7 @@ import (
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/learn"
 	"github.com/kaiizer777/triad/internal/memory"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/subagent"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -83,6 +84,8 @@ func ParseMode(raw string) (Mode, error) {
 // Using an interface here lets loop_test.go inject a mock without network calls.
 type AgentClient interface {
 	Respond(ctx context.Context, cfg agent.AgentConfig, entries []transcript.Entry) (agent.AgentResponse, error)
+	ListModels(ctx context.Context, cfg agent.AgentConfig) ([]agent.ModelInfo, error)
+	ListAllModels(ctx context.Context, cfg *agent.Config) ([]agent.AnnotatedModel, []agent.ModelError)
 }
 
 // Loop orchestrates the Coder/Reviewer approval cycle over a shared Transcript.
@@ -169,6 +172,25 @@ type Loop struct {
 
 	// Learn handles self-learning active extraction and promotion (Phase 9).
 	Learn *learn.Service
+
+	// SkillsRegistry is the loaded skills directory (Workflow 5,
+	// internal/skills). When non-nil and non-empty, the loop runs
+	// the Stage-1 / Stage-2 selection funnel on every Coder turn
+	// before the API call: it injects the bare section-label list
+	// into Coder's system prompt (Stage 1, cheap), parses
+	// Coder's SELECTED_SECTIONS line out of its response, and
+	// injects the selected skill bodies (Main on first touch, Mini
+	// on subsequent) on the next turn (Stage 2, bounded by the
+	// 3-section cap). When nil or empty, the funnel is a no-op
+	// and Coder sees the unmodified system prompt.
+	SkillsRegistry *skills.Registry
+
+	// loadedSkills tracks which sections have already had their
+	// Main Skill fire this session. Persisted for the lifetime of
+	// the Loop. Cleared implicitly when the process restarts;
+	// work.md §8 flags that future compaction may want to reset
+	// this too, but no compaction is implemented yet.
+	loadedSkills *skills.LoadedSet
 }
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
@@ -188,6 +210,7 @@ func New(
 		MaxRetries:       DefaultMaxRetries,
 		CurrentMode:      ModeOrchestrator,
 		recoveryAttempts: make(map[string]int),
+		loadedSkills:     skills.NewLoadedSet(),
 	}
 }
 
@@ -209,6 +232,145 @@ func (l *Loop) SetMemory(m *memory.Manager) {
 		s, _ := learn.NewService(m)
 		l.Learn = s
 	}
+}
+
+// SetSkillsRegistry attaches a loaded skills.Registry to the loop,
+// enabling the Stage-1 / Stage-2 selection funnel on every Coder
+// turn. Pass nil to disable the funnel (Coder then sees the
+// unmodified base system prompt).
+//
+// The loaded-skills set (which sections have already had Main fire
+// this session) is created lazily here if it wasn't set during
+// New() — that way a Loop constructed before SetSkillsRegistry
+// (e.g. in tests) still gets a valid set the moment skills are
+// attached, instead of panicking on the first Coder turn.
+func (l *Loop) SetSkillsRegistry(reg *skills.Registry) {
+	l.SkillsRegistry = reg
+	if l.loadedSkills == nil {
+		l.loadedSkills = skills.NewLoadedSet()
+	}
+}
+
+// LoadedSkills exposes the loop's per-session loaded-skills set,
+// mainly for tests and observability. Returns nil if the funnel
+// was never activated (no SetSkillsRegistry call).
+func (l *Loop) LoadedSkills() *skills.LoadedSet {
+	return l.loadedSkills
+}
+
+// buildCoderConfigWithSkills returns a copy of l.coder with the
+// Stage-1 (bare section labels, mandatory) and Stage-2 (Mini bodies
+// for every section that has already had its Main fire this session)
+// prompts appended to SystemPrompt for THIS turn only. The copy is
+// required so we don't accumulate bodies across turns and break the
+// "Main fires once per session" invariant — l.coder stays clean.
+//
+// When no skills registry is attached or the registry is empty,
+// this returns the unchanged l.coder. Reviewer and Orchestrator
+// paths never call this; the funnel is Coder-only (work.md §3).
+//
+// Per work.md §5 step 3, the second and subsequent touches of a
+// section this session inject the Mini body — that's all this
+// helper ever emits. The Main body was decided on the turn
+// ApplySelection ran (the turn Coder emitted SELECTED_SECTIONS),
+// which is the turn *before* this prompt is built; the loop
+// never needs to inject Main into a prompt directly, because
+// "loaded" already means "Main was decided last turn" and from
+// here on out Mini is the right shape.
+func (l *Loop) buildCoderConfigWithSkills() agent.AgentConfig {
+	cfg := l.coder // value copy
+	cfg.SystemPrompt = cfg.SystemPrompt + skills.BuildCoderSystemPromptExtension(l.SkillsRegistry, l.loadedSkills)
+	return cfg
+}
+
+// skillsBodiesForPrompt returns the Stage-2 body block: the Mini
+// body of every section that has been selected this session.
+// Thin wrapper around skills.BuildLoadedBodies — kept as a
+// method on Loop so the call site reads naturally. The real
+// implementation lives in the skills package and is shared
+// with the TUI path so the prompt shape is identical across
+// the two Coder call sites (work.md §3: Coder gets skill
+// content regardless of headless vs TUI mode).
+func (l *Loop) skillsBodiesForPrompt() string {
+	return skills.BuildLoadedBodies(l.SkillsRegistry, l.loadedSkills)
+}
+
+// coderTurnWithFunnel is the Workflow 5 funnel wrapper around a
+// Coder API call. It is the single entry point the loop uses for
+// every Coder turn (initial + post-objection revision). The split
+// is:
+//
+//  1. Pre-call: build the Coder config with the funnel's Stage 1
+//     (bare section labels) + Stage 2 (Mini bodies for already-
+//     loaded sections) appended to the system prompt. The base
+//     Coder system prompt is never mutated — the modification is
+//     per-turn, applied to a value copy of l.coder.
+//
+//  2. Call: hand the modified config + the current transcript to
+//     client.Respond. The transcript is unchanged so the existing
+//     prepare-entries logic in client.go works without a peephole
+//     edit; the funnel's effects land in the SystemPrompt field
+//     and ride along as the first chat message.
+//
+//  3. Post-call: if Coder returned plain text (no tool call), run
+//     the response through skills.ParseSelection to extract the
+//     SELECTED_SECTIONS line, then ApplySelection to mark loaded
+//     and log the system entry. The cleaned response text (with
+//     the SELECTED_SECTIONS line stripped) is what the loop then
+//     appends to the transcript as the [Coder] entry, so the
+//     human / Reviewer / Phase-4 observability layer see a clean
+//     Coder message without the control prefix.
+//
+// If Coder returned one or more tool calls (the common case
+// after the first turn of a cycle), there's no plain text to
+// parse — the SELECTED_SECTIONS declaration is implicitly skipped
+// this turn. The loaded set from the prior turn's selection is
+// still in effect, and the next text-bearing Coder turn can
+// re-declare if the task shifts.
+//
+// Reviewer and Orchestrator never go through this helper.
+// work.md §3: only Coder (and coding subagents — see the
+// subagent package) receive skill content. Regression check is
+// the fact that this method is only called from Coder paths.
+func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, error) {
+	cfg := l.buildCoderConfigWithSkills()
+	resp, err := l.client.Respond(ctx, cfg, l.transcript.Entries())
+	if err != nil {
+		return resp, fmt.Errorf("coder API call failed: %w", err)
+	}
+
+	// If Coder emitted a tool call (no plain text), there's no
+	// SELECTED_SECTIONS line to parse. Return the response
+	// unchanged so the caller's tool-call handling runs.
+	if len(resp.ToolCalls) > 0 {
+		return resp, nil
+	}
+
+	// Plain-text response: try to parse a selection out of it. If
+	// no prefix is found, ParseAndApply returns the original
+	// text unchanged and we leave the response as-is. If the
+	// prefix IS present, we strip the line, ApplySelection
+	// updates the loaded set + logs the system entry, and we
+	// return the cleaned text.
+	cleaned, _ := skills.ParseAndApply(resp.Text, l.SkillsRegistry, l.loadedSkills, l.transcript, l.mostRecentHumanTask())
+	resp.Text = cleaned
+	return resp, nil
+}
+
+// mostRecentHumanTask returns the most recent You (human) message
+// in the transcript, truncated. Used by the funnel to include a
+// short task excerpt in the [Skills] system entry so the
+// observability layer can correlate skill choices with the task
+// that triggered them. Returns "" if no human message exists yet
+// (e.g. resume before any You entry).
+func (l *Loop) mostRecentHumanTask() string {
+	entries := l.transcript.Entries()
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Speaker == transcript.SpeakerYou {
+			return entries[i].Content
+		}
+	}
+	return ""
 }
 
 // AutoExtractLearnings triggers auto-extraction of candidate learnings from transcript entries into daily log.
@@ -521,9 +683,18 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		}
 
 		// --- Coder turn ---
-		coderResp, err := l.client.Respond(ctx, l.coder, l.transcript.Entries())
+		// Funnel-wrapped: build a Coder config with Stage 1 (bare
+		// section labels) + Stage 2 (Mini bodies for every already-
+		// loaded section) injected into the system prompt, then
+		// call the agent. After the response comes back, run the
+		// post-call half of the funnel: parse the SELECTED_SECTIONS
+		// line out of any plain-text response, apply the
+		// selection (mark loaded, log system entry), and return
+		// the cleaned response so the caller's transcript entry
+		// doesn't include the control line.
+		coderResp, err := l.coderTurnWithFunnel(ctx)
 		if err != nil {
-			return false, fmt.Errorf("coder API call failed: %w", err)
+			return false, err
 		}
 
 		// --- General Chat Mode (single agent, no Reviewer, no approval loop) ---
@@ -817,8 +988,13 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 		case DecisionObject:
 			// Reviewer objected. If retries remain, let Coder see the objection and re-propose.
 			if attempt < l.MaxRetries {
-				// Give Coder a turn to revise. The objection is already in the transcript.
-				coderResp, err := l.client.Respond(ctx, l.coder, l.transcript.Entries())
+				// Give Coder a turn to revise. The objection is already
+				// in the transcript. Go through the same funnel wrapper
+				// as the initial Coder turn so a re-selection on this
+				// revision is parsed and applied identically — the spec
+				// wants Stage 1 + Stage 2 on every coding turn, not just
+				// the first one of the cycle.
+				coderResp, err := l.coderTurnWithFunnel(ctx)
 				if err != nil {
 					return false, false, fmt.Errorf("coder revision API call failed: %w", err)
 				}
@@ -990,6 +1166,13 @@ func (l *Loop) runSpawnSubagent(ctx context.Context, toolCall agent.ToolCall) (s
 	if err != nil {
 		return "", fmt.Errorf("spawn_subagent: %w", err)
 	}
+	// Propagate the parent session's skills registry so the
+	// subagent's Coder turns go through the same Stage-1 /
+	// Stage-2 funnel. The subagent gets a per-run loaded set
+	// (independent of the parent's), so a subagent's first
+	// selection of any section fires Main regardless of
+	// whether the parent already loaded it.
+	runner.SetSkillsRegistry(l.SkillsRegistry)
 
 	id := subagent.NewID()
 	res, runErr := runner.Run(ctx, id, args.Task, args.Context, l.coder)

@@ -65,11 +65,36 @@ Welcome to the Triad documentation directory. This page serves as a navigation i
 
 ---
 
+### 4. [Triad — Workflow 5: Task-Driven Skill Injection System](./work-4.md) (`work-4.md`)
+
+* **Title:** Triad — Workflow 5: Task-Driven Skill Injection System
+* **Companion Document:** `PROJECT_SPEC.md`
+* **Purpose:** Outlines the task-driven skill injection architecture that conditionally loads domain-specific skills (Main vs Mini tiers) using a cheap two-stage section scan funnel, capping active skills, providing in-TUI management via `/skill`, and offering observability in `/trace`.
+* **Tech Stack:** Go, YAML frontmatter parser, `skills/` directory loader, `lipgloss`/`bubbletea` v2 TUI editing, `/trace` integration.
+* **Key Summary & Table of Contents:**
+  * **Problem & Core Idea:** Avoid mega-prompt context rot by loading domain-specific markdown+frontmatter skills conditionally. Two tiers per skill: **Main Skill** (5–8k tokens, injected once per session) and **Mini Skill** (2–4k tokens, injected on subsequent actions in the same domain).
+  * **Who Gets Skills:** Mandatory for Coder and coding subagents before the first action. Orchestrator and Reviewer do not receive domain skills.
+  * **Skill File Format:** Markdown files in `skills/` (`frontend.md`, `backend.md`, `db.md`, etc.) with YAML frontmatter specifying `name`, `section`, `description`, `tier`, `mini_ref`, and token budgets.
+  * **Two-Stage Detection & Loading Funnel:**
+    * **Stage 1 (Section Scan):** Cheap scan showing bare section labels (~2-3 tokens per entry re-run every coding turn). Capped at a maximum of 3 sections per task.
+    * **Stage 2 (Skill Load):** Mandatory section selection before any coding action. Inject Main Skill on first touch per session, Mini Skill on subsequent touches.
+  * **`/skill` Command Suite:** TUI slash commands (`/skill list`, `/skill view`, `/skill edit`, `/skill add`, `/skill delete`, `/skill force`).
+  * **Observability:** Extended `/trace` command logging user message, selected sections, injected tier (Main/Mini), and token cost for every turn.
+  * **Phase 1:** Skill File Format + Loader (`internal/skills` package, frontmatter parsing, validation, Stage 1/2 accessors).
+  * **Phase 2:** Selection + Injection Wiring (Two-stage funnel, 3-section cap enforcement, session tracking, transcript logging).
+  * **Phase 3:** `/skill` Command Suite (Interactive TUI skill viewing, editing, scaffolding, and manual override).
+  * **Phase 4:** Observability (`/trace` extension with section selection, tier tracking, and token usage).
+  * **Phase 5:** Starter Skills (Authoring and verifying `frontend.md`, `backend.md`, `db.md` Main/Mini skill templates).
+
+---
+
 ## Navigation Quick Links
 
 * [index.md](./index.md) — Documentation index and navigation map (this file)
 * [work-1.md](./work-1.md) — Core build workflow (v1)
 * [work-2.md](./work-2.md) — Workflow 2 (Commands, Subagents, Git Auto-Commit & Browser Tools)
 * [work-3.md](./work-3.md) — Workflow 3 (Orchestrator, Commit Journey, Memory & Twin Subagents)
+* [work-4.md](./work-4.md) — Workflow 5 (Task-Driven Skill Injection System)
+
 
 

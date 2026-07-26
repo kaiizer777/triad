@@ -17,6 +17,7 @@ import (
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/tui"
 )
@@ -39,22 +40,29 @@ func main() {
 	defer logger.Close()
 
 	// --- Load config ---
-	cfg, err := agent.LoadConfig("config.yaml")
+	const configPath = "config.yaml"
+	cfg, err := agent.LoadConfig(configPath)
 	if err != nil {
 		logger.L().Error("failed to load config", "error", err.Error())
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Active provider is now the single source of truth for
+	// base_url / api_key. The cfg.Coder / cfg.Reviewer blocks
+	// were already populated from the active provider inside
+	// LoadConfig, so we just verify the key is non-empty here
+	// (env-var fallback is honored for legacy single-provider
+	// setups, just like before).
 	apiKey := cfg.Coder.APIKey
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENCODE_API_KEY")
 	}
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: OPENCODE_API_KEY is not set and not in config.yaml.")
-		fmt.Fprintln(os.Stderr, "Set the environment variable or add api_key to config.yaml.")
+		fmt.Fprintln(os.Stderr, "Error: no API key configured for the active provider.")
+		fmt.Fprintln(os.Stderr, "Set providers.<active_provider>.api_key in config.yaml, or")
+		fmt.Fprintln(os.Stderr, "set the OPENCODE_API_KEY environment variable for the legacy single-provider setup.")
 		os.Exit(1)
 	}
-	// Ensure the API key is available in both agent configs.
 	cfg.Coder.APIKey = apiKey
 	cfg.Reviewer.APIKey = apiKey
 
@@ -65,8 +73,11 @@ func main() {
 	}
 
 	logger.L().Info("triad starting",
+		"active_provider", cfg.ActiveProvider,
 		"base_url", cfg.Coder.BaseURL,
 		"model", cfg.Coder.Model,
+		"reasoning_level", cfg.Coder.ReasoningLevel,
+		"thinking_mode", cfg.Coder.ThinkingMode,
 		"command_timeout", commandTimeout.String(),
 	)
 
@@ -152,6 +163,20 @@ func main() {
 	}
 	logger.L().Info("slash commands ready", "count", cmdReg.Count(), "names", cmdReg.Names())
 
+	// --- Load skills registry (Workflow 5) ---
+	// Same defensive pattern as commands/: if the skills/ directory is
+	// missing or unreadable, fall back to an empty registry — skills
+	// are an opt-in capability, not a hard dependency. The funnel
+	// becomes a no-op when the registry is empty (Coder sees no
+	// SELECTED_SECTIONS scaffold and works with the base prompt
+	// alone).
+	skillsReg, skillsErr := skills.Load("skills")
+	if skillsErr != nil {
+		logger.L().Warn("skills: failed to load registry, continuing with none", "error", skillsErr.Error())
+		skillsReg = &skills.Registry{}
+	}
+	logger.L().Info("skills loaded", "count", skillsReg.Count(), "sections", skillsReg.Sections())
+
 	// --- Create TUI Model ---
 	// Browser tools are always registered in this build (the manager is
 	// unconditional below), so we extend the Coder / Reviewer system
@@ -161,8 +186,9 @@ func main() {
 	cfg.Coder.SystemPrompt = agent.CoderSystemPromptWithBrowser()
 	cfg.Reviewer.SystemPrompt = agent.ReviewerSystemPromptWithBrowser()
 
-	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg)
+	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg, configPath, cfg)
 	model.SetSearchAPIKey(cfg.SearchAPIKey)
+	model.SetSkillsRegistry(skillsReg)
 
 	// --- Browser manager ---
 	// Mode selection priority: --browser flag > config browser_mode > default (headless).
@@ -199,21 +225,38 @@ func main() {
 	}()
 
 	// --- Run Bubbletea program ---
+	// Bubble Tea v2 is declarative: alt screen and mouse mode are set on the
+	// View struct (see internal/tui/view.go), NOT as NewProgram options.
+	// The v1 options (tea.WithAltScreen, tea.WithMouseCellMotion) were
+	// removed in v2 — the runtime's diff-based renderer handles enter/exit
+	// automatically by comparing the last view's AltScreen/MouseMode fields
+	// to the next view's. So the only thing left to do is let p.Run() return
+	// normally and NOT call os.Exit / log.Fatalf from here on out — that
+	// would skip the deferred terminal teardown and leave the shell stuck
+	// in the alt screen + raw input mode.
 	p := tea.NewProgram(model)
 
-	// Handle OS signals: kill the TUI program cleanly.
-	// Append already writes every entry atomically and immediately, so no
-	// additional SaveToFile is needed here. SaveToFile (full truncate-rewrite)
-	// would race with any concurrent Append still in flight.
+	// Handle OS signals: ask the TUI to quit so it can flush the alt
+	// screen exit through the graceful path. p.Kill() is the hard kill
+	// (tea.go:1204 → shutdown(true)) and was the reason the terminal was
+	// staying in raw mode after Ctrl+C / window close.
 	go func() {
 		<-sigCh
 		logger.L().Info("received OS signal, shutting down")
-		p.Kill()
+		p.Quit()
 	}()
 
 	if _, err := p.Run(); err != nil {
+		// Log and exit cleanly. log.Fatalf calls os.Exit(1) which bypasses
+		// Bubble Tea's shutdown() entirely, leaving the terminal in alt
+		// screen + raw mode. Write the manual escape sequences so even a
+		// hard error doesn't strand the user in a broken terminal.
 		logger.L().Error("TUI program exited with error", "error", err.Error())
-		log.Fatalf("Error running TUI program: %v", err)
+		fmt.Fprint(os.Stderr, "\x1b[?1049l") // leave alt screen
+		fmt.Fprint(os.Stderr, "\x1b[?1003l") // disable mouse tracking
+		fmt.Fprint(os.Stderr, "\x1b[?2004l") // disable bracketed paste
+		fmt.Fprintln(os.Stderr, "Error running TUI program:", err)
+		os.Exit(1)
 	}
 
 	logger.L().Info("triad exited cleanly")

@@ -28,6 +28,36 @@ type ChatCompletionRequest struct {
 	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
 	Tools    []ToolSchema  `json:"tools,omitempty"` // only sent when agent HasTools == true
+
+	// Reasoning is the per-request reasoning effort. Encoded as
+	// `{"effort": "low|medium|high|none"}` for Xiaomi MiMo and as
+	// a flat string for OpenAI-style providers. The flat string
+	// form is what OpenCode Zen / OpenAI accept; we marshal both
+	// shapes via Reasoning.MarshalYAML / MarshalJSON.
+	Reasoning *Reasoning `json:"reasoning,omitempty"`
+
+	// Thinking is the binary on/off toggle. Encoded as
+	// `{"type": "enabled"|"disabled"}` for Xiaomi MiMo.
+	Thinking *Thinking `json:"thinking,omitempty"`
+
+	// ReasoningEffort is the flat OpenAI-style alternative.
+	// Sent in addition to (or instead of) Reasoning when the
+	// provider prefers the flat form. Populated from
+	// cfg.ReasoningLevel when Reasoning is nil.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+}
+
+// Reasoning is the Xiaomi MiMo reasoning effort block.
+type Reasoning struct {
+	// Effort is one of "none", "low", "medium", "high".
+	// "none" disables thinking; the others enable it.
+	Effort string `json:"effort"`
+}
+
+// Thinking is the Xiaomi MiMo thinking-mode toggle block.
+type Thinking struct {
+	// Type is "enabled" or "disabled".
+	Type string `json:"type"`
 }
 
 // ResponseChatMessage represents a message within a choice in an OpenAI chat completion response.
@@ -37,6 +67,37 @@ type ResponseChatMessage struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// PromptTokensDetails holds breakdown details for prompt tokens.
+type PromptTokensDetails struct {
+	CachedTokens    int `json:"cached_tokens,omitempty"`
+	CacheReadTokens int `json:"cache_read_tokens,omitempty"`
+}
+
+// Usage holds token consumption statistics returned by OpenAI-compatible APIs.
+type Usage struct {
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	CacheReadTokens     int                  `json:"cache_read_tokens,omitempty"`
+}
+
+// GetCachedTokens returns the number of prompt tokens served from cache, if reported.
+func (u Usage) GetCachedTokens() int {
+	if u.CacheReadTokens > 0 {
+		return u.CacheReadTokens
+	}
+	if u.PromptTokensDetails != nil {
+		if u.PromptTokensDetails.CachedTokens > 0 {
+			return u.PromptTokensDetails.CachedTokens
+		}
+		if u.PromptTokensDetails.CacheReadTokens > 0 {
+			return u.PromptTokensDetails.CacheReadTokens
+		}
+	}
+	return 0
 }
 
 // ChatChoice represents a single completion choice returned by the API.
@@ -53,6 +114,7 @@ type ChatCompletionResponse struct {
 	Created int64        `json:"created,omitempty"`
 	Model   string       `json:"model,omitempty"`
 	Choices []ChatChoice `json:"choices"`
+	Usage   Usage        `json:"usage,omitempty"`
 }
 
 // AgentResponse holds the result of a single agent call.
@@ -62,6 +124,7 @@ type ChatCompletionResponse struct {
 type AgentResponse struct {
 	Text      string     // plain-text reply from the model
 	ToolCalls []ToolCall // tool invocations requested by the model
+	Usage     Usage      // token metrics returned by the model call
 }
 
 // APIErrorDetail holds error information from an OpenAI API error response.
@@ -216,6 +279,18 @@ func (c *Client) Respond(ctx context.Context, cfg AgentConfig, entries []transcr
 		}
 	}
 
+	// Reasoning / thinking fields. Sent in both shapes so any
+	// OpenAI-compatible endpoint (flat reasoning_effort) and
+	// Xiaomi MiMo (nested reasoning.effort + thinking.type) work
+	// without us having to special-case the provider here.
+	if cfg.ReasoningLevel != "" {
+		reqPayload.Reasoning = &Reasoning{Effort: cfg.ReasoningLevel}
+		reqPayload.ReasoningEffort = cfg.ReasoningLevel
+	}
+	if cfg.ThinkingMode != "" {
+		reqPayload.Thinking = &Thinking{Type: cfg.ThinkingMode}
+	}
+
 	bodyBytes, err := json.Marshal(reqPayload)
 	if err != nil {
 		return AgentResponse{}, fmt.Errorf("failed to marshal chat completion request: %w", err)
@@ -368,15 +443,19 @@ func (c *Client) Respond(ctx context.Context, cfg AgentConfig, entries []transcr
 				"agent", cfg.Name,
 				"count", len(msg.ToolCalls),
 				"first_tool", msg.ToolCalls[0].Function.Name,
+				"prompt_tokens", chatResp.Usage.PromptTokens,
+				"completion_tokens", chatResp.Usage.CompletionTokens,
 			)
-			return AgentResponse{ToolCalls: msg.ToolCalls}, nil
+			return AgentResponse{ToolCalls: msg.ToolCalls, Usage: chatResp.Usage}, nil
 		}
 
 		logger.L().Debug("agent returned text response",
 			"agent", cfg.Name,
 			"text_length", len(msg.Content),
+			"prompt_tokens", chatResp.Usage.PromptTokens,
+			"completion_tokens", chatResp.Usage.CompletionTokens,
 		)
-		return AgentResponse{Text: msg.Content}, nil
+		return AgentResponse{Text: msg.Content, Usage: chatResp.Usage}, nil
 	}
 
 	// Should be unreachable — the loop always returns or continues.

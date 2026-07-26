@@ -41,6 +41,7 @@ import (
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -141,6 +142,22 @@ type Runner struct {
 	commandTimeout time.Duration
 	maxTurns       int
 	depth          int
+
+	// skillsRegistry is the loaded skills directory for the parent
+	// session, propagated to the subagent so its Coder turns go
+	// through the same Stage-1 / Stage-2 funnel as the parent.
+	// Nil (or empty) means the subagent's Coder turns see the
+	// unmodified SubagentSystemPrompt — same behavior as the parent
+	// loop / TUI when no skills are configured.
+	//
+	// work.md §3: coding subagents spawned under Orchestrator mode
+	// receive skill content (not the parent Coder / Reviewer-only
+	// exception). The subagent's loaded set is per-run (independent
+	// of the parent's), so a subagent's first selection of a
+	// section injects Main regardless of whether the parent has
+	// already loaded it.
+	skillsRegistry *skills.Registry
+	loadedSkills   *skills.LoadedSet
 }
 
 // NewRunner constructs a subagent runner. depth is the current nesting
@@ -182,7 +199,26 @@ func NewRunner(client Client, workDir, sessionDir string, commandTimeout time.Du
 		commandTimeout: commandTimeout,
 		maxTurns:       maxTurns,
 		depth:          depth,
+		loadedSkills:   skills.NewLoadedSet(),
 	}, nil
+}
+
+// SetSkillsRegistry attaches a loaded skills.Registry to the runner
+// so the subagent's Coder turns go through the same Stage-1 /
+// Stage-2 funnel as the parent. Pass nil to disable the funnel
+// (the subagent then sees the unmodified SubagentSystemPrompt).
+//
+// The loaded set is per-run — created lazily in NewRunner — so a
+// subagent's first selection of any section always injects Main,
+// independent of whether the parent Coder has already loaded that
+// section. This is deliberate: the subagent is a fresh context
+// with no prior knowledge, and a subagent that ignores the
+// project's Mini pointers won't be much use.
+func (r *Runner) SetSkillsRegistry(reg *skills.Registry) {
+	r.skillsRegistry = reg
+	if r.loadedSkills == nil {
+		r.loadedSkills = skills.NewLoadedSet()
+	}
 }
 
 // SpeakerName returns the speaker label used for this subagent's entries
@@ -272,10 +308,31 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parent 
 			return res, fmt.Errorf("subagent: context cancelled on turn %d: %w", turn, err)
 		}
 
-		// Call the subagent's model.
-		resp, err := r.client.Respond(ctx, cfg, tr.Entries())
+		// Call the subagent's model. Apply the Stage-1 / Stage-2
+		// skills funnel on every turn: build a per-turn cfg with
+		// the extension appended (so the persistent cfg stays
+		// clean and we don't accumulate Mini bodies across turns),
+		// then call Respond with that modified cfg. After the
+		// response, if it was plain text, parse the
+		// SELECTED_SECTIONS line, apply the selection to the
+		// subagent's per-run loaded set, and log the system
+		// entry. The [Skills] system entry lands in the
+		// SUBAGENT's transcript (not the parent's), so the
+		// parent's observability sees the final summary only —
+		// matches work.md §3's "subagent is opaque" contract.
+		turnCfg := cfg
+		turnCfg.SystemPrompt = turnCfg.SystemPrompt + skills.BuildCoderSystemPromptExtension(r.skillsRegistry, r.loadedSkills)
+		resp, err := r.client.Respond(ctx, turnCfg, tr.Entries())
 		if err != nil {
 			return res, fmt.Errorf("subagent: model call failed on turn %d: %w", turn, err)
+		}
+
+		// Post-call: parse a selection out of any plain-text
+		// response. Tool-call responses have no plain text to
+		// scan, so the parse is a no-op in that case.
+		if len(resp.ToolCalls) == 0 && resp.Text != "" {
+			cleaned, _ := skills.ParseAndApply(resp.Text, r.skillsRegistry, r.loadedSkills, tr, seed)
+			resp.Text = cleaned
 		}
 
 		// Two cases: tool call(s) or plain text.

@@ -60,7 +60,15 @@ func (m Model) View() tea.View {
 
 	var popup string
 	popupHeight := 0
-	if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
+	// The picker takes priority over the autocomplete popup
+	// (typing /foo while the picker is open is suppressed anyway,
+	// but visually the picker should win when both could render).
+	if m.picker != nil {
+		popup = m.renderPickerPopup(rightCardInnerWidth)
+		if popup != "" {
+			popupHeight = lipgloss.Height(popup)
+		}
+	} else if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
 		popup = m.renderAutocompletePopup(rightCardInnerWidth)
 		if popup != "" {
 			popupHeight = lipgloss.Height(popup)

@@ -119,7 +119,7 @@ func TestPersistence_StateRecovery_IdleOnEmpty(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateIdle {
 		t.Errorf("expected sessionState to be StateIdle for empty transcript, got %v", model.sessionState)
 	}
@@ -142,7 +142,7 @@ func TestPersistence_StateRecovery_PendingUserPrompt(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive when user prompt is pending, got %v", model.sessionState)
 	}
@@ -170,7 +170,7 @@ func TestPersistence_StateRecovery_PendingProposedAction(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -206,7 +206,7 @@ func TestPersistence_StateRecovery_ApprovedActionPendingExecution(t *testing.T) 
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -242,7 +242,7 @@ func TestPersistence_StateRecovery_ReviewerObjection(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateActive {
 		t.Errorf("expected StateActive, got %v", model.sessionState)
 	}
@@ -278,7 +278,7 @@ func TestPersistence_StateRecovery_CompletedTask(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	if model.sessionState != loop.StateIdle {
 		t.Errorf("expected StateIdle for completed task, got %v", model.sessionState)
 	}
@@ -301,7 +301,7 @@ func TestPersistence_InitCmdBatching(t *testing.T) {
 	coder := agent.AgentConfig{Name: "Coder", HasTools: true}
 	reviewer := agent.AgentConfig{Name: "Reviewer", HasTools: false}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{})
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, &commands.Registry{}, "", nil)
 	initCmd := model.Init()
 	if initCmd == nil {
 		t.Fatalf("expected non-nil Init Cmd batch")
@@ -337,7 +337,7 @@ func TestPersistence_ModeRestoredOnResume(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg)
+	model := NewModel(tr, coder, reviewer, client, tmpDir, 0, reg, "", nil)
 
 	// Switch mode to general
 	updated, _ := model.Update(humanInputMsg{content: "/mode general"})
@@ -349,7 +349,7 @@ func TestPersistence_ModeRestoredOnResume(t *testing.T) {
 		t.Fatalf("LoadFromFile failed: %v", err)
 	}
 
-	resumedModel := NewModel(reloadedTr, coder, reviewer, client, tmpDir, 0, reg)
+	resumedModel := NewModel(reloadedTr, coder, reviewer, client, tmpDir, 0, reg, "", nil)
 	if resumedModel.currentMode != loop.ModeGeneral {
 		t.Errorf("expected currentMode to be ModeGeneral after resume, got %v", resumedModel.currentMode)
 	}

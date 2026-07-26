@@ -63,6 +63,18 @@ func (s *twinRoutedMock) Respond(ctx context.Context, cfg agent.AgentConfig, ent
 	return s.base.Respond(ctx, cfg, entries)
 }
 
+// ListModels satisfies loop.AgentClient. Twin tests don't exercise
+// /models; returns nil so the interface contract is met.
+func (s *twinRoutedMock) ListModels(_ context.Context, _ agent.AgentConfig) ([]agent.ModelInfo, error) {
+	return nil, nil
+}
+
+// ListAllModels satisfies loop.AgentClient. Twin tests don't
+// exercise /models; returns nil so the interface contract is met.
+func (s *twinRoutedMock) ListAllModels(_ context.Context, _ *agent.Config) ([]agent.AnnotatedModel, []agent.ModelError) {
+	return nil, nil
+}
+
 // ---------------------------------------------------------------------------
 // §6.11 — Medium-complexity task → Orchestrator proposes twin → twin runs
 // privately → only summary in main transcript

@@ -343,14 +343,14 @@ the TUI, following the same conventions as `/plan`, `/diff`, `/undo`.
 
 **Goal:** you can always see why a given skill fired, without guessing.
 
-- [ ] 4.1 — Extend `/trace` (do not build a new fourth observability
+- [x] 4.1 — Extend `/trace` (do not build a new fourth observability
       surface) with: the triggering user message, section(s) selected,
       tier (Main/Mini) injected per section, and token cost of what was
       injected that turn
-- [ ] 4.2 — **Test:** trigger a mixed-domain task and confirm `/trace`
+- [x] 4.2 — **Test:** trigger a mixed-domain task and confirm `/trace`
       correctly attributes each skill choice to the specific turn that
       caused it, not a prior or later turn
-- [ ] 4.3 — **Checkpoint:** you should be able to answer "why did Coder
+- [x] 4.3 — **Checkpoint:** you should be able to answer "why did Coder
       just do something DB-flavored when I asked for a UI tweak"
       purely by reading `/trace`, without needing to inspect raw logs
 
@@ -359,21 +359,21 @@ the TUI, following the same conventions as `/plan`, `/diff`, `/undo`.
 **Goal:** ship real, usable skill content for this project — not just
 the plumbing.
 
-- [ ] 5.1 — Author `frontend.md` (Main) + its Mini variant, scoped to
+- [x] 5.1 — Author `frontend.md` (Main) + its Mini variant, scoped to
       this project's actual frontend surface if it has one, or as a
       reusable template if it doesn't yet
-- [ ] 5.2 — Author `backend.md` (Main) + its Mini variant, scoped to
+- [x] 5.2 — Author `backend.md` (Main) + its Mini variant, scoped to
       the Go/bubbletea/v2 conventions already locked in the project
       spec (tea.Cmd-only concurrency, package layout, etc.)
-- [ ] 5.3 — Author `db.md` (Main) + its Mini variant (template if the
+- [x] 5.3 — Author `db.md` (Main) + its Mini variant (template if the
       project has no DB surface yet)
-- [ ] 5.4 — Verify each Main file is actually within the 5-8k token
+- [x] 5.4 — Verify each Main file is actually within the 5-8k token
       budget and each Mini within 2-4k, using a real tokenizer count —
       not an estimate
-- [ ] 5.5 — **Test — end to end:** run one real task touching all 3
+- [x] 5.5 — **Test — end to end:** run one real task touching all 3
       domains in a single session; confirm Main fires exactly once per
       domain and Mini fires correctly on any repeat touch
-- [ ] 5.6 — **Checkpoint:** Workflow 5 is complete when a real
+- [x] 5.6 — **Checkpoint:** Workflow 5 is complete when a real
       multi-domain task, run start to finish, shows correct two-stage
       selection, correct Main/Mini tiering, working `/skill` management,
       and a `/trace` record that fully explains what happened and why

@@ -160,6 +160,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.skillEditor.textarea, taCmd = m.skillEditor.textarea.Update(msg)
 			return m, taCmd
 		}
+		// Picker intercept: when /models or /provider is open, route
+		// all keystrokes to the picker. The skill editor above takes
+		// priority; the picker takes priority over the text input.
+		if m.picker != nil {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			_, cmd := m.pickerKey(msg)
+			return m, cmd
+		}
 		if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
 			switch msg.String() {
 			case "ctrl+c":
@@ -306,6 +316,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// System-target command (e.g. /status). The helper already wrote
 			// the appropriate System entry to the transcript; do not also
 			// inject it as a You message and do not trigger a Coder turn.
+			// If the system command asked the TUI to launch the
+			// /models or /provider picker, fire that now.
+			if m.pendingPickerLaunch != nil {
+				launch := m.pendingPickerLaunch
+				m.pendingPickerLaunch = nil
+				m.refreshViewport()
+				var pickerCmd tea.Cmd
+				switch launch.Kind {
+				case pickerLaunchModels:
+					pickerCmd = m.startModelPicker(false)
+				case pickerLaunchProvider:
+					pickerCmd = m.startProviderPicker(launch.ProviderName)
+				}
+				return m, pickerCmd
+			}
 			m.refreshViewport()
 			return m, nil
 		}
@@ -755,8 +780,84 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = "Action executed. Coder considering next step..."
 		m.refreshViewport()
 		return m, m.coderTurnCmd()
-	}
 
+	case pickerModelsReadyMsg:
+		// Async result from the /models or /provider picker.
+		if m.picker == nil {
+			return m, nil
+		}
+		if len(msg.Errs) > 0 && len(msg.Models) == 0 {
+			// Total failure — close the picker and surface a
+			// single System entry.
+			m.picker = nil
+			parts := make([]string, 0, len(msg.Errs))
+			for _, e := range msg.Errs {
+				parts = append(parts, fmt.Sprintf("%s: %s", e.Provider, e.Err))
+			}
+			_ = m.transcript.Append(transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeMessage,
+				Content:   "[Models] Could not load any model list: " + strings.Join(parts, "; "),
+				Timestamp: time.Now(),
+			})
+			m.statusMessage = "Failed to load models."
+			m.refreshViewport()
+			return m, nil
+		}
+		m.picker.Models = msg.Models
+		m.picker.ProviderErrs = msg.Errs
+		// Seed the cursor at the current active provider + model
+		// if present, otherwise the first row.
+		if m.agentCfg != nil {
+			for i, am := range msg.Models {
+				if am.Provider == m.agentCfg.ActiveProvider && am.Info.ID == m.agentCfg.Model {
+					m.picker.Index = i
+					break
+				}
+			}
+		}
+		m.picker.Step = pickerStepModel
+		// If the picker is a provider-only launch, pre-select
+		// the user's current model in this provider if any.
+		if m.picker.IsProviderOnly {
+			if m.agentCfg != nil {
+				for i, am := range msg.Models {
+					if am.Info.ID == m.agentCfg.Model {
+						m.picker.Index = i
+						break
+					}
+				}
+			}
+		}
+		if len(msg.Errs) > 0 {
+			// Partial success — note which providers failed in
+			// the status bar; the user can see the successful
+			// models in the picker.
+			parts := make([]string, 0, len(msg.Errs))
+			for _, e := range msg.Errs {
+				parts = append(parts, e.Provider)
+			}
+			m.statusMessage = fmt.Sprintf("Loaded %d model(s); %d provider(s) failed: %s",
+				len(msg.Models), len(msg.Errs), strings.Join(parts, ", "))
+		} else {
+			m.statusMessage = fmt.Sprintf("Loaded %d model(s).", len(msg.Models))
+		}
+		m.refreshViewport()
+		return m, nil
+
+	case systemStatusMsg:
+		// Generic System entry the picker writes on apply /
+		// cancel / save failure.
+		_ = m.transcript.Append(transcript.Entry{
+			Speaker:   transcript.SpeakerSystem,
+			Type:      transcript.TypeMessage,
+			Content:   msg.Message,
+			Timestamp: time.Now(),
+		})
+		m.statusMessage = msg.Message
+		m.refreshViewport()
+		return m, nil
+	}
 	// Update textinput component
 	var inputCmd tea.Cmd
 	m.input, inputCmd = m.input.Update(msg)
@@ -773,7 +874,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, tea.Batch(cmds...)
 }
-
 // syncAutocompleteState evaluates the textinput value and updates live slash-command autocomplete state.
 func (m *Model) syncAutocompleteState() {
 	val := m.input.Value()

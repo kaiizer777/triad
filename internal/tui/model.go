@@ -518,6 +518,19 @@ type Model struct {
 	// commandTimeout caps run_command execution time (from config.yaml).
 	commandTimeout time.Duration
 
+	// configPath is the absolute (or working-dir-relative) path to
+	// the on-disk config.yaml. Set once at startup by main.go; used
+	// by the /models and /provider system commands to persist
+	// changes back to disk.
+	configPath string
+	// agentCfg is a pointer to the live Config the TUI reads from
+	// / writes to. main.go owns the underlying struct; the TUI
+	// mutates it in place and calls SaveConfig when needed. Holding
+	// a pointer (rather than a copy) means a /provider switch on
+	// the TUI is immediately visible to whatever code reads
+	// cfg.ActiveProvider next.
+	agentCfg *agent.Config
+
 	stats SessionTokenStats
 
 	MaxRetries     int
@@ -624,6 +637,19 @@ type Model struct {
 	// panel. Saves on Ctrl-S, cancels on Esc.
 	skillEditor *skillEditorState
 
+	// picker is the active /models or /provider wizard. nil
+	// when no picker is open. While non-nil, the keypress
+	// handler routes up/down/enter/esc to pickerKey() instead
+	// of the normal text input.
+	picker *modelPickerState
+
+	// pendingPickerLaunch is a one-shot signal from a slash
+	// command that wants to open the picker. Set by
+	// handleSystemCommand when /models or /provider is
+	// dispatched; the Update loop fires the picker on the
+	// next tick and clears the field.
+	pendingPickerLaunch *pendingPickerLaunch
+
 	width  int
 	height int
 	ready  bool
@@ -695,6 +721,12 @@ func (m *Model) mostRecentHumanTask() string {
 }
 
 // NewModel initializes a new Model for the Bubbletea program.
+//
+// configPath and agentCfg are optional. Pass "" / nil to disable
+// the /models and /provider system commands' write-back path
+// (the picker will still list models but won't persist changes
+// to disk). main.go wires these up at startup so /models and
+// /provider can switch active providers live.
 func NewModel(
 	tr *transcript.Transcript,
 	coder agent.AgentConfig,
@@ -703,6 +735,8 @@ func NewModel(
 	workDir string,
 	commandTimeout time.Duration,
 	cmdReg *commands.Registry,
+	configPath string,
+	agentCfg *agent.Config,
 ) Model {
 	styles := DefaultStyles()
 
@@ -728,6 +762,8 @@ func NewModel(
 		client:         client,
 		workDir:        workDir,
 		commandTimeout: commandTimeout,
+		configPath:     configPath,
+		agentCfg:       agentCfg,
 		MaxRetries:     loop.DefaultMaxRetries,
 		sessionState:   loop.StateIdle,
 		statusMessage:  "Ready — Type your prompt below and press Enter.",
@@ -740,6 +776,39 @@ func NewModel(
 
 	m.RestoreSessionState()
 	return m
+}
+
+// SetConfig attaches the live agent config + its on-disk path to
+// the TUI. Required for /models and /provider to persist changes
+// to config.yaml. Safe to call with either argument nil — the
+// TUI will then run in read-only mode for /models and refuse
+// /provider.
+func (m *Model) SetConfig(path string, cfg *agent.Config) {
+	m.configPath = path
+	m.agentCfg = cfg
+	// If the live config has a different active provider / model
+	// than the snapshot Coder/Reviewer configs the TUI was built
+	// with, resync so the next Coder/Reviewer turn hits the right
+	// endpoint.
+	if cfg != nil {
+		active, ok := cfg.ActiveProviderConfig()
+		if ok {
+			m.coder.BaseURL = active.BaseURL
+			m.coder.APIKey = active.APIKey
+			if active.DefaultModel != "" {
+				m.coder.Model = active.DefaultModel
+			}
+			m.coder.ReasoningLevel = cfg.ReasoningLevel
+			m.coder.ThinkingMode = cfg.ThinkingMode
+			m.reviewer.BaseURL = active.BaseURL
+			m.reviewer.APIKey = active.APIKey
+			if active.DefaultModel != "" {
+				m.reviewer.Model = active.DefaultModel
+			}
+			m.reviewer.ReasoningLevel = cfg.ReasoningLevel
+			m.reviewer.ThinkingMode = cfg.ThinkingMode
+		}
+	}
 }
 
 // SetSearchAPIKey sets the Firecrawl API key used by web_search tool calls.
@@ -1069,8 +1138,34 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return m.handleJourney(args)
 	case "skill":
 		return m.handleSkill(args)
+	case "models":
+		// /models opens the picker; the picker then drives
+		// everything from there. We return a System entry that
+		// just tells the user the picker is opening — the picker
+		// UI itself is rendered by the TUI separately.
+		if m.agentCfg == nil || m.configPath == "" {
+			return "", "/models: no live config.yaml attached to the TUI (start triad from a directory with config.yaml)"
+		}
+		// The picker is fired via a tea.Cmd in update.go;
+		// handleSystemCommand can't return a cmd, so we set
+		// a flag the message handler picks up. We use a
+		// dedicated pendingPickerLaunch field.
+		m.pendingPickerLaunch = &pendingPickerLaunch{
+			Kind:         pickerLaunchModels,
+			ProviderName: "",
+		}
+		return "Opening /models picker. Use ↑/↓ to navigate, Enter to select, Esc to cancel.", ""
+	case "provider":
+		if m.agentCfg == nil || m.configPath == "" {
+			return "", "/provider: no live config.yaml attached to the TUI (start triad from a directory with config.yaml)"
+		}
+		m.pendingPickerLaunch = &pendingPickerLaunch{
+			Kind:         pickerLaunchProvider,
+			ProviderName: strings.TrimSpace(args),
+		}
+		return "Opening /provider picker. Use ↑/↓ to navigate, Enter to select, Esc to cancel.", ""
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill, /models, /provider).", name)
 	}
 }
 

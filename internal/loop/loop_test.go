@@ -61,6 +61,20 @@ func (m *mockClient) Respond(_ context.Context, cfg agent.AgentConfig, _ []trans
 	return r.resp, r.err
 }
 
+// ListModels satisfies loop.AgentClient. The headless loop never
+// calls it in tests; this stub is here only so the mock still
+// implements the interface after ListModels was added.
+func (m *mockClient) ListModels(_ context.Context, _ agent.AgentConfig) ([]agent.ModelInfo, error) {
+	return nil, nil
+}
+
+// ListAllModels satisfies loop.AgentClient. Not exercised by
+// headless loop tests; returns nil so the interface contract
+// is met.
+func (m *mockClient) ListAllModels(_ context.Context, _ *agent.Config) ([]agent.AnnotatedModel, []agent.ModelError) {
+	return nil, nil
+}
+
 // RespondWithKey is like Respond but always pulls from the queue for
 // the given logical key, ignoring cfg.Name. Used by the subagent
 // wire-up test to route any "Subagent:<id>" call to a single shared
@@ -950,6 +964,18 @@ func (s *subagentRoutedMock) Respond(ctx context.Context, cfg agent.AgentConfig,
 		return s.base.RespondWithKey(ctx, s.subagentKey, cfg, entries)
 	}
 	return s.base.Respond(ctx, cfg, entries)
+}
+
+// ListModels satisfies loop.AgentClient. Not exercised by the
+// subagent tests; returns nil to keep the interface contract.
+func (s *subagentRoutedMock) ListModels(_ context.Context, _ agent.AgentConfig) ([]agent.ModelInfo, error) {
+	return nil, nil
+}
+
+// ListAllModels satisfies loop.AgentClient. Not exercised by
+// the subagent tests; returns nil to keep the interface contract.
+func (s *subagentRoutedMock) ListAllModels(_ context.Context, _ *agent.Config) ([]agent.AnnotatedModel, []agent.ModelError) {
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------
