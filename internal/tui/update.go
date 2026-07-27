@@ -82,7 +82,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Input box width based on rightCardInnerWidth
 		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
-		hintW := lipgloss.Width(m.styles.TitleKeycapKey.Render("Enter")) + lipgloss.Width(m.styles.TitleKeycapLabel.Render(" Submit"))
+		tokCount := skills.EstimateTokens(m.input.Value())
+		var tokLabel string
+		if tokCount == 1 {
+			tokLabel = "1\u00a0token"
+		} else {
+			tokLabel = fmt.Sprintf("%s\u00a0tokens", formatCompactTokens(tokCount))
+		}
+		hintW := lipgloss.Width(m.styles.TitleKeycapLabel.Render(tokLabel))
 		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
 		inputWidth := max(10, inputContainerContentWidth-pillW-hintW-6)
 		m.input.SetWidth(inputWidth)

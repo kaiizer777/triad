@@ -12,6 +12,7 @@ import (
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/journey"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -680,10 +681,14 @@ func (m Model) renderInputBar(width int) string {
 			m.styles.TitleKeycapLabel.Render(" Interject"),
 		)
 	} else {
-		hint = lipgloss.JoinHorizontal(lipgloss.Top,
-			m.styles.TitleKeycapKey.Render("Enter"),
-			m.styles.TitleKeycapLabel.Render(" Submit"),
-		)
+		tokCount := skills.EstimateTokens(m.input.Value())
+		var tokStr string
+		if tokCount == 1 {
+			tokStr = "1\u00a0token"
+		} else {
+			tokStr = fmt.Sprintf("%s\u00a0tokens", formatCompactTokens(tokCount))
+		}
+		hint = m.styles.TitleKeycapLabel.Render(tokStr)
 	}
 
 	containerW := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
@@ -696,17 +701,19 @@ func (m Model) renderInputBar(width int) string {
 
 	inputView := m.input.View()
 
-	content := lipgloss.JoinHorizontal(
-		lipgloss.Center,
-		pill,
-		" ",
-		inputView,
-		" ",
-		hint,
-	)
+	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, pill, " ", inputView)
+	leftW := lipgloss.Width(leftPart)
+	rightW := hintW
 
-	row := m.styles.InputContainer.Width(containerW).Render(content)
-	return lipgloss.JoinVertical(lipgloss.Left, topSepLine, row, bottomSepLine)
+	gapW := containerW - leftW - rightW
+	if gapW < 0 {
+		gapW = 0
+	}
+
+	content := leftPart + strings.Repeat(" ", gapW) + hint
+	row := m.styles.InputContainer.Render(content)
+	rowClipped := clipLines(row, 1)
+	return lipgloss.JoinVertical(lipgloss.Left, topSepLine, rowClipped, bottomSepLine)
 }
 
 // renderProposedAction formats a tool proposal card with syntax-highlighted args.

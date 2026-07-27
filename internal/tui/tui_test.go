@@ -1939,3 +1939,30 @@ func TestRenderInputFooterWorkDir(t *testing.T) {
 	}
 }
 
+func TestTUI_InputBarTokenCount(t *testing.T) {
+	m, cleanup := setupTestModel(t, nil)
+	defer cleanup()
+
+	// 1. Verify empty input shows 0 tokens and no Enter keycap
+	barEmpty := m.renderInputBar(100)
+	if !strings.Contains(barEmpty, "0") || !strings.Contains(barEmpty, "tokens") {
+		t.Errorf("expected input bar to display '0 tokens' for empty input, got:\n%s", barEmpty)
+	}
+	if strings.Contains(barEmpty, "Enter") {
+		t.Errorf("expected input bar to NOT contain 'Enter' keycap when idle, got:\n%s", barEmpty)
+	}
+
+	// 2. Set input value and verify updated token count
+	m.input.SetValue("This is a sample prompt to verify token count rendering in the TUI input bar.")
+	barWithText := m.renderInputBar(100)
+	if !strings.Contains(barWithText, "20") || !strings.Contains(barWithText, "tokens") {
+		t.Errorf("expected input bar to display '20 tokens' for sample input, got:\n%s", barWithText)
+	}
+
+	// 3. Verify single line rendering (excluding top and bottom border separators)
+	lines := strings.Split(barWithText, "\n")
+	if len(lines) != 3 { // top border, 1 input row, bottom border
+		t.Errorf("expected input bar to have exactly 3 lines (top border, 1 row, bottom border), got %d lines:\n%s", len(lines), barWithText)
+	}
+}
+
