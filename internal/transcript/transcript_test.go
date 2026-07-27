@@ -96,3 +96,32 @@ func TestTranscriptSaveToFile(t *testing.T) {
 		t.Fatalf("Expected 1 entry, got %d", len(loaded.Entries()))
 	}
 }
+
+func TestTranscriptClear(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.jsonl")
+
+	tr := NewTranscript(sessionPath)
+	if err := tr.Append(Entry{Speaker: SpeakerYou, Content: "Hello"}); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+	if len(tr.Entries()) != 1 {
+		t.Fatalf("Expected 1 entry before clear, got %d", len(tr.Entries()))
+	}
+
+	if err := tr.Clear(); err != nil {
+		t.Fatalf("Clear failed: %v", err)
+	}
+
+	if len(tr.Entries()) != 0 {
+		t.Errorf("Expected 0 entries after clear, got %d", len(tr.Entries()))
+	}
+
+	loaded, err := LoadFromFile(sessionPath)
+	if err != nil {
+		t.Fatalf("LoadFromFile failed after clear: %v", err)
+	}
+	if len(loaded.Entries()) != 0 {
+		t.Errorf("Expected 0 loaded entries after clear, got %d", len(loaded.Entries()))
+	}
+}

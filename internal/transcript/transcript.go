@@ -68,6 +68,25 @@ func (t *Transcript) Append(entry Entry) error {
 	return nil
 }
 
+// Clear wipes all entries from memory and truncates the bound session file if set.
+func (t *Transcript) Clear() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.entries = make([]Entry, 0)
+
+	if t.filePath != "" {
+		if err := os.MkdirAll(filepath.Dir(t.filePath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for session file: %w", err)
+		}
+		if err := os.WriteFile(t.filePath, nil, 0644); err != nil {
+			return fmt.Errorf("failed to truncate session file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 
 // appendLineToFile appends a single Entry as a JSON line to the specified path.
 func appendLineToFile(path string, entry Entry) error {

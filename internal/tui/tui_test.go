@@ -441,6 +441,20 @@ description: Toggle strict mode
 
 Be strict.
 `,
+		"clear.md": `---
+target: system
+description: Wipe current session transcript and start fresh
+---
+
+Wipe session.
+`,
+		"new.md": `---
+target: system
+description: Start a brand new session
+---
+
+New session.
+`,
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -2059,5 +2073,157 @@ func TestTUI_AltBackspaceSmoothWordDelete(t *testing.T) {
 		t.Errorf("expected empty string after ctrl+w, got %q", val)
 	}
 }
+
+func TestTUI_SlashCommand_Clear_RequiresConfirmation(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	// 1. Set mode to General and append entries
+	model.currentMode = loop.ModeGeneral
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "Initial prompt before clear",
+	})
+	if len(model.transcript.Entries()) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(model.transcript.Entries()))
+	}
+
+	// 2. Issue /clear for the first time without --force
+	updated, cmd := model.Update(humanInputMsg{content: "/clear"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("/clear should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	// Transcript should NOT be wiped yet
+	entries := m.transcript.Entries()
+	if len(entries) < 1 {
+		t.Fatalf("expected transcript to remain intact before confirmation, got %d entries", len(entries))
+	}
+	lastEntry := entries[len(entries)-1]
+	if !strings.Contains(lastEntry.Content, "erase the current session's transcript") {
+		t.Errorf("expected confirmation prompt message, got: %q", lastEntry.Content)
+	}
+	if m.currentMode != loop.ModeGeneral {
+		t.Errorf("expected current_mode to stay General, got: %v", m.currentMode)
+	}
+
+	// 3. Issue /clear second time to confirm
+	updated2, _ := m.Update(humanInputMsg{content: "/clear"})
+	m2 := updated2.(Model)
+
+	// Transcript should now be wiped and contain only the new System notification entry
+	entries2 := m2.transcript.Entries()
+	if len(entries2) != 1 {
+		t.Fatalf("expected exactly 1 entry in cleared transcript, got %d", len(entries2))
+	}
+	if entries2[0].Speaker != transcript.SpeakerSystem {
+		t.Errorf("expected System speaker for clear entry, got: %q", entries2[0].Speaker)
+	}
+	if !strings.Contains(entries2[0].Content, "Session transcript cleared") {
+		t.Errorf("expected cleared message, got: %q", entries2[0].Content)
+	}
+	if m2.currentMode != loop.ModeGeneral {
+		t.Errorf("expected current_mode to stay General after clear, got: %v", m2.currentMode)
+	}
+}
+
+func TestTUI_SlashCommand_Clear_Force(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModelWithRegistry(t, client, loadTestRegistry(t))
+	defer cleanup()
+
+	model.currentMode = loop.ModeTriad
+	_ = model.transcript.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "Initial prompt before forced clear",
+	})
+
+	// Issue /clear --force
+	updated, cmd := model.Update(humanInputMsg{content: "/clear --force"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("/clear --force should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	entries := m.transcript.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly 1 entry after forced clear, got %d", len(entries))
+	}
+	if !strings.Contains(entries[0].Content, "Session transcript cleared") {
+		t.Errorf("expected cleared message, got: %q", entries[0].Content)
+	}
+	if m.currentMode != loop.ModeTriad {
+		t.Errorf("expected current_mode to stay Triad after forced clear, got: %v", m.currentMode)
+	}
+}
+
+func TestTUI_SlashCommand_New(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionDir := filepath.Join(tempDir, "sessions")
+	_ = os.MkdirAll(sessionDir, 0755)
+
+	oldPath := filepath.Join(sessionDir, "session_20260728_100000.jsonl")
+	tr := transcript.NewTranscript(oldPath)
+	_ = tr.Append(transcript.Entry{
+		Speaker: transcript.SpeakerYou,
+		Type:    transcript.TypeMessage,
+		Content: "Task in old session",
+	})
+
+	client := &mockClient{}
+	model := NewModel(tr, agent.AgentConfig{}, agent.AgentConfig{}, client, tempDir, 5*time.Second, loadTestRegistry(t), "", nil)
+	model.currentMode = loop.ModeTriad
+
+	// Issue /new
+	updated, cmd := model.Update(humanInputMsg{content: "/new"})
+	m := updated.(Model)
+	if cmd != nil {
+		t.Errorf("/new should not trigger a Coder turn, got cmd=%v", cmd)
+	}
+
+	newPath := m.transcript.FilePath()
+	if newPath == oldPath {
+		t.Errorf("expected new session file path, got same as old path: %s", newPath)
+	}
+	if filepath.Dir(newPath) != sessionDir {
+		t.Errorf("expected new session to be created in %s, got %s", sessionDir, filepath.Dir(newPath))
+	}
+
+	// Verify mode was reset to orchestrator (default)
+	if m.currentMode != loop.ModeOrchestrator {
+		t.Errorf("expected current_mode to be reset to Orchestrator, got: %v", m.currentMode)
+	}
+
+	// Verify old session file is untouched and readable
+	loadedOld, err := transcript.LoadFromFile(oldPath)
+	if err != nil {
+		t.Fatalf("failed to load old session file %s: %v", oldPath, err)
+	}
+	oldEntries := loadedOld.Entries()
+	if len(oldEntries) != 1 || oldEntries[0].Content != "Task in old session" {
+		t.Fatalf("old session file was corrupted or altered, entries: %v", oldEntries)
+	}
+
+	// Append a message to the new session
+	updated2, _ := m.Update(humanInputMsg{content: "/status"})
+	m2 := updated2.(Model)
+
+	// Re-verify old session remains completely untouched
+	loadedOld2, err := transcript.LoadFromFile(oldPath)
+	if err != nil {
+		t.Fatalf("failed to reload old session file: %v", err)
+	}
+	if len(loadedOld2.Entries()) != 1 {
+		t.Errorf("old session entries count changed after activity in new session: got %d", len(loadedOld2.Entries()))
+	}
+	if len(m2.transcript.Entries()) == 0 {
+		t.Errorf("expected new session transcript to contain entries")
+	}
+}
+
 
 

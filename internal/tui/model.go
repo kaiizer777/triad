@@ -695,6 +695,9 @@ type Model struct {
 	// next tick and clears the field.
 	pendingPickerLaunch *pendingPickerLaunch
 
+	// pendingClearConfirm tracks whether a /clear command is awaiting user confirmation.
+	pendingClearConfirm bool
+
 	width  int
 	height int
 	ready  bool
@@ -1123,12 +1126,14 @@ func splitFirstToken(s string) (string, string) {
 func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bool, systemHandled bool, errMsg string) {
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasPrefix(trimmed, "/") {
+		m.pendingClearConfirm = false
 		return "", false, false, ""
 	}
 
 	// Strip leading "/" and split into command name + rest as args.
 	rest := strings.TrimSpace(trimmed[1:])
 	if rest == "" {
+		m.pendingClearConfirm = false
 		// Just "/", nothing to dispatch.
 		return "", false, false, "Empty command. Type /<name> or just send a plain message."
 	}
@@ -1145,6 +1150,10 @@ func (m *Model) expandSlashCommand(input string) (expanded string, cmdHandled bo
 	}
 	if name == "" {
 		name = rest
+	}
+
+	if strings.ToLower(name) != "clear" {
+		m.pendingClearConfirm = false
 	}
 
 	cmd, ok := m.commands.Get(name)
@@ -1234,8 +1243,12 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 		return "Opening /provider picker. Use ↑/↓ to navigate, Enter to select, Esc to cancel.", ""
 	case "proceed":
 		return "Proceeding with task execution.", ""
+	case "clear":
+		return m.handleClear(args)
+	case "new":
+		return m.handleNew(args)
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill, /models, /provider, /proceed).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill, /models, /provider, /proceed, /clear, /new).", name)
 	}
 }
 
@@ -1384,7 +1397,73 @@ func (m *Model) handleHelp() string {
 	sb.WriteString("  /learn [digest|promote|dismiss|...] — Self-learning workflow\n")
 	sb.WriteString("  /journey [on|off|--export <file>] — Commit journey timeline\n")
 	sb.WriteString("  /skill   — Skill management (list, view, add, delete, force, edit)\n")
+	sb.WriteString("  /clear [--force] — Wipe current session transcript and start fresh\n")
+	sb.WriteString("  /new     — Start a brand new session with a new session ID and file\n")
 	return sb.String()
+}
+
+// handleClear wipes the current session's transcript and starts fresh in the same session file/id.
+func (m *Model) handleClear(args string) (body string, errMsg string) {
+	args = strings.TrimSpace(args)
+	force := args == "--force"
+
+	if !force && !m.pendingClearConfirm {
+		m.pendingClearConfirm = true
+		return "This will erase the current session's transcript. Type /clear again to confirm (or /clear --force).", ""
+	}
+
+	m.pendingClearConfirm = false
+
+	if err := m.transcript.Clear(); err != nil {
+		return "", fmt.Sprintf("/clear failed: %v", err)
+	}
+
+	m.currentPlan = nil
+	m.planPreTextCount = 0
+	m.planBoundItemID = 0
+	m.lastCoderMessage = ""
+	m.lastProposedEntryID = 0
+	m.pendingClarify = nil
+	m.retryCount = 0
+	m.plainTextTurns = 0
+
+	return fmt.Sprintf("Session transcript cleared. Starting fresh in session %s.", filepath.Base(m.transcript.FilePath())), ""
+}
+
+// handleNew starts a brand new session with a new session ID and transcript file.
+func (m *Model) handleNew(args string) (body string, errMsg string) {
+	m.pendingClearConfirm = false
+
+	oldPath := m.transcript.FilePath()
+	dir := filepath.Dir(oldPath)
+	if dir == "." || dir == "" {
+		dir = "sessions"
+	}
+	_ = os.MkdirAll(dir, 0755)
+
+	sessionID := fmt.Sprintf("session_%s", time.Now().Format("20060102_150405"))
+	newPath := filepath.Join(dir, sessionID+".jsonl")
+	if newPath == oldPath {
+		sessionID = fmt.Sprintf("session_%s_%d", time.Now().Format("20060102_150405"), time.Now().UnixNano()%1000)
+		newPath = filepath.Join(dir, sessionID+".jsonl")
+	}
+
+	newTr := transcript.NewTranscript(newPath)
+	m.transcript = newTr
+
+	m.currentMode = loop.ModeOrchestrator
+
+	m.currentPlan = nil
+	m.planPreTextCount = 0
+	m.planBoundItemID = 0
+	m.lastCoderMessage = ""
+	m.lastProposedEntryID = 0
+	m.pendingClarify = nil
+	m.retryCount = 0
+	m.plainTextTurns = 0
+	m.loadedSkills = nil
+
+	return fmt.Sprintf("Started new session %s. Previous session saved intact at %s.", sessionID, filepath.Base(oldPath)), ""
 }
 
 

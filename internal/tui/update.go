@@ -196,7 +196,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.autocompleteIndex >= 0 && m.autocompleteIndex < len(m.autocompleteCmds) {
 					selected := m.autocompleteCmds[m.autocompleteIndex]
 					newVal := "/" + selected.Name
-					if !strings.Contains(selected.Name, " ") && selected.Name != "help" && selected.Name != "status" && selected.Name != "summary" && selected.Name != "undo" && selected.Name != "trace" && selected.Name != "learn" && selected.Name != "journey" {
+					if !strings.Contains(selected.Name, " ") && selected.Name != "help" && selected.Name != "status" && selected.Name != "summary" && selected.Name != "undo" && selected.Name != "trace" && selected.Name != "learn" && selected.Name != "journey" && selected.Name != "clear" && selected.Name != "new" {
 						newVal += " "
 					}
 					m.input.SetValue(newVal)
