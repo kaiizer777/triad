@@ -167,41 +167,46 @@ keep adding to a repo that still needs this fix.
 currently have zero retention policy: main sessions, subagent transcripts,
 twin-subagent transcripts, and trace logs.
 
-- [ ] 2.1 — Add a configurable retention window (default: 30 days, per the
+- [x] 2.1 — Add a configurable retention window (default: 30 days, per the
       audit's finding that files older than this are never re-read in
       normal operation) as a new config value, not hardcoded
-- [ ] 2.2 — Implement a cleanup pass covering all four locations:
+- [x] 2.2 — Implement a cleanup pass covering all four locations:
       `sessions/*.jsonl`, `sessions/subagents/*.jsonl`,
       `sessions/twins/*.jsonl`, `sessions/traces/*.jsonl` — checking file
       modification time (or a date embedded in the filename, whichever your
       current naming convention uses) against the retention window
-- [ ] 2.3 — Decide and implement the actual cleanup action: straight
+- [x] 2.3 — Decide and implement the actual cleanup action: straight
       deletion, or compress-and-archive (e.g. into
       `sessions/archive/<year>-<month>.tar.gz`) before deleting the
       originals — archiving is safer if you ever want to look back further
       than 30 days, at very low ongoing cost, since these are already small
       files
-- [ ] 2.4 — Decide when this cleanup pass runs — on every startup (simplest,
+- [x] 2.4 — Decide when this cleanup pass runs — on every startup (simplest,
       matches how `browser.IsChromiumInstalled()` already does a startup
       check), on a manual `/cleanup` command, or both. A manual command is
       good insurance even if startup-automatic is the default, so cleanup
       can be triggered on demand
-- [ ] 2.5 — Confirm the **current or active session's own files are never
+- [x] 2.5 — Confirm the **current or active session's own files are never
       touched** by this cleanup, even if somehow older than the window
       (e.g. a very long-running session) — only fully-completed, inactive
       sessions should ever be candidates for cleanup
-- [ ] 2.6 — **Test:** create synthetic old session/subagent/twin/trace files
+- [x] 2.6 — **Test:** create synthetic old session/subagent/twin/trace files
       with backdated timestamps, run cleanup, confirm only the ones past the
       retention window are removed/archived and everything else is
       untouched
-- [ ] 2.7 — **Test:** confirm the active/current session is never
+- [x] 2.7 — **Test:** confirm the active/current session is never
       accidentally cleaned up mid-use
-- [ ] 2.8 — **Test:** if archiving was chosen over straight deletion,
+- [x] 2.8 — **Test:** if archiving was chosen over straight deletion,
       confirm the archive is valid and its contents match what was removed
 
 **Checkpoint:** all four transcript-style JSONL locations have a real,
 tested retention policy instead of growing forever, and the active session
 is always protected from cleanup.
+
+**Implemented:** `session_retention_days` defaults to 30; startup cleanup
+gzip-archives expired files under `sessions/archive/<YYYY-MM>/`; the active
+session transcript and trace are protected. The retention test covers all
+four locations, recent files, active files, and archive contents.
 
 ---
 

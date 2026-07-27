@@ -18,6 +18,7 @@ import (
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
 	"github.com/kaiizer777/triad/internal/skills"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 	"github.com/kaiizer777/triad/internal/tui"
 )
@@ -119,6 +120,18 @@ func main() {
 		sessionID := fmt.Sprintf("session_%s", time.Now().Format("20060102_150405"))
 		sessionPath = filepath.Join("sessions", sessionID+".jsonl")
 		tr = transcript.NewTranscript(sessionPath)
+	}
+
+	cleanup, err := transcript.CleanupSessions(
+		"sessions",
+		time.Duration(cfg.SessionRetentionDays)*24*time.Hour,
+		sessionPath,
+		tracelog.TracePathForSession(sessionPath),
+	)
+	if err != nil {
+		logger.L().Warn("session retention cleanup failed", "error", err.Error())
+	} else if cleanup.ArchivedCount() > 0 {
+		logger.L().Info("archived expired session artifacts", "count", cleanup.ArchivedCount())
 	}
 
 	logger.L().Info("session ready", "path", sessionPath, "entries", len(tr.Entries()))

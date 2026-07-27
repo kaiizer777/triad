@@ -89,8 +89,8 @@ type ProviderConfig struct {
 //
 //  2. New multi-provider:
 //     providers:
-//       opencode_zen: {base_url, api_key, default_model, ...}
-//       xiaomi_direct: {base_url, api_key, default_model, ...}
+//     opencode_zen: {base_url, api_key, default_model, ...}
+//     xiaomi_direct: {base_url, api_key, default_model, ...}
 //     active_provider: opencode_zen
 //     model: mimo-v2.5-free            # current effective model
 //     reasoning_level: medium
@@ -105,6 +105,7 @@ type Config struct {
 	OutputCostPerToken    float64 `yaml:"output_cost_per_token"`
 	ContextWindow         int     `yaml:"context_window"`
 	CommandTimeoutSeconds int     `yaml:"command_timeout_seconds"`
+	SessionRetentionDays  int     `yaml:"session_retention_days"`
 	BrowserMode           string  `yaml:"browser_mode"`
 	ChromeCDPPort         int     `yaml:"chrome_cdp_port"`
 
@@ -133,13 +134,14 @@ type Config struct {
 }
 
 const (
-	DefaultBaseURL            = "https://opencode.ai/zen/v1"
-	DefaultModel              = "mimo-v2.5-free"
-	DefaultCommandTimeoutSecs = 30
-	DefaultBrowserMode        = "headless"
-	DefaultChromeCDPPort      = 9222
-	DefaultContextWindow      = 1000000
-	DefaultActiveProvider     = "opencode_zen"
+	DefaultBaseURL              = "https://opencode.ai/zen/v1"
+	DefaultModel                = "mimo-v2.5-free"
+	DefaultCommandTimeoutSecs   = 30
+	DefaultSessionRetentionDays = 30
+	DefaultBrowserMode          = "headless"
+	DefaultChromeCDPPort        = 9222
+	DefaultContextWindow        = 1000000
+	DefaultActiveProvider       = "opencode_zen"
 
 	// ReasoningLevelNone disables thinking. ReasoningLevelLow /
 	// Medium / High enable thinking with successively larger
@@ -221,6 +223,9 @@ func LoadConfig(path string) (*Config, error) {
 		if yamlCfg.CommandTimeoutSeconds > 0 {
 			rawCfg.CommandTimeoutSeconds = yamlCfg.CommandTimeoutSeconds
 		}
+		if yamlCfg.SessionRetentionDays > 0 {
+			rawCfg.SessionRetentionDays = yamlCfg.SessionRetentionDays
+		}
 		if yamlCfg.BrowserMode != "" {
 			rawCfg.BrowserMode = yamlCfg.BrowserMode
 		}
@@ -264,6 +269,9 @@ func LoadConfig(path string) (*Config, error) {
 	if rawCfg.CommandTimeoutSeconds <= 0 {
 		rawCfg.CommandTimeoutSeconds = DefaultCommandTimeoutSecs
 	}
+	if rawCfg.SessionRetentionDays <= 0 {
+		rawCfg.SessionRetentionDays = DefaultSessionRetentionDays
+	}
 	if rawCfg.BrowserMode == "" {
 		rawCfg.BrowserMode = DefaultBrowserMode
 	}
@@ -278,9 +286,9 @@ func LoadConfig(path string) (*Config, error) {
 	if len(rawCfg.Providers) == 0 {
 		rawCfg.Providers = map[string]ProviderConfig{
 			DefaultActiveProvider: {
-				BaseURL:       rawCfg.BaseURL,
-				APIKey:        rawCfg.APIKey,
-				DefaultModel:  rawCfg.Model,
+				BaseURL:        rawCfg.BaseURL,
+				APIKey:         rawCfg.APIKey,
+				DefaultModel:   rawCfg.Model,
 				ReasoningLevel: rawCfg.ReasoningLevel,
 				ThinkingMode:   rawCfg.ThinkingMode,
 			},
@@ -505,6 +513,9 @@ func SaveConfig(path string, cfg *Config) error {
 	}
 	if cfg.CommandTimeoutSeconds > 0 {
 		overwrites["command_timeout_seconds"] = cfg.CommandTimeoutSeconds
+	}
+	if cfg.SessionRetentionDays > 0 {
+		overwrites["session_retention_days"] = cfg.SessionRetentionDays
 	}
 	if cfg.BrowserMode != "" {
 		overwrites["browser_mode"] = cfg.BrowserMode

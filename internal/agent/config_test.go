@@ -63,6 +63,23 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Coder.ContextWindow != DefaultContextWindow {
 		t.Errorf("Expected Coder.ContextWindow %d, got %d", DefaultContextWindow, cfg.Coder.ContextWindow)
 	}
+	if cfg.SessionRetentionDays != DefaultSessionRetentionDays {
+		t.Errorf("Expected SessionRetentionDays %d, got %d", DefaultSessionRetentionDays, cfg.SessionRetentionDays)
+	}
+}
+
+func TestLoadConfigSessionRetentionDays(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("session_retention_days: 14\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionRetentionDays != 14 {
+		t.Errorf("SessionRetentionDays = %d, want 14", cfg.SessionRetentionDays)
+	}
 }
 
 func TestLoadConfig_TokenCostAndContextWindow(t *testing.T) {

@@ -6,3 +6,7 @@ model: "mimo-v2.5-free"
 # Optional: cap run_command execution time (default: 30 seconds).
 # Raise this if your build commands (e.g. go build on a large repo) take longer.
 # command_timeout_seconds: 30
+
+# Archive completed session transcripts older than this many days at startup.
+# Archives are gzip files under sessions/archive/ and the active session is protected.
+# session_retention_days: 30
