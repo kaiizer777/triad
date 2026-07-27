@@ -365,7 +365,7 @@ func DefaultStyles() Styles {
 		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
 			Background(obsidianAlt).
-			Padding(2, 2),
+			Padding(1, 1),
 
 		InputPill: lipgloss.NewStyle().
 			Bold(true).
@@ -409,8 +409,7 @@ func DefaultStyles() Styles {
 		StatusBar: lipgloss.NewStyle().
 			Foreground(textDim).
 			Background(obsidianAlt).
-			Padding(0, 1).
-			MarginBottom(1),
+			Padding(0, 1),
 
 		SpinnerStyle: lipgloss.NewStyle().
 			Foreground(violetLt).
@@ -789,6 +788,11 @@ func NewModel(
 	ti := textinput.New()
 	ti.Placeholder = "Ask Triad to build a feature, edit code, or analyze tasks..."
 	ti.Prompt = ""
+	tiStyles := textinput.DefaultDarkStyles()
+	tiStyles.Focused.Text = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF"))
+	tiStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B")).Italic(true)
+	tiStyles.Blurred.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	ti.SetStyles(tiStyles)
 	ti.SetWidth(40)
 	ti.Focus()
 

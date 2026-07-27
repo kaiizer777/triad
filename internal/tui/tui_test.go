@@ -1915,3 +1915,27 @@ func TestTUI_LiveSessionTokenStats(t *testing.T) {
 		t.Errorf("Expected renderInputFooter output to include live stats, got: %s", footer)
 	}
 }
+
+func TestRenderInputFooterWorkDir(t *testing.T) {
+	m, cleanup := setupTestModel(t, nil)
+	defer cleanup()
+
+	m.workDir = "c:/Users/bari2/Desktop/triad"
+	m.coder.Model = "mimo-v2.5-pro"
+
+	// Test wide width (should contain full path or base directory and ORCHESTRATOR mode)
+	footerWide := m.renderInputFooter(120)
+	if !strings.Contains(footerWide, "triad") {
+		t.Errorf("Expected wide footer to contain 'triad', got: %s", footerWide)
+	}
+	if !strings.Contains(footerWide, "ORCHESTRATOR") {
+		t.Errorf("Expected wide footer to contain 'ORCHESTRATOR', got: %s", footerWide)
+	}
+
+	// Test medium width (should fall back to folder name 'triad' when space is tighter)
+	footerMedium := m.renderInputFooter(80)
+	if !strings.Contains(footerMedium, "triad") {
+		t.Errorf("Expected medium footer to contain 'triad', got: %s", footerMedium)
+	}
+}
+

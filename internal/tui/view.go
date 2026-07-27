@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -596,44 +598,59 @@ func (m Model) renderInputFooter(width int) string {
 		modeStr = "ORCHESTRATOR"
 	}
 	workDir := m.workDir
-	if workDir == "" {
-		workDir = "."
-	}
 
 	sep := m.styles.SidebarSubHeader.Render(" | ")
 	modelPill := m.styles.SidebarLabel.Render(modelName)
 	modePill := m.styles.SidebarBadgeThink.Render(" " + modeStr + " ")
 
-	prefixRight := modelPill + sep + modePill
-	prefixRightW := lipgloss.Width(prefixRight)
+	// Available space on the right side of the status bar (leave at least 1 space for gap)
+	maxRightW := max(0, containerW-leftW-1)
 
-	availForDir := containerW - leftW - prefixRightW - 3
+	modelW := lipgloss.Width(modelPill)
+	modeW := lipgloss.Width(modePill)
+	sepW := lipgloss.Width(sep)
+
+	// Full prefix width: Model | Mode |
+	prefixFullW := modelW + sepW + modeW + sepW
+
 	var rightPart string
-	if availForDir >= 6 {
-		dirVal := truncatePath(workDir, availForDir)
-		rightPart = prefixRight + sep + m.styles.SidebarValue.Render(dirVal)
-	} else if containerW-leftW >= prefixRightW {
-		rightPart = prefixRight
-	} else if containerW-leftW >= lipgloss.Width(modelPill) {
-		rightPart = modelPill
-	} else {
-		rightPart = ""
+	if maxRightW >= prefixFullW+1 {
+		// Level 1: Model | Mode | Directory
+		availForDir := maxRightW - prefixFullW
+		dirVal := formatWorkDir(workDir, availForDir)
+		if dirVal != "" {
+			rightPart = modelPill + sep + modePill + sep + m.styles.SidebarValue.Render(dirVal)
+		} else {
+			rightPart = modelPill + sep + modePill
+		}
+	} else if maxRightW >= modelW+sepW+1 {
+		// Level 2: Model | Directory (when space is tight for Mode pill)
+		availForDir := maxRightW - modelW - sepW
+		dirVal := formatWorkDir(workDir, availForDir)
+		if dirVal != "" {
+			rightPart = modelPill + sep + m.styles.SidebarValue.Render(dirVal)
+		} else {
+			rightPart = modelPill
+		}
+	} else if maxRightW >= 1 {
+		// Level 3: Directory only
+		dirVal := formatWorkDir(workDir, maxRightW)
+		if dirVal != "" {
+			rightPart = m.styles.SidebarValue.Render(dirVal)
+		} else {
+			rightPart = modelPill
+		}
 	}
 
 	rightW := lipgloss.Width(rightPart)
 	gapW := containerW - leftW - rightW
-	if gapW < 0 {
-		gapW = 0
+	if gapW < 1 {
+		gapW = 1
 	}
 
-	var row string
-	if gapW > 0 {
-		row = leftPart + strings.Repeat(" ", gapW) + rightPart
-	} else {
-		row = leftPart + rightPart
-	}
+	row := leftPart + strings.Repeat(" ", gapW) + rightPart
 
-	res := m.styles.StatusBar.Width(containerW).Render(truncateLine(row, containerW))
+	res := m.styles.StatusBar.Render(truncateLine(row, containerW))
 	return clipLines(res, 1)
 }
 
@@ -999,6 +1016,39 @@ func truncatePath(path string, maxLen int) string {
 		runes = runes[1:]
 	}
 	return "..." + string(runes)
+}
+
+func formatWorkDir(workDir string, availW int) string {
+	if availW <= 0 {
+		return ""
+	}
+	if workDir == "" {
+		if pwd, err := os.Getwd(); err == nil && pwd != "" {
+			workDir = pwd
+		} else {
+			workDir = "."
+		}
+	}
+	// Prefer full working directory if it fits
+	if lipgloss.Width(workDir) <= availW {
+		return workDir
+	}
+	// Prefer folder name (base dir) if full path is too long
+	baseDir := filepath.Base(workDir)
+	if baseDir == "." || baseDir == "/" || baseDir == "\\" || baseDir == "" {
+		baseDir = workDir
+	}
+	if lipgloss.Width(baseDir) <= availW {
+		return baseDir
+	}
+	if availW <= 3 {
+		runes := []rune(baseDir)
+		if len(runes) > availW {
+			return string(runes[:availW])
+		}
+		return baseDir
+	}
+	return truncatePath(baseDir, availW)
 }
 
 // renderProgressBar renders a progress meter using single-width block chars.
