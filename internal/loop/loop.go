@@ -35,6 +35,8 @@ const (
 	StateIdle SessionState = iota
 	// StateActive means the coder/reviewer cycle is running.
 	StateActive
+	// StateAskQuestion means the session is blocked waiting for human answers to an ask_question batch.
+	StateAskQuestion
 )
 
 // Decision is the result of parsing Reviewer's plain-text response.
@@ -139,12 +141,6 @@ type Loop struct {
 	// SearchAPIKey holds the Firecrawl API key used by the web_search tool.
 	SearchAPIKey string
 
-	// pendingClarify is the most recent clarify.Batch we asked the
-	// human about. When non-nil, the next human message is treated
-	// as a clarification reply (or a proceed signal) rather than a
-	// fresh task — the loop does not re-clarify the reply itself,
-	// and a proceed signal unblocks the task with the stated
-	// best-guess interpretation. Cleared on proceed, on
 	// non-proceed reply, and at the end of every active cycle.
 	//
 	// Phase 3 (docs/x.md §Phase 3): shared by General Chat and
@@ -648,87 +644,9 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 				// Fall through to active cycle.
 
 			} else {
-				// --- Non-orchestrator: Clarify phase (Phase 3) ---
-				//
-				// If we have a pending clarify round, this message is a
-				// REPLY to it (answers or a proceed signal) — process
-				// the reply without re-clarifying.
-				//
-				// Otherwise, this is a fresh task. Assess it: if it's
-				// ambiguous, append a single batched System entry
-				// asking the questions, set pendingClarify, and DO
-				// NOT start the active cycle. The loop returns to
-				// the top of Run, waits for the human's reply, and
-				// re-enters this branch with pendingClarify set.
-				if l.pendingClarify != nil {
-					if clarify.IsProceedCommand(msg) {
-						// "just proceed" / /proceed — record the
-						// best-guess interpretation in the
-						// transcript and unblock the active cycle
-						// using the original task (the first
-						// entry of the pending round).
-						_ = l.append(transcript.Entry{
-							Speaker:   transcript.SpeakerSystem,
-							Type:      transcript.TypeMessage,
-							Content:   clarify.FormatProceedNote(*l.pendingClarify),
-							Timestamp: time.Now(),
-						})
-						l.pendingClarify = nil
-						// Fall through to the active cycle below.
-					} else {
-						// Real answers (or any non-proceed reply).
-						// The human's reply is already in the
-						// transcript as a [You] entry; record a
-						// short System ack so the next agent
-						// turn sees the answers were received,
-						// then continue with the active cycle.
-						_ = l.append(transcript.Entry{
-							Speaker:   transcript.SpeakerSystem,
-							Type:      transcript.TypeMessage,
-							Content:   "[System]: Clarification received — proceeding.",
-							Timestamp: time.Now(),
-						})
-						l.pendingClarify = nil
-						// Fall through to the active cycle below.
-					}
-				} else {
-					// This is a fresh task. Clarification replies leave the
-					// previously captured task intact.
-					l.activeCycleTask = msg
-					// Fresh task — run the shared clarify step.
-					batch := clarify.AssessAmbiguity(msg)
-					if batch.NeedsClarification {
-						tracePath := tracelog.TracePathForSession(l.transcript.FilePath())
-						_ = tracelog.Append(tracePath, tracelog.Entry{
-							Entity:      "clarify",
-							EventType:   tracelog.EventClarifyTrigger,
-							Description: fmt.Sprintf("Clarification requested (%d question(s)) for task: %s", len(batch.Questions), msg),
-						})
-						_ = l.append(transcript.Entry{
-							Speaker:   transcript.SpeakerSystem,
-							Type:      transcript.TypeMessage,
-							Content:   clarify.FormatClarifyBlock(batch),
-							Timestamp: time.Now(),
-						})
-						// Stash the batch for the next message.
-						// IMPORTANT: we capture by value into the
-						// pointer field. The next message will be
-						// processed as a reply (or proceed), not
-						// re-clarified.
-						stored := batch
-						l.pendingClarify = &stored
-						// Stay idle until the human replies or
-						// says "proceed". We deliberately do
-						// NOT consume the active cycle here.
-						continue
-					}
-					// Task is unambiguous — proceed. We do NOT
-					// emit a System note for this case (the
-					// transcript would be noisy on every clear
-					// task); the doc only requires the entry
-					// when there was an actual clarification
-					// round or a proceed signal.
-				}
+				// This is a fresh task. 
+				l.activeCycleTask = msg
+				
 				// Forced mode (general or triad) — use it directly.
 				l.effectiveMode = l.CurrentMode
 			}
@@ -879,6 +797,9 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			var result string
 			var execErr error
 			switch {
+			case toolCall.Function.Name == "ask_question":
+				result = "ERROR: ask_question is not supported in headless mode (no interactive prompt available)."
+				execErr = fmt.Errorf("ask_question called in headless mode")
 			case toolCall.Function.Name == "spawn_subagent":
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
 			case toolCall.Function.Name == "spawn_twin_subagent":
@@ -1240,6 +1161,9 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			var result string
 			var execErr error
 			switch {
+			case toolCall.Function.Name == "ask_question":
+				result = "ERROR: ask_question is not supported in headless mode (no interactive prompt available)."
+				execErr = fmt.Errorf("ask_question called in headless mode")
 			case toolCall.Function.Name == "spawn_subagent":
 				result, execErr = l.runSpawnSubagent(ctx, toolCall)
 			case toolCall.Function.Name == "spawn_twin_subagent":

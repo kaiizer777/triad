@@ -31,6 +31,155 @@ func jsonUnmarshalRaw(data string, dst any) error {
 	return json.Unmarshal([]byte(data), dst)
 }
 
+func handleAskQuestionCall(m Model, tc agent.ToolCall) (tea.Model, tea.Cmd) {
+	var batch agent.AskQuestionBatch
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &batch); err != nil {
+		return m, func() tea.Msg {
+			return toolResultMsg{
+				toolCall: tc,
+				result:   fmt.Sprintf("error parsing ask_question arguments: %v", err),
+				err:      err,
+			}
+		}
+	}
+	m.sessionState = loop.StateAskQuestion
+	m.askQuestion = &askQuestionState{
+		Batch:        batch,
+		SelectedOpts: make(map[int]map[int]bool),
+		OriginalCall: tc,
+	}
+	m.statusMessage = "Waiting for human answer to clarifying questions..."
+	return m, nil
+}
+
+func (m *Model) handleAskQuestionKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if m.askQuestion == nil {
+		return nil, false
+	}
+	aq := m.askQuestion
+	q := aq.Batch.Questions[aq.CurrentIndex]
+
+	if aq.OtherActive {
+		switch msg.String() {
+		case "esc":
+			aq.OtherActive = false
+			aq.OtherText = ""
+			return nil, true
+		case "enter":
+			if strings.TrimSpace(aq.OtherText) != "" {
+				if aq.SelectedOpts[aq.CurrentIndex] == nil {
+					aq.SelectedOpts[aq.CurrentIndex] = make(map[int]bool)
+				}
+				if !q.AllowMultiSelect {
+					for k := range aq.SelectedOpts[aq.CurrentIndex] {
+						delete(aq.SelectedOpts[aq.CurrentIndex], k)
+					}
+				}
+				aq.SelectedOpts[aq.CurrentIndex][len(q.Options)] = true
+				goto SubmitQuestion
+			}
+			return nil, true
+		case "backspace":
+			if len(aq.OtherText) > 0 {
+				aq.OtherText = aq.OtherText[:len(aq.OtherText)-1]
+			}
+			return nil, true
+		default:
+			if len(msg.String()) == 1 {
+				aq.OtherText += msg.String()
+			} else if msg.String() == "space" {
+				aq.OtherText += " "
+			}
+			return nil, true
+		}
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		return tea.Quit, true
+	case "up":
+		aq.OptionIndex--
+		if aq.OptionIndex < 0 {
+			aq.OptionIndex = len(q.Options)
+		}
+		return nil, true
+	case "down":
+		aq.OptionIndex++
+		if aq.OptionIndex > len(q.Options) {
+			aq.OptionIndex = 0
+		}
+		return nil, true
+	case " ", "space":
+		if q.AllowMultiSelect {
+			if aq.SelectedOpts[aq.CurrentIndex] == nil {
+				aq.SelectedOpts[aq.CurrentIndex] = make(map[int]bool)
+			}
+			aq.SelectedOpts[aq.CurrentIndex][aq.OptionIndex] = !aq.SelectedOpts[aq.CurrentIndex][aq.OptionIndex]
+		}
+		return nil, true
+	case "enter":
+		if aq.OptionIndex == len(q.Options) {
+			if !q.AllowMultiSelect {
+				if aq.SelectedOpts[aq.CurrentIndex] == nil {
+					aq.SelectedOpts[aq.CurrentIndex] = make(map[int]bool)
+				}
+				for k := range aq.SelectedOpts[aq.CurrentIndex] {
+					delete(aq.SelectedOpts[aq.CurrentIndex], k)
+				}
+			}
+			aq.OtherActive = true
+			return nil, true
+		}
+
+		if !q.AllowMultiSelect {
+			if aq.SelectedOpts[aq.CurrentIndex] == nil {
+				aq.SelectedOpts[aq.CurrentIndex] = make(map[int]bool)
+			}
+			for k := range aq.SelectedOpts[aq.CurrentIndex] {
+				delete(aq.SelectedOpts[aq.CurrentIndex], k)
+			}
+			aq.SelectedOpts[aq.CurrentIndex][aq.OptionIndex] = true
+		}
+		goto SubmitQuestion
+	}
+	return nil, true
+
+SubmitQuestion:
+	var ans []string
+	for idx, selected := range aq.SelectedOpts[aq.CurrentIndex] {
+		if selected {
+			if idx < len(q.Options) {
+				ans = append(ans, q.Options[idx].Label)
+			} else {
+				ans = append(ans, aq.OtherText)
+			}
+		}
+	}
+	if len(ans) == 0 {
+		return nil, true
+	}
+
+	aq.Answers = append(aq.Answers, strings.Join(ans, ", "))
+	aq.CurrentIndex++
+	aq.OptionIndex = 0
+	aq.OtherActive = false
+	aq.OtherText = ""
+
+	if aq.CurrentIndex >= len(aq.Batch.Questions) {
+		resBytes, _ := json.Marshal(aq.Answers)
+		resMsg := toolResultMsg{
+			toolCall: aq.OriginalCall,
+			result:   string(resBytes),
+			err:      nil,
+		}
+		m.askQuestion = nil
+		m.sessionState = loop.StateActive
+		m.statusMessage = "Clarification provided."
+		return func() tea.Msg { return resMsg }, true
+	}
+	return nil, true
+}
+
 // MaxPlainTextTurns is the maximum number of consecutive plain-text (no tool call)
 // Coder responses allowed before the TUI treats it as a stall and returns to idle.
 // Set to 1: Coder gets one chance to follow up a planning message with a tool call.
@@ -170,6 +319,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			_, cmd := m.pickerKey(msg)
+			return m, cmd
+		}
+		if cmd, handled := m.handleAskQuestionKey(msg); handled {
 			return m, cmd
 		}
 		if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
@@ -534,6 +686,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = m.transcript.Append(proposedEntry)
 				m.refreshViewport()
 
+				if toolCall.Function.Name == "ask_question" {
+					return handleAskQuestionCall(m, toolCall)
+				}
+
 				if toolCall.Function.Name == "spawn_subagent" {
 					m.statusMessage = "Running subagent..."
 					return m, cmdSpawnSubagent(
@@ -748,6 +904,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastProposedEntryID = entries[len(entries)-1].ID
 			}
 			m.refreshViewport()
+
+			if toolCall.Function.Name == "ask_question" {
+				return handleAskQuestionCall(m, toolCall)
+			}
 
 			// Orchestrator mode: the orchestrator agent itself doesn't
 			// use a reviewer — it routes tasks to general or triad.

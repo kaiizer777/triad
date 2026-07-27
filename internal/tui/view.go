@@ -71,6 +71,11 @@ func (m Model) View() tea.View {
 		if popup != "" {
 			popupHeight = lipgloss.Height(popup)
 		}
+	} else if m.askQuestion != nil {
+		popup = m.renderAskQuestionPopup(rightCardInnerWidth)
+		if popup != "" {
+			popupHeight = lipgloss.Height(popup)
+		}
 	} else if m.autocompleteActive && len(m.autocompleteCmds) > 0 {
 		popup = m.renderAutocompletePopup(rightCardInnerWidth)
 		if popup != "" {
@@ -1257,4 +1262,97 @@ func wrapText(text string, width int) []string {
 	// Use Lipgloss to wrap text cleanly
 	wrapped := lipgloss.NewStyle().Width(width).Render(text)
 	return strings.Split(wrapped, "\n")
+}
+
+func (m Model) renderAskQuestionPopup(width int) string {
+	aq := m.askQuestion
+	if aq == nil || aq.CurrentIndex >= len(aq.Batch.Questions) {
+		return ""
+	}
+
+	q := aq.Batch.Questions[aq.CurrentIndex]
+
+	boxW := width
+	if boxW > 80 {
+		boxW = 80
+	}
+
+	var lines []string
+	header := m.styles.AutocompleteHeader.Render(fmt.Sprintf(" Question %d of %d ", aq.CurrentIndex+1, len(aq.Batch.Questions)))
+	lines = append(lines, header)
+	
+	questionText := m.styles.MdBold.Render(q.Question)
+	if q.AllowMultiSelect {
+		questionText += m.styles.InputHint.Render(" (Select multiple. Press Space to toggle, Enter to submit)")
+	} else {
+		questionText += m.styles.InputHint.Render(" (Select one. Press Enter to submit)")
+	}
+	lines = append(lines, questionText, "")
+
+	for i, opt := range q.Options {
+		prefix := "  "
+		if i == aq.OptionIndex {
+			prefix = "> "
+		}
+		
+		marker := "[ ] "
+		if q.AllowMultiSelect {
+			if aq.SelectedOpts[aq.CurrentIndex] != nil && aq.SelectedOpts[aq.CurrentIndex][i] {
+				marker = "[x] "
+			}
+		} else {
+			if aq.SelectedOpts[aq.CurrentIndex] != nil && aq.SelectedOpts[aq.CurrentIndex][i] {
+				marker = "(*) "
+			} else {
+				marker = "( ) "
+			}
+		}
+
+		labelStr := marker + opt.Label
+		descStr := ""
+		if opt.Description != "" {
+			descStr = " - " + opt.Description
+		}
+
+		line := prefix + labelStr + descStr
+		if i == aq.OptionIndex {
+			line = m.styles.AutocompleteItemSel.Render(line)
+		} else {
+			line = m.styles.AutocompleteItem.Render(line)
+		}
+		lines = append(lines, line)
+	}
+
+	// Other option
+	otherIdx := len(q.Options)
+	prefix := "  "
+	if otherIdx == aq.OptionIndex {
+		prefix = "> "
+	}
+	marker := "[ ] "
+	if q.AllowMultiSelect {
+		if aq.SelectedOpts[aq.CurrentIndex] != nil && aq.SelectedOpts[aq.CurrentIndex][otherIdx] {
+			marker = "[x] "
+		}
+	} else {
+		if aq.SelectedOpts[aq.CurrentIndex] != nil && aq.SelectedOpts[aq.CurrentIndex][otherIdx] {
+			marker = "(*) "
+		} else {
+			marker = "( ) "
+		}
+	}
+
+	otherLine := prefix + marker + "Other..."
+	if aq.OtherActive {
+		otherLine = prefix + marker + "Other: " + aq.OtherText + "_"
+		otherLine = m.styles.AutocompleteItemSel.Render(otherLine)
+	} else if otherIdx == aq.OptionIndex {
+		otherLine = m.styles.AutocompleteItemSel.Render(otherLine)
+	} else {
+		otherLine = m.styles.AutocompleteItem.Render(otherLine)
+	}
+	lines = append(lines, otherLine)
+
+	content := strings.Join(lines, "\n")
+	return m.styles.AutocompleteBox.Width(boxW - 2).Render(content)
 }

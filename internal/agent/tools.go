@@ -39,8 +39,9 @@ type ToolParamSchema struct {
 
 // ToolParamProperty describes a single parameter within a tool's parameter schema.
 type ToolParamProperty struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
+	Type        string           `json:"type"`
+	Description string           `json:"description,omitempty"`
+	Items       *ToolParamSchema `json:"items,omitempty"`
 }
 
 // coderToolSchemas holds the three tools available to the Coder agent.
@@ -402,6 +403,55 @@ var coderToolSchemas = []ToolSchema{
 			},
 		},
 	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "ask_question",
+			Description: "Ask the human one or more clarifying questions to resolve genuine ambiguity before proceeding. Use this instead of asking questions in plain text. Execution blocks synchronously until the human answers all questions in the batch.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"questions": {
+						Type:        "array",
+						Description: "A batch of questions to ask the human.",
+						Items: &ToolParamSchema{
+							Type: "object",
+							Properties: map[string]ToolParamProperty{
+								"question": {
+									Type:        "string",
+									Description: "The clarifying question.",
+								},
+								"allow_multi_select": {
+									Type:        "boolean",
+									Description: "If true, allows selecting multiple options.",
+								},
+								"options": {
+									Type:        "array",
+									Description: "Available options for the question (2-4 recommended).",
+									Items: &ToolParamSchema{
+										Type: "object",
+										Properties: map[string]ToolParamProperty{
+											"label": {
+												Type:        "string",
+												Description: "The option text.",
+											},
+											"description": {
+												Type:        "string",
+												Description: "The tradeoff or reasoning for this option.",
+											},
+										},
+										Required: []string{"label"},
+									},
+								},
+							},
+							Required: []string{"question", "options"},
+						},
+					},
+				},
+				Required: []string{"questions"},
+			},
+		},
+	},
 }
 
 // CoderTools returns the full list of tool schemas for the Coder agent.
@@ -424,6 +474,25 @@ type ToolCall struct {
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // raw JSON string, e.g. {"path":"foo.go","content":"..."}
+}
+
+// ---------------------------------------------------------------------------
+// ask_question structured tool call definitions
+// ---------------------------------------------------------------------------
+
+type AskQuestionBatch struct {
+	Questions []AskQuestion `json:"questions"`
+}
+
+type AskQuestion struct {
+	Question         string              `json:"question"`
+	Options          []AskQuestionOption `json:"options"`
+	AllowMultiSelect bool                `json:"allow_multi_select"`
+}
+
+type AskQuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
 
 // ---------------------------------------------------------------------------
@@ -691,6 +760,8 @@ func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (s
 		// needs the parent loop's client, session dir, and Coder config.
 		// If this reaches ExecuteTool directly the caller forgot to intercept.
 		execErr = fmt.Errorf("ExecuteTool: spawn_twin_subagent must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
+	case "ask_question":
+		execErr = fmt.Errorf("ExecuteTool: ask_question must be intercepted by the caller (headless loop or TUI) before ExecuteTool is invoked; got here directly")
 	case "web_search":
 		apiKey := os.Getenv("FIRECRAWL_API_KEY")
 		if apiKey == "" {

@@ -648,6 +648,10 @@ type Model struct {
 	browser *browser.Manager
 	searchAPIKey string
 
+	// askQuestion holds the interactive state for the ask_question structured tool call.
+	// It is non-nil only when sessionState == loop.StateAskQuestion (or equivalent).
+	askQuestion *askQuestionState
+
 	memory   *memory.Manager
 	learnSvc *learn.Service
 
@@ -1842,4 +1846,15 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, m.initialCmd)
 	}
 	return tea.Batch(cmds...)
+}
+
+type askQuestionState struct {
+	Batch        agent.AskQuestionBatch
+	CurrentIndex int
+	OptionIndex  int
+	SelectedOpts map[int]map[int]bool // question index -> option index -> true
+	Answers      []string
+	OtherActive  bool
+	OtherText    string
+	OriginalCall agent.ToolCall
 }
