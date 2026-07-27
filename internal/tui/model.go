@@ -50,17 +50,21 @@ type Styles struct {
 	SidebarMeterEmpty  lipgloss.Style
 
 	// Speaker Pills & Timestamps
-	YouPill      lipgloss.Style
-	CoderPill    lipgloss.Style
-	ReviewerPill lipgloss.Style
-	SystemPill   lipgloss.Style
-	Timestamp    lipgloss.Style
+	YouPill          lipgloss.Style
+	CoderPill        lipgloss.Style
+	ReviewerPill     lipgloss.Style
+	OrchestratorPill lipgloss.Style
+	PartnerPill      lipgloss.Style
+	SystemPill       lipgloss.Style
+	Timestamp        lipgloss.Style
 
 	// Message Feed Callouts & Accents
-	UserCalloutBox     lipgloss.Style
-	CoderCalloutBox    lipgloss.Style
-	ReviewerCalloutBox lipgloss.Style
-	YouMessageBar      lipgloss.Style
+	UserCalloutBox         lipgloss.Style
+	CoderCalloutBox        lipgloss.Style
+	ReviewerCalloutBox     lipgloss.Style
+	OrchestratorCalloutBox lipgloss.Style
+	PartnerCalloutBox      lipgloss.Style
+	YouMessageBar          lipgloss.Style
 	CoderMessageBar    lipgloss.Style
 	ReviewerMessageBar lipgloss.Style
 	ApprovedBadge      lipgloss.Style
@@ -255,6 +259,18 @@ func DefaultStyles() Styles {
 			Background(amberLt).
 			Padding(0, 1),
 
+		OrchestratorPill: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(violetMd).
+			Padding(0, 1),
+
+		PartnerPill: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(violetMd).
+			Padding(0, 1),
+
 		SystemPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(obsidian).
@@ -284,6 +300,20 @@ func DefaultStyles() Styles {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(amberLt).
 			Background(amberBg).
+			Foreground(textPrimary).
+			Padding(0, 1),
+
+		OrchestratorCalloutBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(violetLt).
+			Background(violetBg).
+			Foreground(textPrimary).
+			Padding(0, 1),
+
+		PartnerCalloutBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(violetLt).
+			Background(violetBg).
 			Foreground(textPrimary).
 			Padding(0, 1),
 
@@ -841,6 +871,18 @@ func NewModel(
 
 	m.RestoreSessionState()
 	return m
+}
+
+// activeSpeaker returns transcript.SpeakerOrchestrator when in Orchestrator mode,
+// transcript.SpeakerPartner in General mode, and transcript.SpeakerCoder in Triad mode.
+func (m Model) activeSpeaker() string {
+	if m.currentMode == loop.ModeOrchestrator {
+		return transcript.SpeakerOrchestrator
+	}
+	if m.currentMode == loop.ModeGeneral {
+		return transcript.SpeakerPartner
+	}
+	return transcript.SpeakerCoder
 }
 
 // SetConfig attaches the live agent config + its on-disk path to
@@ -1422,14 +1464,7 @@ func (m *Model) handleClear(args string) (body string, errMsg string) {
 		return "", fmt.Sprintf("/clear failed: %v", err)
 	}
 
-	m.currentPlan = nil
-	m.planPreTextCount = 0
-	m.planBoundItemID = 0
-	m.lastCoderMessage = ""
-	m.lastProposedEntryID = 0
-	m.pendingClarify = nil
-	m.retryCount = 0
-	m.plainTextTurns = 0
+	m.resetSessionState()
 
 	return fmt.Sprintf("Session transcript cleared. Starting fresh in session %s.", filepath.Base(m.transcript.FilePath())), ""
 }
@@ -1456,7 +1491,15 @@ func (m *Model) handleNew(args string) (body string, errMsg string) {
 	m.transcript = newTr
 
 	m.currentMode = loop.ModeOrchestrator
+	m.loadedSkills = nil
+	m.resetSessionState()
 
+	return fmt.Sprintf("Started new session %s. Previous session saved intact at %s.", sessionID, filepath.Base(oldPath)), ""
+}
+
+// resetSessionState clears all transient in-memory session data, ensuring
+// a fresh start for /clear and /new without missing fields.
+func (m *Model) resetSessionState() {
 	m.currentPlan = nil
 	m.planPreTextCount = 0
 	m.planBoundItemID = 0
@@ -1465,9 +1508,8 @@ func (m *Model) handleNew(args string) (body string, errMsg string) {
 	m.pendingClarify = nil
 	m.retryCount = 0
 	m.plainTextTurns = 0
-	m.loadedSkills = nil
-
-	return fmt.Sprintf("Started new session %s. Previous session saved intact at %s.", sessionID, filepath.Base(oldPath)), ""
+	m.activeToolCall = nil
+	m.stats = SessionTokenStats{}
 }
 
 

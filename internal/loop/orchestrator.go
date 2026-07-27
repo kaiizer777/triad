@@ -211,7 +211,7 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 		// Auto-proceed to General Chat. State the reasoning, log the decision.
 		msg := OrchestratorMessage(tier, reason, string(ModeGeneral))
 		if appendErr := l.append(transcript.Entry{
-			Speaker:   transcript.SpeakerSystem,
+			Speaker:   transcript.SpeakerOrchestrator,
 			Type:      transcript.TypeMessage,
 			Content:   msg,
 			Timestamp: time.Now(),
@@ -227,7 +227,7 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 		// Auto-proceed to Triad. State the reasoning, log the decision.
 		msg := OrchestratorMessage(tier, reason, string(ModeTriad))
 		if appendErr := l.append(transcript.Entry{
-			Speaker:   transcript.SpeakerSystem,
+			Speaker:   transcript.SpeakerOrchestrator,
 			Type:      transcript.TypeMessage,
 			Content:   msg,
 			Timestamp: time.Now(),
@@ -247,7 +247,7 @@ func (l *Loop) runOrchestratorRouting(task string) (effectiveMode Mode, waitingF
 		// §6.10: proposed is now "twin" (Twin Subagent pair) instead of "triad".
 		msg := OrchestratorMessage(tier, reason, "twin")
 		if appendErr := l.append(transcript.Entry{
-			Speaker:   transcript.SpeakerSystem,
+			Speaker:   transcript.SpeakerOrchestrator,
 			Type:      transcript.TypeMessage,
 			Content:   msg,
 			Timestamp: time.Now(),
@@ -299,7 +299,7 @@ func (l *Loop) resolveOrchestratorConfirm(reply string) (effectiveMode Mode, err
 	// Ack so the transcript shows the decision was received.
 	ack := fmt.Sprintf("[Orchestrator]: Confirmed — routing to %s.", targetMode)
 	if appendErr := l.append(transcript.Entry{
-		Speaker:   transcript.SpeakerSystem,
+		Speaker:   transcript.SpeakerOrchestrator,
 		Type:      transcript.TypeMessage,
 		Content:   ack,
 		Timestamp: time.Now(),

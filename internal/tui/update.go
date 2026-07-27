@@ -597,7 +597,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// opt-in for tests. See internal/tui/plan_gate.go
 			// for the always-on rationale.
 			m.resetPlanGateForCycle()
-			m.statusMessage = "Coder is thinking..."
+			if m.currentMode == loop.ModeOrchestrator {
+				m.statusMessage = "Orchestrator is thinking..."
+			} else {
+				m.statusMessage = "Coder is thinking..."
+			}
 			return m, m.coderTurnCmd()
 		}
 
@@ -643,10 +647,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.speaker == transcript.SpeakerCoder {
-			if m.currentMode == loop.ModeGeneral {
+			if m.currentMode == loop.ModeGeneral || m.currentMode == loop.ModeOrchestrator {
+				spk := m.activeSpeaker()
 				if len(msg.resp.ToolCalls) == 0 {
 					entry := transcript.Entry{
-						Speaker:   transcript.SpeakerCoder,
+						Speaker:   spk,
 						Type:      transcript.TypeMessage,
 						Content:   msg.resp.Text,
 						Timestamp: time.Now(),
@@ -654,7 +659,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					_ = m.transcript.Append(entry)
 					m.sessionState = loop.StateIdle
 					m.plainTextTurns = 0
-					m.statusMessage = "Task complete (General Chat). Session idle."
+					m.statusMessage = fmt.Sprintf("Task complete (%s). Session idle.", m.currentMode)
 					m.refreshViewport()
 					return m, nil
 				}
@@ -678,7 +683,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeToolCall = &toolCall
 				proposedContent := loop.FormatProposedAction(toolCall)
 				proposedEntry := transcript.Entry{
-					Speaker:   transcript.SpeakerCoder,
+					Speaker:   spk,
 					Type:      transcript.TypeProposedAction,
 					Content:   proposedContent,
 					Timestamp: time.Now(),
@@ -909,34 +914,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return handleAskQuestionCall(m, toolCall)
 			}
 
-			// Orchestrator mode: the orchestrator agent itself doesn't
-			// use a reviewer — it routes tasks to general or triad.
-			// Execute directly, same as general mode.
-			if m.currentMode == loop.ModeOrchestrator {
-				if toolCall.Function.Name == "spawn_subagent" {
-					m.statusMessage = "Running subagent..."
-					return m, cmdSpawnSubagent(
-						m.transcript.FilePath(),
-						m.workDir,
-						m.coder,
-						m.client,
-						m.commandTimeout,
-						toolCall,
-						m.skillsRegistry,
-					)
-				}
-				if browser.IsBrowserTool(toolCall.Function.Name) {
-					m.statusMessage = fmt.Sprintf("Executing browser tool %q...", toolCall.Function.Name)
-					return m, cmdExecuteBrowserTool(m.workDir, m.browser, toolCall)
-				}
-				if toolCall.Function.Name == "web_search" {
-					m.statusMessage = "Searching the web..."
-					return m, cmdExecuteWebSearch(m.searchAPIKey, toolCall)
-				}
-				m.statusMessage = fmt.Sprintf("Executing tool %q...", toolCall.Function.Name)
-				return m, cmdExecuteTool(m.workDir, toolCall, m.commandTimeout)
-			}
-
 			m.statusMessage = fmt.Sprintf("Reviewer inspecting proposed action %q...", toolCall.Function.Name)
 			return m, cmdReviewerTurn(m.transcript, m.reviewer, m.client)
 		}
@@ -1138,9 +1115,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retryCount = 0
 		m.lastCoderMessage = ""
 		m.lastProposedEntryID = 0
-		if m.currentMode == loop.ModeGeneral {
+		if m.currentMode == loop.ModeGeneral || m.currentMode == loop.ModeOrchestrator {
 			m.sessionState = loop.StateIdle
-			m.statusMessage = "Action executed (General Chat). Session idle."
+			m.statusMessage = "Action executed. Session idle."
 			m.refreshViewport()
 			return m, nil
 		}

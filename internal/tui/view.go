@@ -352,19 +352,28 @@ func (m Model) renderSidebar(width int, height int) string {
 		sb.WriteString(m.styles.SidebarValue.Render(revVal))
 		sb.WriteString("\n")
 	} else if innerHeight >= 11 {
-		// Single-agent modes: show only the Coder.
+		// Single-agent modes: show Orchestrator for ModeOrchestrator, Coder for ModeGeneral.
 		sb.WriteString("\n")
 		sb.WriteString(m.styles.SidebarHeader.Render("▸ AGENT ENGINE"))
 		sb.WriteString("\n")
 		sb.WriteString(rule)
 		sb.WriteString("\n")
 
-		coderPillW := lipgloss.Width(m.styles.CoderPill.Render(" CODER ")) + 1
-		coderVal := truncatePath(m.coder.Model, max(3, innerWidth-coderPillW))
-		sb.WriteString(m.styles.CoderPill.Render(" CODER "))
-		sb.WriteString(" ")
-		sb.WriteString(m.styles.SidebarValue.Render(coderVal))
-		sb.WriteString("\n")
+		if m.currentMode == loop.ModeOrchestrator {
+			orchPillW := lipgloss.Width(m.styles.OrchestratorPill.Render(" ORCHESTRATOR ")) + 1
+			orchVal := truncatePath(m.coder.Model, max(3, innerWidth-orchPillW))
+			sb.WriteString(m.styles.OrchestratorPill.Render(" ORCHESTRATOR "))
+			sb.WriteString(" ")
+			sb.WriteString(m.styles.SidebarValue.Render(orchVal))
+			sb.WriteString("\n")
+		} else {
+			partnerPillW := lipgloss.Width(m.styles.PartnerPill.Render(" PARTNER ")) + 1
+			partnerVal := truncatePath(m.coder.Model, max(3, innerWidth-partnerPillW))
+			sb.WriteString(m.styles.PartnerPill.Render(" PARTNER "))
+			sb.WriteString(" ")
+			sb.WriteString(m.styles.SidebarValue.Render(partnerVal))
+			sb.WriteString("\n")
+		}
 	}
 
 	// ── PIPELINE METRICS ─────────────────────────────────────────
@@ -867,6 +876,10 @@ func (m Model) renderTranscript() string {
 			pill = m.styles.CoderPill.Render(" CODER ")
 		case transcript.SpeakerReviewer:
 			pill = m.styles.ReviewerPill.Render(" REVIEWER ")
+		case transcript.SpeakerOrchestrator:
+			pill = m.styles.OrchestratorPill.Render(" ORCHESTRATOR ")
+		case transcript.SpeakerPartner:
+			pill = m.styles.PartnerPill.Render(" PARTNER ")
 		case transcript.SpeakerSystem:
 			pill = m.styles.SystemPill.Render(" SYSTEM ")
 		default:
@@ -911,6 +924,10 @@ func (m Model) renderTranscript() string {
 				boxStyle = m.styles.CoderCalloutBox
 			case transcript.SpeakerReviewer:
 				boxStyle = m.styles.ReviewerCalloutBox
+			case transcript.SpeakerOrchestrator:
+				boxStyle = m.styles.OrchestratorCalloutBox
+			case transcript.SpeakerPartner:
+				boxStyle = m.styles.PartnerCalloutBox
 			default:
 				boxStyle = m.styles.UserCalloutBox
 			}

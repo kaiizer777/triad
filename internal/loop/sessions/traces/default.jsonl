@@ -1055,3 +1055,19 @@
 {"timestamp":"2026-07-27T21:22:44Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
 {"timestamp":"2026-07-27T21:22:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
 {"timestamp":"2026-07-27T21:22:46Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:34:15Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:34:26Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-27T21:34:27Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-27T21:34:28Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-27T21:34:28Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-27T21:34:29Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-27T21:34:30Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:34:31Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:38:12Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:38:21Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-27T21:38:21Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-27T21:38:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short fix opener (\"fix typo\"))"}
+{"timestamp":"2026-07-27T21:38:22Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to triad (critical complexity — task touches a sensitive/critical surface (\"auth\"))"}
+{"timestamp":"2026-07-27T21:38:24Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to twin (middle complexity — human confirmed routing decision)"}
+{"timestamp":"2026-07-27T21:38:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}
+{"timestamp":"2026-07-27T21:38:25Z","entity":"orchestrator","event_type":"routing_decision","description":"Routed task to general (trivial complexity — short, focused task (≤ 6 words, single target) — minimal overhead needed)"}

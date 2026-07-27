@@ -297,13 +297,13 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
-	// 7 base tools (write_file, read_file, run_command, task_complete,
-	// submit_plan, spawn_subagent, spawn_twin_subagent) + 9 browser_* tools
+	// 8 base tools (write_file, read_file, run_command, task_complete,
+	// submit_plan, spawn_subagent, spawn_twin_subagent, ask_question) + 9 browser_* tools
 	// (navigate / click / type / get_text / screenshot / wait_for from
 	// Work 2 + Phase 2, plus reset_context / save_storage_state /
 	// clear_saved_storage from Work 4 Phase 4) + 1 web_search tool.
-	if len(tools) != 17 {
-		t.Fatalf("expected 17 tools, got %d", len(tools))
+	if len(tools) != 18 {
+		t.Fatalf("expected 18 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)

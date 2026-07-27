@@ -8,10 +8,12 @@ import (
 
 // Speaker types
 const (
-	SpeakerYou      = "You"
-	SpeakerCoder    = "Coder"
-	SpeakerReviewer = "Reviewer"
-	SpeakerSystem   = "System"
+	SpeakerYou          = "You"
+	SpeakerCoder        = "Coder"
+	SpeakerReviewer     = "Reviewer"
+	SpeakerSystem       = "System"
+	SpeakerOrchestrator = "Orchestrator"
+	SpeakerPartner      = "Partner"
 
 	// SpeakerSubagent is the speaker value used for entries that come from
 	// a spawned subagent. The subagent's own transcript uses the same
@@ -58,7 +60,7 @@ const (
 // Entry represents a single turn or action in the shared transcript.
 type Entry struct {
 	ID        int       `json:"id"`
-	Speaker   string    `json:"speaker"`   // "You" | "Coder" | "Reviewer" | "System"
+	Speaker   string    `json:"speaker"`   // "You" | "Coder" | "Reviewer" | "System" | "Orchestrator"
 	Type      string    `json:"type"`      // "message" | "proposed_action" | "action_result" | "routing_decision"
 	Content   string    `json:"content"`   // message text, diff, command, execution output, or JSON-encoded payload
 	Timestamp time.Time `json:"timestamp"`

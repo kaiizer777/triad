@@ -145,6 +145,7 @@ func TestTUI_ApprovalLoopFlow(t *testing.T) {
 	}
 
 	model, cleanup := setupTestModel(t, client)
+	model.currentMode = loop.ModeTriad
 	defer cleanup()
 
 	// 1. Human submits task
@@ -2224,6 +2225,47 @@ func TestTUI_SlashCommand_New(t *testing.T) {
 		t.Errorf("expected new session transcript to contain entries")
 	}
 }
+
+func TestOrchestratorAgentEngineSidebarDisplay(t *testing.T) {
+	m, cleanup := setupTestModel(t, nil)
+	defer cleanup()
+
+	m.currentMode = loop.ModeOrchestrator
+	sidebarOrch := m.renderSidebar(40, 30)
+	if !strings.Contains(sidebarOrch, "▸ AGENT ENGINE") {
+		t.Errorf("Expected sidebar to contain '▸ AGENT ENGINE', got:\n%s", sidebarOrch)
+	}
+	if !strings.Contains(sidebarOrch, "ORCHESTRATOR") {
+		t.Errorf("Expected sidebar under ModeOrchestrator to contain 'ORCHESTRATOR' pill, got:\n%s", sidebarOrch)
+	}
+
+	m.currentMode = loop.ModeGeneral
+	sidebarGen := m.renderSidebar(40, 30)
+	if !strings.Contains(sidebarGen, "▸ AGENT ENGINE") {
+		t.Errorf("Expected sidebar to contain '▸ AGENT ENGINE', got:\n%s", sidebarGen)
+	}
+	if !strings.Contains(sidebarGen, "PARTNER") {
+		t.Errorf("Expected sidebar under ModeGeneral to contain 'PARTNER' pill, got:\n%s", sidebarGen)
+	}
+}
+
+func TestOrchestratorSpeakerPillRendering(t *testing.T) {
+	m, cleanup := setupTestModel(t, nil)
+	defer cleanup()
+
+	_ = m.transcript.Append(transcript.Entry{
+		Speaker:   transcript.SpeakerOrchestrator,
+		Type:      transcript.TypeMessage,
+		Content:   "[Orchestrator]: Routing task to Triad mode.",
+		Timestamp: time.Now(),
+	})
+
+	view := m.renderTranscript()
+	if !strings.Contains(view, "ORCHESTRATOR") {
+		t.Errorf("Expected transcript view to contain 'ORCHESTRATOR' speaker pill, got:\n%s", view)
+	}
+}
+
 
 
 
