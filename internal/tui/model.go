@@ -189,7 +189,7 @@ func DefaultStyles() Styles {
 
 		// ── Sidebar Panel ─────────────────────────────────────────────
 		SidebarContainer: lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderVivid).
 			Background(obsidian).
 			Padding(0, 1),
@@ -386,7 +386,7 @@ func DefaultStyles() Styles {
 
 		// ── Right Panel & Viewport ────────────────────────────────────
 		RightCardContainer: lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderVivid).
 			Background(obsidian),
 
