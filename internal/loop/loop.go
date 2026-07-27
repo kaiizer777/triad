@@ -80,6 +80,7 @@ func ParseMode(raw string) (Mode, error) {
 	}
 }
 
+
 // AgentClient is the interface the loop uses to call an agent.
 // Using an interface here lets loop_test.go inject a mock without network calls.
 type AgentClient interface {
@@ -159,6 +160,12 @@ type Loop struct {
 	// reply — we don't want to re-clarify the confirmation itself.
 	// Cleared after the reply is resolved in resolveOrchestratorConfirm.
 	pendingOrchestratorConfirm *orchestratorConfirm
+
+	// activeCycleTask is the original task for the currently active cycle.
+	// Clarification replies and orchestrator confirmation replies are human
+	// messages too, but they must not replace the task being classified or
+	// resumed by the cycle.
+	activeCycleTask string
 
 	// effectiveMode is the mode used for the current active cycle. It is set
 	// by the orchestrator routing gate (for ModeOrchestrator tasks) or
@@ -352,9 +359,19 @@ func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, er
 	// prefix IS present, we strip the line, ApplySelection
 	// updates the loaded set + logs the system entry, and we
 	// return the cleaned text.
-	cleaned, _ := skills.ParseAndApply(resp.Text, l.SkillsRegistry, l.loadedSkills, l.transcript, l.mostRecentHumanTask())
+	cleaned, _ := skills.ParseAndApply(resp.Text, l.SkillsRegistry, l.loadedSkills, l.transcript, l.activeTaskForCycle())
 	resp.Text = cleaned
 	return resp, nil
+}
+
+// activeTaskForCycle returns the original task for the current cycle. A
+// direct/resumed cycle may not have populated activeCycleTask yet, so retain
+// the transcript-based fallback for that case.
+func (l *Loop) activeTaskForCycle() string {
+	if l.activeCycleTask != "" {
+		return l.activeCycleTask
+	}
+	return l.mostRecentHumanTask()
 }
 
 // mostRecentHumanTask returns the most recent You (human) message
@@ -482,6 +499,9 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 			// entirely (we don't want to re-clarify the confirmation itself)
 			// and resolve the routing decision directly.
 			if l.pendingOrchestratorConfirm != nil {
+				// resolveOrchestratorConfirm clears the pending confirmation,
+				// so capture its original task before resolving it.
+				l.activeCycleTask = l.pendingOrchestratorConfirm.task
 				em, resolveErr := l.resolveOrchestratorConfirm(msg)
 				if resolveErr != nil {
 					sysEntry := transcript.Entry{
@@ -511,6 +531,7 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 				//   trivial  → auto-route to General Chat, no confirmation
 				//   critical → auto-route to Triad, no confirmation
 				//   middle   → emit confirmation prompt, stay idle
+				l.activeCycleTask = msg
 				em, waiting, routeErr := l.runOrchestratorRouting(msg)
 				if routeErr != nil {
 					sysEntry := transcript.Entry{
@@ -576,6 +597,9 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 						// Fall through to the active cycle below.
 					}
 				} else {
+					// This is a fresh task. Clarification replies leave the
+					// previously captured task intact.
+					l.activeCycleTask = msg
 					// Fresh task — run the shared clarify step.
 					batch := clarify.AssessAmbiguity(msg)
 					if batch.NeedsClarification {
@@ -676,6 +700,14 @@ func (l *Loop) drainInput() error {
 // runActiveCycle runs the Coder→Reviewer cycle until Coder signals task_complete and
 // Reviewer confirms, or an unrecoverable error occurs. Returns (true, nil) on clean completion.
 func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
+	// A resumed cycle may not have gone through Run(), so recover the task
+	// from the transcript until a fresh task populates activeCycleTask.
+	activeTask := l.activeCycleTask
+	if activeTask == "" {
+		activeTask = l.mostRecentHumanTask()
+	}
+	l.activeCycleTask = activeTask
+
 	for {
 		// --- Drain any human messages typed since the last agent turn (Phase 5) ---
 		if err := l.drainInput(); err != nil {
@@ -1739,4 +1771,3 @@ func buildCorrectedToolCall(original agent.ToolCall, selector, strategy string) 
 		},
 	}
 }
-
