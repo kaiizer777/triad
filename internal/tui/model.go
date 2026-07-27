@@ -794,6 +794,7 @@ func NewModel(
 	ti.MinHeight = 1
 	ti.MaxHeight = 4
 	ti.KeyMap.InsertNewline.SetKeys("shift+enter", "alt+enter", "ctrl+j")
+	ti.KeyMap.DeleteWordBackward.SetKeys("alt+backspace", "alt+bspace", "ctrl+w", "alt+ctrl+h", "alt+delete", "alt+h")
 	tiStyles := textarea.DefaultDarkStyles()
 	tiStyles.Focused.Text = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF"))
 	tiStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B")).Italic(true)

@@ -81,13 +81,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rightCardInnerHeight := max(1, bodyHeight-rightCardVertFrame)
 
 		// Input box width based on rightCardInnerWidth
-		pillW := lipgloss.Width(m.styles.InputPill.Render(" ❯ YOU "))
 		var hintW int
 		if m.sessionState == loop.StateActive {
 			hintW = lipgloss.Width(m.styles.TitleKeycapKey.Render("Enter")) + lipgloss.Width(m.styles.TitleKeycapLabel.Render(" Interject"))
 		}
 		inputContainerContentWidth := max(1, rightCardInnerWidth-m.styles.InputContainer.GetHorizontalFrameSize())
-		inputWidth := max(10, inputContainerContentWidth-pillW-hintW-6)
+		inputWidth := max(10, inputContainerContentWidth-hintW)
 		m.input.SetWidth(inputWidth)
 
 		// Viewport inner dimensions using exact input bar height:

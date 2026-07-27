@@ -1528,16 +1528,16 @@ func TestTUI_ViewHeightOverflow(t *testing.T) {
 				t.Errorf("w=%d h=%d: bottom line missing bottom border, got: %q", w, h, lastLine)
 			}
 
-			// Check that the prompt input 'YOU' is present and not cut off
+			// Check that the prompt input bar is present with placeholder
 			foundPrompt := false
 			for _, line := range lines {
-				if strings.Contains(line, "YOU") {
+				if strings.Contains(line, "sk Triad") {
 					foundPrompt = true
 					break
 				}
 			}
 			if !foundPrompt {
-				t.Errorf("w=%d h=%d: prompt bar 'YOU' missing from view", w, h)
+				t.Errorf("w=%d h=%d: prompt bar placeholder missing from view", w, h)
 			}
 		}
 	}
@@ -2006,4 +2006,58 @@ func TestTUI_InputBarMultiLineHeight(t *testing.T) {
 		t.Errorf("expected input component height restored to 1, got %d", m.input.Height())
 	}
 }
+
+func TestTUI_InputBarNoYouPillAndFullWidth(t *testing.T) {
+	client := &mockClient{}
+	m, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	rendered := m.renderInputBar(100)
+	if strings.Contains(rendered, "YOU") {
+		t.Errorf("expected input bar to NOT contain 'YOU' text icon, got:\n%s", rendered)
+	}
+
+	// renderInputBar(100) sets width on m.input inside renderInputBar
+	containerW := 100 - m.styles.InputContainer.GetHorizontalFrameSize()
+	renderedLines := strings.Split(rendered, "\n")
+	if len(renderedLines) < 3 {
+		t.Fatalf("expected at least 3 lines for input bar, got %d", len(renderedLines))
+	}
+	// Middle line length (without ANSI or trailing spaces) matches container width + frame size
+	middleLineW := lipgloss.Width(renderedLines[1])
+	if middleLineW != 100 {
+		t.Errorf("expected rendered input bar width %d, got %d (container content width %d)", 100, middleLineW, containerW)
+	}
+}
+
+func TestTUI_AltBackspaceSmoothWordDelete(t *testing.T) {
+	client := &mockClient{}
+	m, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	m.input.SetValue("hello world test")
+	m.input.CursorEnd()
+
+	// Test alt+backspace key msg
+	up, _ := m.Update(makeKeyMsg("alt+backspace"))
+	m = up.(Model)
+	if val := m.input.Value(); val != "hello world " {
+		t.Errorf("expected 'hello world ' after alt+backspace, got %q", val)
+	}
+
+	// Test alt+bspace key msg
+	up, _ = m.Update(makeKeyMsg("alt+bspace"))
+	m = up.(Model)
+	if val := m.input.Value(); val != "hello " {
+		t.Errorf("expected 'hello ' after alt+bspace, got %q", val)
+	}
+
+	// Test ctrl+w key msg
+	up, _ = m.Update(makeKeyMsg("ctrl+w"))
+	m = up.(Model)
+	if val := m.input.Value(); val != "" {
+		t.Errorf("expected empty string after ctrl+w, got %q", val)
+	}
+}
+
 

@@ -687,8 +687,6 @@ func (m Model) renderInputBar(width int) string {
 	topSepLine := m.styles.InputSeparator.Render(strings.Repeat("─", max(1, sepW)))
 	bottomSepLine := m.styles.InputSeparator.Render(strings.Repeat("─", max(1, sepW)))
 
-	pill := m.styles.InputPill.Render(" ❯ YOU ")
-
 	var hint string
 	if m.sessionState == loop.StateActive {
 		hint = lipgloss.JoinHorizontal(lipgloss.Top,
@@ -698,17 +696,14 @@ func (m Model) renderInputBar(width int) string {
 	}
 
 	containerW := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
-	pillW := lipgloss.Width(pill)
 	hintW := lipgloss.Width(hint)
 
-	// Reserve 6 chars safety buffer to prevent soft-wrapping under any window size
-	inputW := max(10, containerW-pillW-hintW-6)
+	inputW := max(10, containerW-hintW)
 	m.input.SetWidth(inputW)
 
 	inputView := m.input.View()
 
-	leftPart := lipgloss.JoinHorizontal(lipgloss.Top, pill, " ", inputView)
-	leftW := lipgloss.Width(leftPart)
+	leftW := lipgloss.Width(inputView)
 	rightW := hintW
 
 	gapW := containerW - leftW - rightW
@@ -716,7 +711,13 @@ func (m Model) renderInputBar(width int) string {
 		gapW = 0
 	}
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPart, strings.Repeat(" ", gapW), hint)
+	var content string
+	if hint != "" {
+		content = lipgloss.JoinHorizontal(lipgloss.Top, inputView, strings.Repeat(" ", gapW), hint)
+	} else {
+		content = inputView
+	}
+
 	row := m.styles.InputContainer.Render(content)
 	rowClipped := clipLines(row, max(1, min(4, m.input.Height())))
 	return lipgloss.JoinVertical(lipgloss.Left, topSepLine, rowClipped, bottomSepLine)
