@@ -198,7 +198,48 @@ type Loop struct {
 	// work.md §8 flags that future compaction may want to reset
 	// this too, but no compaction is implemented yet.
 	loadedSkills *skills.LoadedSet
+
+	// pendingPlan is the most recent plan the plan-first gate
+	// approved for the current active cycle. Nil means no plan
+	// has been approved yet (Coder still owes one). The gate
+	// rejects non-submit_plan tool calls when pendingPlan is nil
+	// and the gate is active. Cleared by clearCycleState at the
+	// end of every active cycle.
+	pendingPlan *transcript.Plan
+
+	// planBypassed records that the plan gate was intentionally
+	// skipped for the current cycle (because planGateDisabled is
+	// true, or because the task classifies as trivial). When
+	// true, the gate does not reject tool calls and Coder can
+	// proceed without calling submit_plan. Cleared at the end of
+	// every active cycle.
+	planBypassed bool
+
+	// planPreTextCount counts consecutive plain-text (no tool
+	// call) Coder responses observed AFTER the cycle started and
+	// BEFORE pendingPlan is set. The gate trips a stall guard
+	// once the count exceeds maxPlanPreTextMessages so Coder
+	// can't keep "thinking" forever without committing to a plan.
+	planPreTextCount int
+
+	// planGateDisabled controls whether the plan-first gate is
+	// enforced at all. When true (the default), the gate is a
+	// no-op: every cycle behaves exactly like the pre-Phase-6
+	// headless loop, which keeps every pre-existing test passing
+	// without per-test opt-out wiring. Tests that exercise the
+	// gate must explicitly call SetPlanGateDisabled(false) on
+	// their loop instance. Production goes through the TUI which
+	// has its own always-on gate in update.go.
+	planGateDisabled bool
 }
+
+// MaxPlanPreTextMessages is the cap on consecutive plain-text
+// Coder responses the plan gate will tolerate before tripping a
+// stall. One planning message is normal; two is starting to stall;
+// three is the explicit "stop thinking and submit a plan" trip.
+// The value lives in loop (not rubric) because it is a hard cap
+// enforced by the gate, not a tier-classification signal.
+const MaxPlanPreTextMessages = 1
 
 // New creates a Loop ready to run. workDir is the project root used for tool execution.
 func New(
@@ -209,16 +250,58 @@ func New(
 	workDir string,
 ) *Loop {
 	return &Loop{
-		transcript:       t,
-		coder:            coder,
-		reviewer:         reviewer,
-		client:           client,
-		workDir:          workDir,
-		MaxRetries:       DefaultMaxRetries,
-		CurrentMode:      ModeOrchestrator,
-		recoveryAttempts: make(map[string]int),
-		loadedSkills:     skills.NewLoadedSet(),
+		transcript:        t,
+		coder:             coder,
+		reviewer:          reviewer,
+		client:            client,
+		workDir:           workDir,
+		MaxRetries:        DefaultMaxRetries,
+		CurrentMode:       ModeOrchestrator,
+		recoveryAttempts:  make(map[string]int),
+		loadedSkills:      skills.NewLoadedSet(),
+		// Plan gate is opt-in for the headless loop (see Phase 6.3
+		// design note in issue.md). The default of true keeps every
+		// pre-existing test passing without per-test opt-out calls.
+		// Tests that exercise the gate must call
+		// SetPlanGateDisabled(false) on their loop instance.
+		planGateDisabled: true,
 	}
+}
+
+// SetPlanGateDisabled toggles the plan-first gate for this Loop
+// instance. Pass false to enable the gate (Coder must call
+// submit_plan before any other tool call when the task classifies
+// as needing a plan). Pass true to disable the gate (the default).
+//
+// The default in New is true so pre-existing tests keep passing
+// without per-test opt-out wiring. Production goes through the TUI
+// which has its own always-on gate in update.go — the headless
+// gate is only used by tests that explicitly opt in.
+//
+// This is intentionally a method, not a struct-field flip, because
+// the gate's lifecycle is per-session: toggling it at any time
+// (not just construction) keeps the option open for future
+// per-mode policies (e.g. "only enable when explicit --plan flag
+// is set on the command line").
+func (l *Loop) SetPlanGateDisabled(disabled bool) {
+	l.planGateDisabled = disabled
+}
+
+// PlanGateDisabled reports whether the plan-first gate is currently
+// disabled. Exposed mainly for tests and observability; production
+// callers should not need to read this — they should just set it.
+func (l *Loop) PlanGateDisabled() bool {
+	return l.planGateDisabled
+}
+
+// clearCycleState resets the per-active-cycle plan state. Called
+// via defer at the top of runActiveCycle so every cycle starts
+// from a known-good baseline regardless of how the previous cycle
+// ended (clean completion, deadlock, error, etc.).
+func (l *Loop) clearCycleState() {
+	l.pendingPlan = nil
+	l.planBypassed = false
+	l.planPreTextCount = 0
 }
 
 // SetSearchAPIKey sets the Firecrawl API key used by web_search tool calls.
@@ -708,6 +791,14 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 	}
 	l.activeCycleTask = activeTask
 
+	// Phase 6.3 — initialize the plan-first gate for this cycle. This
+	// must happen BEFORE the first Coder turn so the gate's pre-text
+	// counter and bypass flag are correct. The defer at the bottom of
+	// the function clears them again at the end of the cycle so the
+	// next cycle starts from a known baseline.
+	l.resetPlanGateForCycle()
+	defer l.clearCycleState()
+
 	for {
 		// --- Drain any human messages typed since the last agent turn (Phase 5) ---
 		if err := l.drainInput(); err != nil {
@@ -853,6 +944,26 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			if err := l.append(entry); err != nil {
 				return false, fmt.Errorf("loop: failed to append coder message: %w", err)
 			}
+
+			// Phase 6.3 — plan gate pre-text stall guard. If the
+			// gate is active and no plan is pending yet, count this
+			// plain-text turn. Once the count exceeds
+			// MaxPlanPreTextMessages, emit a System note telling
+			// Coder to submit a plan. The note is the same shape
+			// the gate uses for rejections — a System entry that
+			// appears in the transcript AND in Coder's context on
+			// the next turn (so it actually sees the nudge).
+			if !l.planBypassed && l.pendingPlan == nil {
+				if l.recordPrePlanTextMessage() {
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   formatPlanStallMessage(),
+						Timestamp: time.Now(),
+					})
+				}
+			}
+
 			// Continue the loop — Coder should call a tool on the next turn.
 			continue
 		}
@@ -860,6 +971,109 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		// Coder has proposed a tool call (or task_complete).
 		// For now handle the first tool call only — one atomic action at a time per spec.
 		toolCall := coderResp.ToolCalls[0]
+
+		// --- Phase 6.3: submit_plan branch (gate's release valve) ---
+		//
+		// When the gate is active and Coder proposes submit_plan, we
+		// decode the plan, set pendingPlan, and write a snapshot —
+		// then fall through to the normal review cycle. The plan is
+		// NOT executed (it's not an executable action); it's
+		// persisted to the transcript so the next tool call (write_file
+		// etc.) can pass the gate's pendingPlan != nil check.
+		//
+		// We process submit_plan BEFORE the rejection check below so
+		// the gate's own release valve can never itself be rejected
+		// by the gate.
+		if toolCall.Function.Name == "submit_plan" {
+			// Even when the gate is bypassed, accept submit_plan —
+			// it does no harm and lets Coder submit a plan
+			// voluntarily (a future "always show the plan card"
+			// feature in the TUI can rely on this).
+			nextRevision := 1
+			if l.pendingPlan != nil {
+				nextRevision = l.pendingPlan.Revision + 1
+			}
+			plan, decodeErr := extractPlanFromToolCall(toolCall, nextRevision)
+			if decodeErr != nil {
+				_ = l.append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   fmt.Sprintf("[Plan Gate]: submit_plan arguments could not be decoded: %v", decodeErr),
+					Timestamp: time.Now(),
+				})
+				// Re-emit the proposed_action so Reviewer sees what
+				// Coder tried to submit, then continue to give Coder
+				// a chance to retry the plan.
+				if err := l.append(transcript.Entry{
+					Speaker:   transcript.SpeakerCoder,
+					Type:      transcript.TypeProposedAction,
+					Content:   FormatProposedAction(toolCall),
+					Timestamp: time.Now(),
+				}); err != nil {
+					return false, fmt.Errorf("loop: failed to append proposed_action: %w", err)
+				}
+				continue
+			}
+			l.pendingPlan = plan
+			// Append the proposed_action so the transcript still has
+			// a record of what Coder tried to submit (the snapshot
+			// below captures the structured plan, but the
+			// proposed_action entry is what Reviewer would have seen
+			// in a normal propose→review flow — keeping both entries
+			// makes the transcript uniform with non-plan cycles).
+			if err := l.append(transcript.Entry{
+				Speaker:   transcript.SpeakerCoder,
+				Type:      transcript.TypeProposedAction,
+				Content:   FormatProposedAction(toolCall),
+				Timestamp: time.Now(),
+			}); err != nil {
+				return false, fmt.Errorf("loop: failed to append proposed_action: %w", err)
+			}
+			// Snapshot the plan so the transcript captures the
+			// approved state. Reason: "initial approval" for
+			// revision 1, "revision #N" for subsequent revisions.
+			reason := fmt.Sprintf("plan approved (rev #%d)", plan.Revision)
+			if err := l.writePlanSnapshot(plan, reason); err != nil {
+				return false, fmt.Errorf("loop: failed to write plan snapshot: %w", err)
+			}
+			// Reviewer is bypassed for submit_plan — the plan is
+			// the gate's "this is what I'm going to do" declaration,
+			// and Reviewer would just rubber-stamp it. The
+			// subsequent actions each go through Reviewer as
+			// normal, which is where the actual plan-vs-execution
+			// consistency check lives.
+			continue
+		}
+
+		// --- Phase 6.3: plan-required rejection ---
+		//
+		// If the gate is active and Coder has not yet submitted a
+		// plan, reject this non-submit_plan tool call. Emit a
+		// System note explaining the rejection, append the
+		// proposed_action anyway (so the transcript still records
+		// what Coder tried), and continue — Coder gets another
+		// turn to submit a plan first.
+		//
+		// We do NOT count this against MaxRetries because the
+		// review cycle hasn't even started — there's no objection
+		// to retry. The gate is a precondition, not a counter.
+		if l.planGateRejectsNonPlanCall(toolCall) {
+			if err := l.append(transcript.Entry{
+				Speaker:   transcript.SpeakerCoder,
+				Type:      transcript.TypeProposedAction,
+				Content:   FormatProposedAction(toolCall),
+				Timestamp: time.Now(),
+			}); err != nil {
+				return false, fmt.Errorf("loop: failed to append proposed_action: %w", err)
+			}
+			_ = l.append(transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeMessage,
+				Content:   formatPlanRejectionMessage(toolCall),
+				Timestamp: time.Now(),
+			})
+			continue
+		}
 
 		// --- Append proposed_action entry ---
 		proposedContent := FormatProposedAction(toolCall)
@@ -871,6 +1085,33 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		}
 		if err := l.append(proposedEntry); err != nil {
 			return false, fmt.Errorf("loop: failed to append proposed_action: %w", err)
+		}
+
+		// --- Phase 6.3: bind to plan item BEFORE review ---
+		// If the gate is active AND a plan is pending AND the
+		// tool call didn't already carry a plan_item_id, bind
+		// the action to the first pending item and mark it
+		// in_progress. This snapshot lands in the transcript
+		// between the proposed_action and the reviewer's
+		// approval, so reviewers can see "Coder intends to
+		// execute item N" before they greenlight the action.
+		//
+		// We bind BEFORE review (not just on approval) so the
+		// gate's audit trail shows the binding even if the
+		// reviewer objects and the action is never executed —
+		// a future "show me which plan item this objection
+		// was about" feature relies on this.
+		if !l.planBypassed && l.pendingPlan != nil {
+			if boundID, bindErr := l.bindActionToPlanItem(toolCall); bindErr != nil {
+				_ = l.append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   fmt.Sprintf("[Plan Gate]: failed to bind action to plan item: %v", bindErr),
+					Timestamp: time.Now(),
+				})
+			} else if boundID > 0 {
+				_ = boundID // bound — mark in_progress already snapshotted
+			}
 		}
 
 		// --- Reviewer→execute-or-revise inner loop ---
@@ -886,6 +1127,39 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			// Return to idle so the human can intervene.
 			return false, fmt.Errorf("loop: approval deadlock on action %q after %d retries", toolCall.Function.Name, l.MaxRetries)
 		}
+
+		// --- Phase 6.3: mark plan item done on success ---
+		// The action was approved and executed. If a plan item
+		// was bound to this action (above), and the action's
+		// action_result is NOT an ERROR, flip the item to
+		// "done" and write a snapshot. Failed actions leave
+		// the item in "in_progress" so the next iteration can
+		// retry it (or the human can intervene).
+		if !l.planBypassed && l.pendingPlan != nil {
+			boundID, _ := extractPlanItemID(toolCall, l.pendingPlan)
+			if boundID == 0 {
+				// No explicit binding — use the heuristic the
+				// pre-bind step would have used. The first
+				// item not yet done is the natural candidate.
+				for _, item := range l.pendingPlan.Items {
+					if item.Status == transcript.PlanItemInProgress {
+						boundID = item.ID
+						break
+					}
+				}
+			}
+			if boundID > 0 && lastActionResultSucceeded(l.transcript.Entries()) {
+				if err := l.markPlanItemDone(boundID); err != nil {
+					_ = l.append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   fmt.Sprintf("[Plan Gate]: failed to mark plan item %d done: %v", boundID, err),
+						Timestamp: time.Now(),
+					})
+				}
+			}
+		}
+
 		// Approved and executed; continue the outer loop — Coder will propose the next action.
 	}
 }
