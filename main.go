@@ -75,6 +75,11 @@ func main() {
 	if commandTimeout <= 0 {
 		commandTimeout = agent.DefaultCommandTimeout
 	}
+	gitGCEnabled := cfg.GitGCAutoEnabled == nil || *cfg.GitGCAutoEnabled
+	gitcommit.ConfigureGCHygiene(gitcommit.GCHygieneConfig{
+		Enabled:        gitGCEnabled,
+		CommitInterval: cfg.GitGCCommitInterval,
+	})
 
 	logger.L().Info("triad starting",
 		"active_provider", cfg.ActiveProvider,
@@ -83,6 +88,8 @@ func main() {
 		"reasoning_level", cfg.Coder.ReasoningLevel,
 		"thinking_mode", cfg.Coder.ThinkingMode,
 		"command_timeout", commandTimeout.String(),
+		"git_gc_auto_enabled", gitGCEnabled,
+		"git_gc_commit_interval", cfg.GitGCCommitInterval,
 	)
 
 	// --- Session setup & transcript loading ---

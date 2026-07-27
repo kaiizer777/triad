@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/kaiizer777/triad/internal/logger"
 )
@@ -33,6 +34,50 @@ import (
 // CommitSubjectPrefix is the marker that identifies an auto-commit made by
 // Triad in the repository's history. Used by LastTriadCommit and RevertLast.
 const CommitSubjectPrefix = "[triad]"
+
+// GCHygieneConfig controls periodic background git garbage collection after
+// successful Triad auto-commits. It is configured once at application startup.
+type GCHygieneConfig struct {
+	Enabled        bool
+	CommitInterval int
+}
+
+const DefaultGCCommitInterval = 50
+
+var gcState = struct {
+	sync.Mutex
+	config  GCHygieneConfig
+	running map[string]bool
+}{
+	config:  GCHygieneConfig{Enabled: true, CommitInterval: DefaultGCCommitInterval},
+	running: make(map[string]bool),
+}
+
+// runGCAuto is a narrow seam for deterministic package tests. Production
+// always uses the real local git command below.
+var runGCAuto = func(workDir string) error {
+	cmd := exec.Command("git", "gc", "--auto") //nolint:gosec // intentional local git invocation
+	cmd.Dir = workDir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w (output: %s)", err, out.String())
+	}
+	return nil
+}
+
+// ConfigureGCHygiene updates the process-wide policy used by CommitAction.
+// Invalid intervals fall back to the default so a malformed setting never
+// turns every auto-commit into a GC trigger.
+func ConfigureGCHygiene(config GCHygieneConfig) {
+	if config.CommitInterval <= 0 {
+		config.CommitInterval = DefaultGCCommitInterval
+	}
+	gcState.Lock()
+	gcState.config = config
+	gcState.Unlock()
+}
 
 // CommitMessage holds the pieces that go into a Triad auto-commit's message.
 type CommitMessage struct {
@@ -215,10 +260,12 @@ func gitConfig(workDir, key string) string {
 // run_command action executes, to discover which file(s) it touched.
 //
 // Output format follows `git status --porcelain`. Each line looks like:
-//   " M path/to/file"
-//   "?? new/file"
-//   "A  staged/file"
-//   "MM modified-and-staged/file"
+//
+//	" M path/to/file"
+//	"?? new/file"
+//	"A  staged/file"
+//	"MM modified-and-staged/file"
+//
 // The first two characters (XY) are status; everything after the spaces
 // is the path (with quotes around it if it contains special chars).
 //
@@ -372,7 +419,85 @@ func CommitAction(workDir string, paths []string, msg CommitMessage) (CommitResu
 		"hash", hash,
 		"paths", cleaned,
 	)
+	// GC cadence inspection and the GC itself stay entirely off the action
+	// path. The immutable commit hash lets the goroutine count history as it
+	// stood at this commit even if the next approval executes immediately.
+	go scheduleGCAuto(workDir, hash)
 	return CommitResult{Hash: hash}, nil
+}
+
+// TriadCommitCount returns the number of commits in the current repository
+// whose subject was created by Triad. Counting repository history rather than
+// process-local state means the cadence remains correct across restarts.
+func TriadCommitCount(workDir string) (int, error) {
+	return triadCommitCountAt(workDir, "HEAD")
+}
+
+func triadCommitCountAt(workDir, ref string) (int, error) {
+	cmd := exec.Command("git", "log", ref, "--format=%s") //nolint:gosec // intentional local git invocation
+	cmd.Dir = workDir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("gitcommit: git log for GC cadence failed in %q: %w (output: %s)", workDir, err, out.String())
+	}
+
+	count := 0
+	for _, subject := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(subject), CommitSubjectPrefix) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// scheduleGCAuto starts git gc --auto only when the configured successful
+// commit interval is reached. It deliberately does not wait for GC: approval
+// and execution of the next action must remain responsive. At most one GC may
+// run per repository at a time, which also protects concurrent subagents.
+func scheduleGCAuto(workDir, commitHash string) {
+	gcState.Lock()
+	config := gcState.config
+	gcState.Unlock()
+	if !config.Enabled {
+		return
+	}
+
+	count, err := triadCommitCountAt(workDir, commitHash)
+	if err != nil {
+		logger.L().Warn("gitcommit: could not evaluate GC cadence", "workDir", workDir, "error", err.Error())
+		return
+	}
+	if count == 0 || count%config.CommitInterval != 0 {
+		return
+	}
+
+	key, err := filepath.Abs(workDir)
+	if err != nil {
+		key = workDir
+	}
+	gcState.Lock()
+	if gcState.running[key] {
+		gcState.Unlock()
+		return
+	}
+	gcState.running[key] = true
+	gcState.Unlock()
+
+	go func() {
+		defer func() {
+			gcState.Lock()
+			delete(gcState.running, key)
+			gcState.Unlock()
+		}()
+
+		if err := runGCAuto(workDir); err != nil {
+			logger.L().Warn("gitcommit: background git gc --auto failed", "workDir", workDir, "error", err.Error())
+			return
+		}
+		logger.L().Info("gitcommit: background git gc --auto completed", "workDir", workDir, "commitCount", count)
+	}()
 }
 
 func shortHeadHash(workDir string) (string, error) {
@@ -670,4 +795,3 @@ func parseStatSummaryLine(line string) (int, int) {
 	}
 	return ins, del
 }
-

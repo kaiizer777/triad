@@ -17,3 +17,8 @@ model: "mimo-v2.5-free"
 # Defaults: 10 MiB and 5 backups (triad.log.1 through triad.log.5).
 # log_max_bytes: 10485760
 # log_max_backups: 5
+
+# Run `git gc --auto` in the background after this many successful Triad
+# auto-commits. Enabled by default; set git_gc_auto_enabled: false to disable.
+# git_gc_auto_enabled: true
+# git_gc_commit_interval: 50

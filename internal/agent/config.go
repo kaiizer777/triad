@@ -108,8 +108,12 @@ type Config struct {
 	SessionRetentionDays  int     `yaml:"session_retention_days"`
 	LogMaxBytes           int64   `yaml:"log_max_bytes"`
 	LogMaxBackups         int     `yaml:"log_max_backups"`
-	BrowserMode           string  `yaml:"browser_mode"`
-	ChromeCDPPort         int     `yaml:"chrome_cdp_port"`
+	// GitGCAutoEnabled is a pointer so an omitted legacy setting can retain
+	// the default (enabled) while an explicit false cleanly disables it.
+	GitGCAutoEnabled    *bool  `yaml:"git_gc_auto_enabled"`
+	GitGCCommitInterval int    `yaml:"git_gc_commit_interval"`
+	BrowserMode         string `yaml:"browser_mode"`
+	ChromeCDPPort       int    `yaml:"chrome_cdp_port"`
 
 	// --- new multi-provider fields (optional) ---
 	// Providers is the named provider map. nil means "use legacy
@@ -142,6 +146,7 @@ const (
 	DefaultSessionRetentionDays = 30
 	DefaultLogMaxBytes          = 10 * 1024 * 1024
 	DefaultLogMaxBackups        = 5
+	DefaultGitGCCommitInterval  = 50
 	DefaultBrowserMode          = "headless"
 	DefaultChromeCDPPort        = 9222
 	DefaultContextWindow        = 1000000
@@ -236,6 +241,12 @@ func LoadConfig(path string) (*Config, error) {
 		if yamlCfg.LogMaxBackups > 0 {
 			rawCfg.LogMaxBackups = yamlCfg.LogMaxBackups
 		}
+		if yamlCfg.GitGCAutoEnabled != nil {
+			rawCfg.GitGCAutoEnabled = yamlCfg.GitGCAutoEnabled
+		}
+		if yamlCfg.GitGCCommitInterval > 0 {
+			rawCfg.GitGCCommitInterval = yamlCfg.GitGCCommitInterval
+		}
 		if yamlCfg.BrowserMode != "" {
 			rawCfg.BrowserMode = yamlCfg.BrowserMode
 		}
@@ -287,6 +298,13 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if rawCfg.LogMaxBackups <= 0 {
 		rawCfg.LogMaxBackups = DefaultLogMaxBackups
+	}
+	if rawCfg.GitGCAutoEnabled == nil {
+		enabled := true
+		rawCfg.GitGCAutoEnabled = &enabled
+	}
+	if rawCfg.GitGCCommitInterval <= 0 {
+		rawCfg.GitGCCommitInterval = DefaultGitGCCommitInterval
 	}
 	if rawCfg.BrowserMode == "" {
 		rawCfg.BrowserMode = DefaultBrowserMode
@@ -538,6 +556,12 @@ func SaveConfig(path string, cfg *Config) error {
 	}
 	if cfg.LogMaxBackups > 0 {
 		overwrites["log_max_backups"] = cfg.LogMaxBackups
+	}
+	if cfg.GitGCAutoEnabled != nil {
+		overwrites["git_gc_auto_enabled"] = *cfg.GitGCAutoEnabled
+	}
+	if cfg.GitGCCommitInterval > 0 {
+		overwrites["git_gc_commit_interval"] = cfg.GitGCCommitInterval
 	}
 	if cfg.BrowserMode != "" {
 		overwrites["browser_mode"] = cfg.BrowserMode

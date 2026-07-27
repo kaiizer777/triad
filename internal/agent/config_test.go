@@ -69,6 +69,29 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.LogMaxBytes != DefaultLogMaxBytes || cfg.LogMaxBackups != DefaultLogMaxBackups {
 		t.Errorf("log rotation defaults = (%d, %d), want (%d, %d)", cfg.LogMaxBytes, cfg.LogMaxBackups, DefaultLogMaxBytes, DefaultLogMaxBackups)
 	}
+	if cfg.GitGCAutoEnabled == nil || !*cfg.GitGCAutoEnabled {
+		t.Error("git GC hygiene should default to enabled")
+	}
+	if cfg.GitGCCommitInterval != DefaultGitGCCommitInterval {
+		t.Errorf("GitGCCommitInterval = %d, want %d", cfg.GitGCCommitInterval, DefaultGitGCCommitInterval)
+	}
+}
+
+func TestLoadConfigGitGCHygiene(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("git_gc_auto_enabled: false\ngit_gc_commit_interval: 12\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitGCAutoEnabled == nil || *cfg.GitGCAutoEnabled {
+		t.Error("git_gc_auto_enabled: false was not preserved")
+	}
+	if cfg.GitGCCommitInterval != 12 {
+		t.Errorf("GitGCCommitInterval = %d, want 12", cfg.GitGCCommitInterval)
+	}
 }
 
 func TestLoadConfigSessionRetentionDays(t *testing.T) {
