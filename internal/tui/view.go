@@ -653,12 +653,27 @@ func (m Model) renderInputFooter(width int) string {
 	}
 
 	rightW := lipgloss.Width(rightPart)
-	gapW := containerW - leftW - rightW
-	if gapW < 1 {
-		gapW = 1
-	}
+	remGap := containerW - leftW - rightW
 
-	row := leftPart + strings.Repeat(" ", gapW) + rightPart
+	tokCount := skills.EstimateTokens(m.input.Value())
+	var tokStr string
+	if tokCount == 1 {
+		tokStr = "1\u00a0token"
+	} else {
+		tokStr = fmt.Sprintf("%s\u00a0tokens", formatCompactTokens(tokCount))
+	}
+	tokPill := m.styles.TitleKeycapLabel.Render(tokStr)
+	tokW := lipgloss.Width(tokPill)
+
+	var row string
+	if remGap >= tokW+2 {
+		gap1 := (remGap - tokW) / 2
+		gap2 := remGap - tokW - gap1
+		row = leftPart + strings.Repeat(" ", gap1) + tokPill + strings.Repeat(" ", gap2) + rightPart
+	} else {
+		gapW := max(1, remGap)
+		row = leftPart + strings.Repeat(" ", gapW) + rightPart
+	}
 
 	res := m.styles.StatusBar.Render(truncateLine(row, containerW))
 	return clipLines(res, 1)
@@ -680,15 +695,6 @@ func (m Model) renderInputBar(width int) string {
 			m.styles.TitleKeycapKey.Render("Enter"),
 			m.styles.TitleKeycapLabel.Render(" Interject"),
 		)
-	} else {
-		tokCount := skills.EstimateTokens(m.input.Value())
-		var tokStr string
-		if tokCount == 1 {
-			tokStr = "1\u00a0token"
-		} else {
-			tokStr = fmt.Sprintf("%s\u00a0tokens", formatCompactTokens(tokCount))
-		}
-		hint = m.styles.TitleKeycapLabel.Render(tokStr)
 	}
 
 	containerW := max(0, width-m.styles.InputContainer.GetHorizontalFrameSize())
@@ -701,7 +707,7 @@ func (m Model) renderInputBar(width int) string {
 
 	inputView := m.input.View()
 
-	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, pill, " ", inputView)
+	leftPart := lipgloss.JoinHorizontal(lipgloss.Top, pill, " ", inputView)
 	leftW := lipgloss.Width(leftPart)
 	rightW := hintW
 
@@ -710,9 +716,9 @@ func (m Model) renderInputBar(width int) string {
 		gapW = 0
 	}
 
-	content := leftPart + strings.Repeat(" ", gapW) + hint
+	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPart, strings.Repeat(" ", gapW), hint)
 	row := m.styles.InputContainer.Render(content)
-	rowClipped := clipLines(row, 1)
+	rowClipped := clipLines(row, max(1, min(4, m.input.Height())))
 	return lipgloss.JoinVertical(lipgloss.Left, topSepLine, rowClipped, bottomSepLine)
 }
 

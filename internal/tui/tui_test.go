@@ -1746,14 +1746,14 @@ func TestTUI_ModeAutocompleteSuggestions(t *testing.T) {
 		t.Fatalf("expected 4 autocompleteCmds on '/mode', got %d: %+v", len(m.autocompleteCmds), m.autocompleteCmds)
 	}
 
-	// 2. Typing '/mode ' narrows to 3 mode options
-	m = typeString(model, "/mode ")
+	// 2. Typing space (' ') narrows to 3 mode options (/mode general, /mode triad, /mode orchestrator)
+	m = typeString(m, " ")
 	if !m.autocompleteActive || len(m.autocompleteCmds) != 3 {
 		t.Fatalf("expected 3 autocompleteCmds on '/mode ', got %d: %+v", len(m.autocompleteCmds), m.autocompleteCmds)
 	}
 
-	// 3. Typing '/mode g' narrows to '/mode general'
-	m = typeString(model, "/mode g")
+	// 3. Typing 'g' narrows to '/mode general'
+	m = typeString(m, "g")
 	if !m.autocompleteActive || len(m.autocompleteCmds) != 1 || m.autocompleteCmds[0].Name != "mode general" {
 		t.Fatalf("expected 1 match ('mode general') on '/mode g', got %+v", m.autocompleteCmds)
 	}
@@ -1943,26 +1943,67 @@ func TestTUI_InputBarTokenCount(t *testing.T) {
 	m, cleanup := setupTestModel(t, nil)
 	defer cleanup()
 
-	// 1. Verify empty input shows 0 tokens and no Enter keycap
-	barEmpty := m.renderInputBar(100)
-	if !strings.Contains(barEmpty, "0") || !strings.Contains(barEmpty, "tokens") {
-		t.Errorf("expected input bar to display '0 tokens' for empty input, got:\n%s", barEmpty)
+	// 1. Verify renderInputFooter displays 0 tokens when input is empty
+	footerEmpty := m.renderInputFooter(120)
+	if !strings.Contains(footerEmpty, "0") || !strings.Contains(footerEmpty, "tokens") {
+		t.Errorf("expected footer to display '0 tokens' for empty input, got:\n%s", footerEmpty)
 	}
+
+	// 2. Set input value and verify updated token count in footer
+	m.input.SetValue("This is a sample prompt to verify token count rendering in the TUI input bar.")
+	footerWithText := m.renderInputFooter(120)
+	if !strings.Contains(footerWithText, "20") || !strings.Contains(footerWithText, "tokens") {
+		t.Errorf("expected footer to display '20 tokens' for sample input, got:\n%s", footerWithText)
+	}
+
+	// 3. Verify renderInputBar is clean when idle
+	barEmpty := m.renderInputBar(100)
 	if strings.Contains(barEmpty, "Enter") {
 		t.Errorf("expected input bar to NOT contain 'Enter' keycap when idle, got:\n%s", barEmpty)
 	}
+}
 
-	// 2. Set input value and verify updated token count
-	m.input.SetValue("This is a sample prompt to verify token count rendering in the TUI input bar.")
-	barWithText := m.renderInputBar(100)
-	if !strings.Contains(barWithText, "20") || !strings.Contains(barWithText, "tokens") {
-		t.Errorf("expected input bar to display '20 tokens' for sample input, got:\n%s", barWithText)
+func TestTUI_InputBarMultiLineHeight(t *testing.T) {
+	m, cleanup := setupTestModel(t, nil)
+	defer cleanup()
+
+	// 1. Empty input should have height 1 (3 lines total for input bar including borders)
+	bar1 := m.renderInputBar(100)
+	if h := lipgloss.Height(bar1); h != 3 {
+		t.Errorf("expected 3 total lines for empty input bar, got %d:\n%s", h, bar1)
+	}
+	if m.input.Height() != 1 {
+		t.Errorf("expected input component height 1 for empty input, got %d", m.input.Height())
 	}
 
-	// 3. Verify single line rendering (excluding top and bottom border separators)
-	lines := strings.Split(barWithText, "\n")
-	if len(lines) != 3 { // top border, 1 input row, bottom border
-		t.Errorf("expected input bar to have exactly 3 lines (top border, 1 row, bottom border), got %d lines:\n%s", len(lines), barWithText)
+	// 2. Multi-line input (3 lines) should scale input bar to height 3 (5 lines total)
+	m.input.SetValue("line 1\nline 2\nline 3")
+	bar3 := m.renderInputBar(100)
+	if h := lipgloss.Height(bar3); h != 5 {
+		t.Errorf("expected 5 total lines for 3-line input bar, got %d:\n%s", h, bar3)
+	}
+	if m.input.Height() != 3 {
+		t.Errorf("expected input component height 3 for 3-line input, got %d", m.input.Height())
+	}
+
+	// 3. Multi-line input exceeding 4 lines (e.g. 6 lines) must be capped at 4 lines (6 lines total with borders)
+	m.input.SetValue("line 1\nline 2\nline 3\nline 4\nline 5\nline 6")
+	barCapped := m.renderInputBar(100)
+	if h := lipgloss.Height(barCapped); h != 6 {
+		t.Errorf("expected 6 total lines max (4 content + 2 borders) for 6-line input, got %d:\n%s", h, barCapped)
+	}
+	if m.input.Height() != 4 {
+		t.Errorf("expected input component height capped at 4, got %d", m.input.Height())
+	}
+
+	// 4. Resetting input should restore height to 1
+	m.input.Reset()
+	barReset := m.renderInputBar(100)
+	if h := lipgloss.Height(barReset); h != 3 {
+		t.Errorf("expected 3 total lines for reset input bar, got %d:\n%s", h, barReset)
+	}
+	if m.input.Height() != 1 {
+		t.Errorf("expected input component height restored to 1, got %d", m.input.Height())
 	}
 }
 

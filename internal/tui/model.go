@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -579,7 +579,7 @@ type Model struct {
 	spinner     spinner.Model
 	viewport    viewport.Model
 	sysViewport viewport.Model
-	input       textinput.Model
+	input       textarea.Model
 	styles      Styles
 
 	// currentMode holds the top-level orchestration mode (orchestrator | general | triad).
@@ -785,13 +785,20 @@ func NewModel(
 ) Model {
 	styles := DefaultStyles()
 
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "Ask Triad to build a feature, edit code, or analyze tasks..."
 	ti.Prompt = ""
-	tiStyles := textinput.DefaultDarkStyles()
+	ti.ShowLineNumbers = false
+	ti.CharLimit = 0
+	ti.DynamicHeight = true
+	ti.MinHeight = 1
+	ti.MaxHeight = 4
+	ti.KeyMap.InsertNewline.SetKeys("shift+enter", "alt+enter", "ctrl+j")
+	tiStyles := textarea.DefaultDarkStyles()
 	tiStyles.Focused.Text = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF"))
 	tiStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B")).Italic(true)
 	tiStyles.Blurred.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	tiStyles.Blurred.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B")).Italic(true)
 	ti.SetStyles(tiStyles)
 	ti.SetWidth(40)
 	ti.Focus()
@@ -1748,7 +1755,7 @@ func (m *Model) describeSession() string {
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		textinput.Blink,
+		textarea.Blink,
 		m.spinner.Tick,
 	}
 	if m.initialCmd != nil {
