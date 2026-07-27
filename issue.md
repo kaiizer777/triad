@@ -433,7 +433,7 @@ all 8 plan tests green, without breaking any existing test.
 
 ### Phase 6.1 — Restore the transcript types (one file, one commit)
 
-- [ ] 6.1.1 — Re-add to `internal/transcript/entry.go`:
+- [x] 6.1.1 — Re-add to `internal/transcript/entry.go`:
       - `TypeProposedPlan` constant
       - `Plan` struct (`Revision int`, `Items []PlanItem`, with JSON tags)
       - `PlanItem` struct (`ID int`, `Text string`, `Status string`)
@@ -444,8 +444,8 @@ all 8 plan tests green, without breaking any existing test.
       - `AppendPlanSnapshot(t *Transcript, p *Plan, reason string) error`
         that writes a `TypeProposedPlan` entry with the JSON-encoded
         plan as Content
-- [ ] 6.1.2 — `go build ./internal/transcript/...` must pass
-- [ ] 6.1.3 — `go test ./internal/transcript/...` must stay green
+- [x] 6.1.2 — `go build ./internal/transcript/...` must pass
+- [x] 6.1.3 — `go test ./internal/transcript/...` must stay green
 
 **Checkpoint:** transcript package builds and tests pass. Nothing
 else has changed. STOP HERE before Phase 6.2.
@@ -456,22 +456,22 @@ else has changed. STOP HERE before Phase 6.2.
 `TestClarify_ProceedUnblocksTriad` standalone, even if the rest of
 the gate never lands. Do it before any other plan-gate work.**
 
-- [ ] 6.2.1 — Add `activeCycleTask string` field to `Loop` struct
-- [ ] 6.2.2 — In `Run()`, in the orchestrator-routing branch: set
+- [x] 6.2.1 — Add `activeCycleTask string` field to `Loop` struct
+- [x] 6.2.2 — In `Run()`, in the orchestrator-routing branch: set
       `l.activeCycleTask = msg` BEFORE calling `runOrchestratorRouting`
-- [ ] 6.2.3 — In `Run()`, in the orchestrator-confirm-reply branch:
+- [x] 6.2.3 — In `Run()`, in the orchestrator-confirm-reply branch:
       capture the original task from `l.pendingOrchestratorConfirm.task`
       into `l.activeCycleTask` BEFORE calling `resolveOrchestratorConfirm`
       (which clears the pending struct)
-- [ ] 6.2.4 — In `Run()`, in the non-orchestrator clarify branch:
+- [x] 6.2.4 — In `Run()`, in the non-orchestrator clarify branch:
       only set `l.activeCycleTask = msg` when `l.pendingClarify == nil`
       (i.e. it's a fresh task, not a clarify reply). Replies leave
       the previously-set value in place
-- [ ] 6.2.5 — In `runActiveCycle`, replace `activeTask :=
+- [x] 6.2.5 — In `runActiveCycle`, replace `activeTask :=
       l.mostRecentHumanTask()` with `activeTask := l.activeCycleTask; if
       activeTask == "" { activeTask = l.mostRecentHumanTask() }` so
       resume (where `activeCycleTask` is empty) still works
-- [ ] 6.2.6 — `go test ./internal/loop/... -run TestClarify -count=1`
+- [x] 6.2.6 — `go test ./internal/loop/... -run TestClarify -count=1`
       must show all clarify tests green, including
       `TestClarify_ProceedUnblocksTriad` and
       `TestClarify_RealAnswersUnblockToo`
@@ -584,8 +584,8 @@ HERE before Phase 6.5.
 Pick ONE of:
 - [ ] 6.6a — Update the test's expected border chars to include
       `┗` and `┛` (the chars `lipgloss.ThickBorder()` actually
-      renders). One-line change.
-- [ ] 6.6b — Change `RightCardContainer` and `SidebarContainer`
+      renders). One-line change. (Not taken — see 6.6b.)
+- [x] 6.6b — Change `RightCardContainer` and `SidebarContainer`
       in `model.go` `DefaultStyles()` to use
       `lipgloss.RoundedBorder()` so the rendered chars are `╰`
       and `╯`. May need a quick visual check against the design
