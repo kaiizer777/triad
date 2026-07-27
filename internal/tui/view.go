@@ -180,7 +180,7 @@ func (m Model) View() tea.View {
 	// accordingly — including on the final frame after a graceful Quit.
 	v := tea.NewView(formattedContent)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeNone
 	return v
 }
 
