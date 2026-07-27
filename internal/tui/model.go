@@ -179,12 +179,12 @@ func DefaultStyles() Styles {
 
 		TitleKeycapKey: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(violetLt).
-			Background(surfaceHigh).
+			Foreground(lipgloss.Color("#A5B4FC")).
+			Background(lipgloss.Color("#1E293B")).
 			Padding(0, 1),
 
 		TitleKeycapLabel: lipgloss.NewStyle().
-			Foreground(mutedSoft).
+			Foreground(lipgloss.Color("#94A3B8")).
 			Padding(0, 1),
 
 		// ── Sidebar Panel ─────────────────────────────────────────────
@@ -365,12 +365,12 @@ func DefaultStyles() Styles {
 		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
 			Background(obsidianAlt).
-			Padding(1, 1),
+			Padding(0, 1),
 
 		InputPill: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(blue).
+			Background(lipgloss.Color("#2563EB")).
 			Padding(0, 1),
 
 		InputPrompt: lipgloss.NewStyle().
@@ -382,7 +382,7 @@ func DefaultStyles() Styles {
 			Italic(true),
 
 		InputSeparator: lipgloss.NewStyle().
-			Foreground(borderSoft),
+			Foreground(borderVivid),
 
 		// ── Right Panel & Viewport ────────────────────────────────────
 		RightCardContainer: lipgloss.NewStyle().

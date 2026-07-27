@@ -601,7 +601,16 @@ func (m Model) renderInputFooter(width int) string {
 
 	sep := m.styles.SidebarSubHeader.Render(" | ")
 	modelPill := m.styles.SidebarLabel.Render(modelName)
-	modePill := m.styles.SidebarBadgeThink.Render(" " + modeStr + " ")
+
+	var modePill string
+	switch m.currentMode {
+	case loop.ModeTriad:
+		modePill = m.styles.SidebarBadgeActive.Render(" " + modeStr + " ")
+	case loop.ModeGeneral:
+		modePill = m.styles.SidebarBadgeIdle.Render(" " + modeStr + " ")
+	default:
+		modePill = m.styles.SidebarBadgeThink.Render(" " + modeStr + " ")
+	}
 
 	// Available space on the right side of the status bar (leave at least 1 space for gap)
 	maxRightW := max(0, containerW-leftW-1)
@@ -657,9 +666,10 @@ func (m Model) renderInputFooter(width int) string {
 // renderInputBar renders the prompt dock inside the right card.
 // It is always pinned at the bottom and never clipped out of view.
 func (m Model) renderInputBar(width int) string {
-	// Separator line above the input bar for visual grounding
+	// Separator lines above and below the input bar for visual grounding and clean framing
 	sepW := max(0, width)
-	sepLine := m.styles.InputSeparator.Render(strings.Repeat("─", max(1, sepW)))
+	topSepLine := m.styles.InputSeparator.Render(strings.Repeat("─", max(1, sepW)))
+	bottomSepLine := m.styles.InputSeparator.Render(strings.Repeat("─", max(1, sepW)))
 
 	pill := m.styles.InputPill.Render(" ❯ YOU ")
 
@@ -696,7 +706,7 @@ func (m Model) renderInputBar(width int) string {
 	)
 
 	row := m.styles.InputContainer.Width(containerW).Render(content)
-	return lipgloss.JoinVertical(lipgloss.Left, sepLine, row)
+	return lipgloss.JoinVertical(lipgloss.Left, topSepLine, row, bottomSepLine)
 }
 
 // renderProposedAction formats a tool proposal card with syntax-highlighted args.
