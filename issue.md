@@ -253,31 +253,39 @@ backup pruning.
 daily/*.md` was deliberately built append-only with no pruning, and the
 open item there says to decide a policy later — this is that later).
 
-- [ ] 4.1 — Confirm the design principle from Workflow 3 §0/§8.1 still
+- [x] 4.1 — Confirm the design principle from Workflow 3 §0/§8.1 still
       holds: this is about **retention/archival of old raw daily logs**,
       not about changing the append-only-during-normal-use behavior. Daily
       logs should still be written freely during real use; this phase only
       addresses what happens to them once they're old
-- [ ] 4.2 — Implement compression (not deletion) for daily logs older than
+- [x] 4.2 — Implement compression (not deletion) for daily logs older than
       the same retention window used in Phase 2 (default 30 days) — e.g.
       gzip individual old daily files, or roll them into a monthly archive
       file. Compression, not deletion, is the right choice here since daily
       logs are the raw material Phase 8's `/learn` promotion flow reads from
       — losing them entirely removes the audit trail behind any already-
       promoted topic-file entries
-- [ ] 4.3 — Confirm compressed/archived daily logs are excluded from the
+- [x] 4.3 — Confirm compressed/archived daily logs are excluded from the
       normal `/learn` extraction read path (Workflow 3 §9) — only
       recent, uncompressed daily logs should be scanned for new learnable
       items, since compressed history has presumably already been reviewed
-- [ ] 4.4 — **Test:** create synthetic daily log files older than the
+- [x] 4.4 — **Test:** create synthetic daily log files older than the
       retention window, run the archival pass, confirm they're compressed
       (not deleted) and no longer picked up by `/learn`'s extraction scan
-- [ ] 4.5 — **Test:** confirm recent (within-window) daily logs are
+- [x] 4.5 — **Test:** confirm recent (within-window) daily logs are
       completely unaffected and still function exactly as before
 
 **Checkpoint:** the open item from Workflow 3 is now closed — daily memory
 logs have an explicit, tested archival policy, and the `/learn` flow
 correctly ignores archived history.
+
+**Implemented:** startup uses `session_retention_days` (default 30 days) to
+gzip-archive expired regular `memory/daily/YYYY-MM-DD.md` files beneath
+`memory/daily/archive/YYYY-MM/`. Raw files are removed only after a successful
+archive write; compressed logs are outside the raw daily-log path and `/learn`
+continues to derive candidates exclusively from the active transcript. The
+retention test verifies archived contents and confirms recent daily logs remain
+readable and unchanged.
 
 ---
 

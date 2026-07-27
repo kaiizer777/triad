@@ -17,6 +17,7 @@ import (
 	"github.com/kaiizer777/triad/internal/commands"
 	"github.com/kaiizer777/triad/internal/gitcommit"
 	"github.com/kaiizer777/triad/internal/logger"
+	"github.com/kaiizer777/triad/internal/memory"
 	"github.com/kaiizer777/triad/internal/skills"
 	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
@@ -150,6 +151,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
+	memoryMgr, err := memory.NewManager(workDir)
+	if err != nil {
+		logger.L().Warn("daily-log retention cleanup unavailable", "error", err.Error())
+	} else {
+		cleanup, cleanupErr := memoryMgr.CleanupDailyLogs(time.Duration(cfg.SessionRetentionDays) * 24 * time.Hour)
+		if cleanupErr != nil {
+			logger.L().Warn("daily-log retention cleanup failed", "error", cleanupErr.Error())
+		} else if cleanup.ArchivedCount() > 0 {
+			logger.L().Info("archived expired daily memory logs", "count", cleanup.ArchivedCount())
+		}
+	}
 
 	// --- Ensure workDir is a git repository (docs/work2.md §2.2.1) ---
 	// Auto-commit-on-every-edit depends on git. If the project isn't a
@@ -202,6 +214,9 @@ func main() {
 	cfg.Reviewer.SystemPrompt = agent.ReviewerSystemPromptWithBrowser()
 
 	model := tui.NewModel(tr, cfg.Coder, cfg.Reviewer, client, workDir, commandTimeout, cmdReg, configPath, cfg)
+	if memoryMgr != nil {
+		model.SetMemory(memoryMgr)
+	}
 	model.SetSearchAPIKey(cfg.SearchAPIKey)
 	model.SetSkillsRegistry(skillsReg)
 

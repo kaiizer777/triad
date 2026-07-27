@@ -15,7 +15,9 @@
 package memory
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +29,15 @@ const (
 	IndexFileName       = "INDEX.md"
 	PreferencesFileName = "preferences.md"
 	DailyDirName        = "daily"
+	DailyArchiveDirName = "archive"
 	TopicsDirName       = "topics"
 )
+
+// DailyCleanupResult describes raw daily logs archived during a retention pass.
+type DailyCleanupResult struct{ Archived []string }
+
+// ArchivedCount returns the number of daily logs successfully archived.
+func (r DailyCleanupResult) ArchivedCount() int { return len(r.Archived) }
 
 // Default Seed Content for Memory Files
 const DefaultIndexContent = `# Triad Memory Index
@@ -216,6 +225,92 @@ func (m *Manager) ReadDailyLog(date time.Time) (string, error) {
 		return "", fmt.Errorf("memory: failed to read daily log %s: %w", fileName, err)
 	}
 	return string(data), nil
+}
+
+// CleanupDailyLogs gzip-archives daily logs older than retention. It only
+// considers regular YYYY-MM-DD.md files in memory/daily; archived .gz files
+// are deliberately outside the normal raw-log path and are never reopened by
+// the learning flow. A source file is removed only after its archive closes
+// successfully.
+func (m *Manager) CleanupDailyLogs(retention time.Duration) (DailyCleanupResult, error) {
+	if retention <= 0 {
+		return DailyCleanupResult{}, fmt.Errorf("memory: daily-log retention must be positive")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	dailyDir := filepath.Join(m.memDir, DailyDirName)
+	entries, err := os.ReadDir(dailyDir)
+	if err != nil {
+		return DailyCleanupResult{}, fmt.Errorf("memory: failed to read daily logs: %w", err)
+	}
+
+	cutoff := time.Now().Add(-retention)
+	var result DailyCleanupResult
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !isDailyLogFile(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return result, fmt.Errorf("memory: failed to stat daily log %q: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+
+		source := filepath.Join(dailyDir, entry.Name())
+		archive, err := archiveDailyLog(dailyDir, source, info.ModTime())
+		if err != nil {
+			return result, err
+		}
+		if err := os.Remove(source); err != nil {
+			return result, fmt.Errorf("memory: failed to remove archived daily log %q: %w", entry.Name(), err)
+		}
+		result.Archived = append(result.Archived, archive)
+	}
+	return result, nil
+}
+
+func isDailyLogFile(name string) bool {
+	if filepath.Ext(name) != ".md" {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", strings.TrimSuffix(name, ".md"))
+	return err == nil
+}
+
+func archiveDailyLog(dailyDir, source string, modTime time.Time) (string, error) {
+	archive := filepath.Join(dailyDir, DailyArchiveDirName, modTime.Format("2006-01"), filepath.Base(source)+".gz")
+	if err := os.MkdirAll(filepath.Dir(archive), 0755); err != nil {
+		return "", fmt.Errorf("memory: failed to create daily-log archive directory: %w", err)
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return "", fmt.Errorf("memory: failed to open daily log %q: %w", source, err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		return "", fmt.Errorf("memory: failed to create daily-log archive %q: %w", archive, err)
+	}
+	gz := gzip.NewWriter(out)
+	_, copyErr := io.Copy(gz, in)
+	closeGzipErr := gz.Close()
+	closeFileErr := out.Close()
+	if copyErr != nil || closeGzipErr != nil || closeFileErr != nil {
+		_ = os.Remove(archive)
+		if copyErr != nil {
+			return "", fmt.Errorf("memory: failed to compress daily log %q: %w", source, copyErr)
+		}
+		if closeGzipErr != nil {
+			return "", fmt.Errorf("memory: failed to finish daily-log archive %q: %w", archive, closeGzipErr)
+		}
+		return "", fmt.Errorf("memory: failed to close daily-log archive %q: %w", archive, closeFileErr)
+	}
+	return archive, nil
 }
 
 // WriteTopicEntry appends an entry to memory/topics/<topicName>.md manually without corrupting existing entries.

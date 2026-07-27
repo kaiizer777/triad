@@ -1,6 +1,8 @@
 package memory_test
 
 import (
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +87,65 @@ func TestManager_AppendDailyLog(t *testing.T) {
 	}
 	if !strings.Contains(content, "Session ended - task 1 completed") {
 		t.Errorf("expected daily log to contain second entry, got: %s", content)
+	}
+}
+
+func TestManager_CleanupDailyLogsArchivesExpiredAndKeepsRecentRawLogs(t *testing.T) {
+	mgr, err := memory.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	oldDate := time.Now().AddDate(0, 0, -31)
+	recentDate := time.Now().AddDate(0, 0, -1)
+	if err := mgr.AppendDailyLog(oldDate, "old learning audit trail"); err != nil {
+		t.Fatalf("append old log: %v", err)
+	}
+	if err := mgr.AppendDailyLog(recentDate, "recent learning audit trail"); err != nil {
+		t.Fatalf("append recent log: %v", err)
+	}
+
+	oldPath := filepath.Join(mgr.Dir(), memory.DailyDirName, oldDate.Format("2006-01-02")+".md")
+	if err := os.Chtimes(oldPath, oldDate, oldDate); err != nil {
+		t.Fatalf("backdate old daily log: %v", err)
+	}
+
+	result, err := mgr.CleanupDailyLogs(30 * 24 * time.Hour)
+	if err != nil {
+		t.Fatalf("cleanup daily logs: %v", err)
+	}
+	if result.ArchivedCount() != 1 {
+		t.Fatalf("archived %d daily logs, want 1", result.ArchivedCount())
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("expired raw daily log still exists; stat error = %v", err)
+	}
+
+	archive, err := os.Open(result.Archived[0])
+	if err != nil {
+		t.Fatalf("open archive: %v", err)
+	}
+	gz, err := gzip.NewReader(archive)
+	if err != nil {
+		archive.Close()
+		t.Fatalf("open gzip archive: %v", err)
+	}
+	archivedContent, err := io.ReadAll(gz)
+	closeErr := gz.Close()
+	archive.Close()
+	if err != nil || closeErr != nil {
+		t.Fatalf("read gzip archive: read=%v close=%v", err, closeErr)
+	}
+	if !strings.Contains(string(archivedContent), "old learning audit trail") {
+		t.Fatalf("archive did not preserve old daily log: %q", archivedContent)
+	}
+
+	recentContent, err := mgr.ReadDailyLog(recentDate)
+	if err != nil {
+		t.Fatalf("read recent daily log after cleanup: %v", err)
+	}
+	if !strings.Contains(recentContent, "recent learning audit trail") {
+		t.Fatalf("recent daily log changed during cleanup: %q", recentContent)
 	}
 }
 
