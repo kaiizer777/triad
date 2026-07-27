@@ -481,12 +481,12 @@ Phase 6.3.
 
 ### Phase 6.3 — Restore the rest of the loop-side plan gate
 
-- [ ] 6.3.1 — Add to `Loop` struct: `pendingPlan *transcript.Plan`,
+- [x] 6.3.1 — Add to `Loop` struct: `pendingPlan *transcript.Plan`,
       `planBypassed bool`, `planPreTextCount int`,
       `planGateDisabled bool` (last one defaults to `true` — see
       the "opt-in gate" note below)
-- [ ] 6.3.2 — Add `SetPlanGateDisabled(bool)` method
-- [ ] 6.3.3 — Add package helpers: `PlanRequiredForTask(mode, task)
+- [x] 6.3.2 — Add `SetPlanGateDisabled(bool)` method
+- [x] 6.3.3 — Add package helpers: `PlanRequiredForTask(mode, task)
       bool`, `extractPlanFromToolCall(tc, revision) (*Plan, error)`,
       `extractPlanItemID(args, plan) (int, bool)`,
       `heuristicBindPlanItem(plan) (int, bool)`,
@@ -494,30 +494,30 @@ Phase 6.3.
       `LatestApprovedPlan(entries) *Plan`,
       `markPlanItemInProgress(id) error`,
       `markPlanItemDone(id) error`
-- [ ] 6.3.4 — In `runActiveCycle`, at the top: recover plan from
+- [x] 6.3.4 — In `runActiveCycle`, at the top: recover plan from
       transcript if `pendingPlan == nil`, classify the original
       task to compute `planRequired`, reset pre-text count, set
       `planBypassed` if gate is skipped
-- [ ] 6.3.5 — In `runActiveCycle`'s plain-text branch: bump
+- [x] 6.3.5 — In `runActiveCycle`'s plain-text branch: bump
       `planPreTextCount` and trip a stall guard after
       `maxPlanPreTextMessages` (1) plain-text messages without a
       plan
-- [ ] 6.3.6 — In `runActiveCycle`'s tool-call branch: handle
+- [x] 6.3.6 — In `runActiveCycle`'s tool-call branch: handle
       `submit_plan` (decode plan, write snapshot, run reviewer
       gate, set `pendingPlan` on approval)
-- [ ] 6.3.7 — In `runActiveCycle`'s tool-call branch: add the
+- [x] 6.3.7 — In `runActiveCycle`'s tool-call branch: add the
       plan-required gate `if planRequired && pendingPlan == nil
       && !planGateDisabled { reject; continue }` — the
       `!planGateDisabled` clause is what keeps pre-existing tests
       passing without per-test opt-outs
-- [ ] 6.3.8 — In `runActiveCycle`'s tool-call branch: after
+- [x] 6.3.8 — In `runActiveCycle`'s tool-call branch: after
       approval, `bindActionToPlanItem` and `markPlanItemInProgress`
       on the bound item; on successful execution,
       `markPlanItemDone`. Both write a snapshot via
       `AppendPlanSnapshot`
-- [ ] 6.3.9 — Add `defer l.clearCycleState()` at the top of
+- [x] 6.3.9 — Add `defer l.clearCycleState()` at the top of
       `runActiveCycle` to reset all per-cycle plan state
-- [ ] 6.3.10 — Restore `internal/loop/plan_test.go` (8 tests, see
+- [x] 6.3.10 — Restore `internal/loop/plan_test.go` (8 tests, see
       table above). With the `planGateDisabled: true` default
       from 6.3.1, `makeTestLoopWithMode` must call
       `l.SetPlanGateDisabled(false)` to enable the gate for the
@@ -528,28 +528,28 @@ loop tests still green. STOP HERE before Phase 6.4.
 
 ### Phase 6.4 — Mirror the gate in the TUI (model + update)
 
-- [ ] 6.4.1 — In `internal/tui/model.go` add fields:
+- [x] 6.4.1 — In `internal/tui/model.go` add fields:
       `currentPlan *transcript.Plan`, `planRequired bool`,
       `planBypassed bool`, `planPreTextCount int`
-- [ ] 6.4.2 — In `NewModel` / `RestoreSessionState`, call
+- [x] 6.4.2 — In `NewModel` / `RestoreSessionState`, call
       `loop.LatestApprovedPlan(entries)` and populate
       `currentPlan`
-- [ ] 6.4.3 — In `internal/tui/update.go`, at the start of every
+- [x] 6.4.3 — In `internal/tui/update.go`, at the start of every
       active cycle (in the humanInputMsg handler): recover
       `currentPlan`, reset `planPreTextCount`, compute
       `planRequired = loop.PlanRequiredForTask(m.currentMode,
       msg.content)`
-- [ ] 6.4.4 — In `update.go`, add a `submit_plan` branch in the
+- [x] 6.4.4 — In `update.go`, add a `submit_plan` branch in the
       tool-call handling
-- [ ] 6.4.5 — In `update.go`, add the plan-rejection branch
+- [x] 6.4.5 — In `update.go`, add the plan-rejection branch
       (mirrors loop's: emit a System note and a revised
       `proposed_action`, don't burn a retry)
-- [ ] 6.4.6 — In `update.go`, after a `proposed_action` is
+- [x] 6.4.6 — In `update.go`, after a `proposed_action` is
       emitted, call `m.bindActionToPlanItem(toolCall)` and
       `loop.MarkPlanItemStatusInPlace(m.currentPlan, id,
       transcript.PlanItemInProgress)`; on successful execution
       in the `toolResultMsg` handler, mark done
-- [ ] 6.4.7 — TUI plan tests (none in main yet — add a small one
+- [x] 6.4.7 — TUI plan tests (none in main yet — add a small one
       in `internal/tui/tui_test.go` for at least:
       `currentPlan` recovered on resume from a TypeProposedPlan
       entry, and plan-gate rejection when `planRequired &&
@@ -560,14 +560,14 @@ HERE before Phase 6.5.
 
 ### Phase 6.5 — Render the plan card in the TUI
 
-- [ ] 6.5.1 — In `internal/tui/view.go`, add
+- [x] 6.5.1 — In `internal/tui/view.go`, add
       `renderProposedPlan(content string, width int) string` —
       uses `transcript.DecodePlan`, renders a header pill
       (`▸ PLAN` or `▸ PLAN (revised from initial · #N)` for
       revisions), a separator rule, a progress count
       (`N/M done`), and one line per item with `▢` / `▷` / `✓`
       icons matching item status
-- [ ] 6.5.2 — In `renderTranscript`, add a `case
+- [x] 6.5.2 — In `renderTranscript`, add a `case
       transcript.TypeProposedPlan: body =
       m.renderProposedPlan(cleanContent, m.viewport.Width())` —
       same height budget as `renderProposedAction` for a

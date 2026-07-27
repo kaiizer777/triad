@@ -267,7 +267,6 @@ func TestExecuteTool_SpawnTwinSubagentMustBeIntercepted(t *testing.T) {
 	}
 }
 
-
 // TestExecuteTool_MalformedArguments verifies that a completely unparseable JSON
 // argument string does NOT crash the session (no Go error returned). Instead,
 // ExecuteTool returns a "System: malformed..." result string that the TUI can
@@ -298,13 +297,13 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 
 func TestCoderTools_JSONShape(t *testing.T) {
 	tools := CoderTools()
-	// 6 base tools (write_file, read_file, run_command, task_complete,
-	// spawn_subagent, spawn_twin_subagent) + 9 browser_* tools
+	// 7 base tools (write_file, read_file, run_command, task_complete,
+	// submit_plan, spawn_subagent, spawn_twin_subagent) + 9 browser_* tools
 	// (navigate / click / type / get_text / screenshot / wait_for from
 	// Work 2 + Phase 2, plus reset_context / save_storage_state /
 	// clear_saved_storage from Work 4 Phase 4) + 1 web_search tool.
-	if len(tools) != 16 {
-		t.Fatalf("expected 16 tools, got %d", len(tools))
+	if len(tools) != 17 {
+		t.Fatalf("expected 17 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -340,7 +339,7 @@ func TestCoderTools_JSONShape(t *testing.T) {
 	}
 
 	required := []string{
-		"write_file", "read_file", "run_command", "task_complete", "spawn_subagent", "spawn_twin_subagent",
+		"write_file", "read_file", "run_command", "task_complete", "submit_plan", "spawn_subagent", "spawn_twin_subagent",
 		"browser_navigate", "browser_click", "browser_type", "browser_get_text", "browser_screenshot", "browser_wait_for",
 		"browser_reset_context", "browser_save_storage_state", "browser_clear_saved_storage",
 		"web_search",

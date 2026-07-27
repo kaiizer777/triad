@@ -430,6 +430,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 				m.refreshViewport()
 			}
+			// Phase 6.4 — prepare the per-cycle plan-gate state
+			// before firing the Coder turn. resetPlanGateForCycle
+			// recomputes planRequired for the fresh task, sets
+			// planBypassed when the gate is off (general mode or
+			// trivial task), and resets planPreTextCount /
+			// planBoundItemID. The gate is always on in the TUI
+			// (production path); the headless loop's gate is
+			// opt-in for tests. See internal/tui/plan_gate.go
+			// for the always-on rationale.
+			m.resetPlanGateForCycle()
 			m.statusMessage = "Coder is thinking..."
 			return m, m.coderTurnCmd()
 		}
@@ -558,6 +568,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.plainTextTurns++
 				m.refreshViewport()
 
+				// Phase 6.4 — plan gate pre-text stall guard.
+				// When the gate is active and no plan is pending
+				// yet, count this plain-text turn. After
+				// MaxPlanPreTextMessages the gate emits a System
+				// note telling Coder to submit a plan. The note
+				// appears in the transcript AND in Coder's context
+				// on the next turn, so it actually sees the nudge.
+				// Mirrors the same logic in the headless loop
+				// (Loop.runActiveCycle's plain-text branch).
+				if !m.planBypassed && m.currentPlan == nil {
+					if m.recordPrePlanTextMessage() {
+						_ = m.transcript.Append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   formatPlanStallMessage(),
+							Timestamp: time.Now(),
+						})
+						m.refreshViewport()
+					}
+				}
+
 				// Guard against infinite plain-text loops: if Coder keeps sending
 				// messages without ever producing a tool call, surface the stall.
 				if m.plainTextTurns >= MaxPlainTextTurns {
@@ -582,6 +613,122 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Coder proposed an action — reset the plain-text stall counter.
 			m.plainTextTurns = 0
 			toolCall := msg.resp.ToolCalls[0]
+
+			// Phase 6.4 — submit_plan branch (gate's release valve).
+			//
+			// When Coder proposes submit_plan, decode the plan,
+			// set m.currentPlan, write a snapshot, and let the
+			// cycle continue without Reviewer. submit_plan is not
+			// an executable action — it's the gate's "this is what
+			// I'm going to do" declaration, and Reviewer would just
+			// rubber-stamp it. Subsequent actions each go through
+			// Reviewer as normal, which is where the actual
+			// plan-vs-execution consistency check lives.
+			//
+			// We process submit_plan BEFORE the rejection check
+			// below so the gate's own release valve can never
+			// itself be rejected by the gate. We also accept
+			// submit_plan even when the gate is bypassed (general
+			// mode / trivial task) — a future "always show the
+			// plan card" TUI feature can rely on this.
+			if toolCall.Function.Name == "submit_plan" {
+				nextRevision := 1
+				if m.currentPlan != nil {
+					nextRevision = m.currentPlan.Revision + 1
+				}
+				plan, decodeErr := loop.ExtractPlanFromToolCallPublic(toolCall, nextRevision)
+				if decodeErr != nil {
+					_ = m.transcript.Append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   fmt.Sprintf("[Plan Gate]: submit_plan arguments could not be decoded: %v", decodeErr),
+						Timestamp: time.Now(),
+					})
+				} else {
+					m.currentPlan = plan
+					reason := fmt.Sprintf("plan approved (rev #%d)", plan.Revision)
+					if err := transcript.AppendPlanSnapshot(m.transcript, plan, reason); err != nil {
+						_ = m.transcript.Append(transcript.Entry{
+							Speaker:   transcript.SpeakerSystem,
+							Type:      transcript.TypeMessage,
+							Content:   fmt.Sprintf("[Plan Gate]: failed to write plan snapshot: %v", err),
+							Timestamp: time.Now(),
+						})
+					}
+				}
+				// Append the proposed_action so the transcript
+				// still has a record of what Coder tried to submit
+				// (the snapshot captures the structured plan, but
+				// the proposed_action entry is what a Reviewer
+				// would have seen in a normal propose→review
+				// flow — keeping both makes the transcript uniform
+				// with non-plan cycles).
+				proposedContent := loop.FormatProposedAction(toolCall)
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerCoder,
+					Type:      transcript.TypeProposedAction,
+					Content:   proposedContent,
+					Timestamp: time.Now(),
+				})
+				m.refreshViewport()
+				m.statusMessage = "Plan submitted. Coder considering next step..."
+				return m, m.coderTurnCmd()
+			}
+
+			// Phase 6.4 — plan-required rejection.
+			//
+			// If the gate is active and Coder has not yet
+			// submitted a plan, reject this non-submit_plan tool
+			// call. Append the proposed_action anyway (so the
+			// transcript still records what Coder tried), emit a
+			// System note explaining the rejection, and continue
+			// the cycle — Coder gets another turn to submit a
+			// plan first. We do NOT count this against MaxRetries
+			// because the review cycle hasn't even started —
+			// there's no objection to retry. The gate is a
+			// precondition, not a counter.
+			if m.planGateRejectsNonPlanCall(toolCall) {
+				proposedContent := loop.FormatProposedAction(toolCall)
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerCoder,
+					Type:      transcript.TypeProposedAction,
+					Content:   proposedContent,
+					Timestamp: time.Now(),
+				})
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   formatPlanRejectionMessage(toolCall),
+					Timestamp: time.Now(),
+				})
+				m.activeToolCall = &toolCall
+				m.refreshViewport()
+				m.statusMessage = "Plan required before non-trivial action. Awaiting submit_plan..."
+				return m, m.coderTurnCmd()
+			}
+
+			// Phase 6.4 — bind to plan item BEFORE review.
+			// If the gate is active AND a plan is pending AND
+			// the tool call didn't already carry a plan_item_id,
+			// bind the action to the first pending item and mark
+			// it in_progress. This snapshot lands in the
+			// transcript right after the proposed_action (in the
+			// flow below) so reviewers can see "Coder intends to
+			// execute item N" before they greenlight the action.
+			// Mirrors Loop.runActiveCycle's per-action binding.
+			if !m.planBypassed && m.currentPlan != nil {
+				if boundID, bindErr := m.bindActionToPlanItem(toolCall); bindErr != nil {
+					_ = m.transcript.Append(transcript.Entry{
+						Speaker:   transcript.SpeakerSystem,
+						Type:      transcript.TypeMessage,
+						Content:   fmt.Sprintf("[Plan Gate]: failed to bind action to plan item: %v", bindErr),
+						Timestamp: time.Now(),
+					})
+				} else {
+					m.planBoundItemID = boundID
+				}
+			}
+
 			m.activeToolCall = &toolCall
 			proposedContent := loop.FormatProposedAction(toolCall)
 			proposedEntry := transcript.Entry{
@@ -772,6 +919,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(entries) > 0 {
 			resultEntryID = entries[len(entries)-1].ID
 		}
+
+		// Phase 6.4 — mark plan item done on success.
+		// If the gate is active, a plan is pending, and an
+		// action was bound to a plan item, AND the result
+		// is not an error, flip the item to "done" and write
+		// a snapshot. Failed actions leave the item in
+		// "in_progress" so the next iteration can retry it
+		// (or the human can intervene). Mirrors
+		// Loop.runActiveCycle's per-action done-marking.
+		if !m.planBypassed && m.currentPlan != nil && m.planBoundItemID > 0 && m.lastActionResultSucceeded() {
+			if err := m.markPlanItemStatusInPlace(m.planBoundItemID, transcript.PlanItemDone); err != nil {
+				_ = m.transcript.Append(transcript.Entry{
+					Speaker:   transcript.SpeakerSystem,
+					Type:      transcript.TypeMessage,
+					Content:   fmt.Sprintf("[Plan Gate]: failed to mark plan item %d done: %v", m.planBoundItemID, err),
+					Timestamp: time.Now(),
+				})
+			}
+		}
+		// Always clear the bound item once the action has
+		// resolved — successful or not. A failed action's
+		// item stays in_progress; the next iteration can
+		// re-bind (heuristicBindPlanItem will pick it up
+		// again, or the next explicit submit_plan can
+		// revise the plan).
+		m.planBoundItemID = 0
 
 		// Auto-commit on every executed edit (docs/work2.md §2.2).
 		// Only acts on successful write_file / run_command; reads and

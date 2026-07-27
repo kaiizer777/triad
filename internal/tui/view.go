@@ -588,8 +588,6 @@ func (m Model) renderJourneySidebar(width, height, innerWidth, innerHeight int, 
 		Render(padded)
 }
 
-
-
 // renderStatusBar renders the live status line with state icon and spinner.
 func (m Model) renderStatusBar(width int) string {
 	var icon string
@@ -692,7 +690,7 @@ func (m Model) renderProposedAction(content string, width int) string {
 		} else {
 			formattedLine = "  " + m.styles.ToolCallVal.Render(line)
 		}
-		
+
 		availW := max(1, width-m.styles.ToolCallBox.GetHorizontalFrameSize()-2)
 		wrappedLines := wrapText(formattedLine, availW)
 		for _, wl := range wrappedLines {
@@ -705,12 +703,69 @@ func (m Model) renderProposedAction(content string, width int) string {
 	return m.styles.ToolCallBox.Width(boxW).Render(strings.TrimRight(sb.String(), "\n"))
 }
 
+// renderProposedPlan formats a structured plan snapshot as a compact checklist
+// card. The transcript stores snapshots as JSON, so malformed or legacy plan
+// entries deliberately fall back to readable text instead of breaking View.
+func (m Model) renderProposedPlan(content string, width int) string {
+	plan, err := transcript.DecodePlan(content)
+	if err != nil {
+		return m.renderProposedAction(content, width)
+	}
+
+	boxW := max(0, width-m.styles.ToolCallBox.GetHorizontalFrameSize())
+	innerW := max(1, width-m.styles.ToolCallBox.GetHorizontalFrameSize()-2)
+
+	header := " ▸ PLAN "
+	if plan.Revision > 1 {
+		header = fmt.Sprintf(" ▸ PLAN (revised from initial · #%d) ", plan.Revision)
+	}
+
+	done := 0
+	for _, item := range plan.Items {
+		if item.Status == transcript.PlanItemDone {
+			done++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(m.styles.ToolCallHeader.Render(header))
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.SidebarRule.Render(strings.Repeat("─", innerW)))
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.ToolCallFunc.Render(fmt.Sprintf(" %d/%d done ", done, len(plan.Items))))
+
+	for _, item := range plan.Items {
+		icon := "▢"
+		switch item.Status {
+		case transcript.PlanItemInProgress:
+			icon = "▷"
+		case transcript.PlanItemDone:
+			icon = "✓"
+		}
+
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			text = "Untitled item"
+		}
+		for _, line := range wrapText(fmt.Sprintf(" %s %d. %s", icon, item.ID, text), innerW) {
+			sb.WriteString("\n")
+			sb.WriteString(m.styles.ToolCallVal.Render(line))
+		}
+	}
+
+	return m.styles.ToolCallBox.Width(boxW).Render(sb.String())
+}
+
 // renderTranscript formats all non-system transcript entries for the main chat viewport.
 func (m Model) renderTranscript() string {
 	allEntries := m.transcript.Entries()
 	var entries []transcript.Entry
 	for _, entry := range allEntries {
-		if entry.Speaker != transcript.SpeakerSystem {
+		// Plan snapshots are written by the system so they remain a
+		// trustworthy record, but they are user-facing cards and must
+		// remain visible in the main transcript. Other system events
+		// continue to live only in the sidebar log.
+		if entry.Speaker != transcript.SpeakerSystem || entry.Type == transcript.TypeProposedPlan {
 			entries = append(entries, entry)
 		}
 	}
@@ -747,6 +802,9 @@ func (m Model) renderTranscript() string {
 		switch entry.Type {
 		case transcript.TypeProposedAction:
 			body = m.renderProposedAction(cleanContent, m.viewport.Width())
+
+		case transcript.TypeProposedPlan:
+			body = m.renderProposedPlan(cleanContent, m.viewport.Width())
 
 		case transcript.TypeActionResult:
 			availW := max(1, m.viewport.Width()-6)

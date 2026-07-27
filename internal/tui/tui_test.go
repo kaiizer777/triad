@@ -269,6 +269,42 @@ func TestTUI_Phase7_ProposedActionFormatting(t *testing.T) {
 	}
 }
 
+func TestTUI_RenderProposedPlan(t *testing.T) {
+	client := &mockClient{}
+	model, cleanup := setupTestModel(t, client)
+	defer cleanup()
+
+	content, err := transcript.EncodePlan(&transcript.Plan{
+		Revision: 2,
+		Items: []transcript.PlanItem{
+			{ID: 1, Text: "Inspect the current implementation", Status: transcript.PlanItemDone},
+			{ID: 2, Text: "Render the plan card", Status: transcript.PlanItemInProgress},
+			{ID: 3, Text: "Run the test suite", Status: transcript.PlanItemPending},
+		},
+	})
+	if err != nil {
+		t.Fatalf("EncodePlan: %v", err)
+	}
+
+	rendered := model.renderProposedPlan(content, 60)
+	for _, want := range []string{"PLAN (revised from initial · #2)", "1/3 done", "✓", "▷", "▢", "Render the plan card"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered plan missing %q:\n%s", want, rendered)
+		}
+	}
+
+	if err := transcript.AppendPlanSnapshot(model.transcript, &transcript.Plan{
+		Revision: 1,
+		Items:    []transcript.PlanItem{{ID: 1, Text: "Visible in the transcript", Status: transcript.PlanItemPending}},
+	}, "plan approved"); err != nil {
+		t.Fatalf("AppendPlanSnapshot: %v", err)
+	}
+	model.viewport.SetWidth(60)
+	if transcriptView := model.renderTranscript(); !strings.Contains(transcriptView, "Visible in the transcript") {
+		t.Errorf("expected proposed-plan snapshot in main transcript:\n%s", transcriptView)
+	}
+}
+
 func TestTUI_Phase7_WindowResize(t *testing.T) {
 	client := &mockClient{}
 	model, cleanup := setupTestModel(t, client)
@@ -289,8 +325,6 @@ func TestTUI_Phase7_WindowResize(t *testing.T) {
 		}
 	}
 }
-
-
 
 func TestTUI_Phase7_Badges(t *testing.T) {
 	client := &mockClient{}
@@ -1294,7 +1328,6 @@ func TestTUI_Autocomplete_Filtering(t *testing.T) {
 		t.Fatalf("expected 1 match ('plan') on '/p', got %v", m.autocompleteCmds)
 	}
 
-
 	// 3. Clear and type '/s' narrows to [status, strict, summary]
 	m.input.SetValue("")
 	m = typeString(m, "/s")
@@ -1882,11 +1915,3 @@ func TestTUI_LiveSessionTokenStats(t *testing.T) {
 		t.Errorf("Expected renderTitleBar output to include live stats, got: %s", titleBar)
 	}
 }
-
-
-
-
-
-
-
-

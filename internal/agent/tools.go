@@ -115,6 +115,23 @@ var coderToolSchemas = []ToolSchema{
 	{
 		Type: "function",
 		Function: ToolFunctionSpec{
+			Name:        "submit_plan",
+			Description: "Submit a structured implementation plan before taking actions on a non-trivial task. Each item needs a stable numeric id and a concise text description. Optionally include status as pending, in_progress, or done; omitted statuses default to pending. After submitting the plan, include plan_item_id in each action when possible.",
+			Parameters: ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamProperty{
+					"plan": {
+						Type:        "object",
+						Description: "Plan object with an optional revision number and an items array. Each item contains id (integer), text (string), and optional status (pending, in_progress, or done).",
+					},
+				},
+				Required: []string{"plan"},
+			},
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunctionSpec{
 			// spawn_subagent is the opt-in support-research tool (docs/work2.md §3).
 			// It runs a short-lived, isolated-context agent with its own transcript
 			// and a narrowed tool set (read_file + run_command only). The parent
@@ -399,7 +416,7 @@ func CoderTools() []ToolSchema {
 // ToolCall represents a single tool invocation returned by the model.
 type ToolCall struct {
 	ID       string           `json:"id"`
-	Type     string           `json:"type"`     // always "function"
+	Type     string           `json:"type"` // always "function"
 	Function ToolCallFunction `json:"function"`
 }
 

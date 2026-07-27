@@ -87,6 +87,7 @@ func extractPlanFromToolCall(tc agent.ToolCall, revision int) (*transcript.Plan,
 	}
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &wrapped); err == nil && wrapped.Plan != nil {
 		wrapped.Plan.Revision = revision
+		normalizePlanItemStatuses(wrapped.Plan)
 		return wrapped.Plan, nil
 	}
 
@@ -94,10 +95,24 @@ func extractPlanFromToolCall(tc agent.ToolCall, revision int) (*transcript.Plan,
 	var bare transcript.Plan
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &bare); err == nil && len(bare.Items) > 0 {
 		bare.Revision = revision
+		normalizePlanItemStatuses(&bare)
 		return &bare, nil
 	}
 
 	return nil, fmt.Errorf("extractPlanFromToolCall: arguments are neither {plan: {...}} nor a bare Plan object: %s", tc.Function.Arguments)
+}
+
+// normalizePlanItemStatuses accepts compact submit_plan payloads (id + text)
+// while preserving explicit status values. New plan items are pending.
+func normalizePlanItemStatuses(plan *transcript.Plan) {
+	if plan == nil {
+		return
+	}
+	for i := range plan.Items {
+		if strings.TrimSpace(plan.Items[i].Status) == "" {
+			plan.Items[i].Status = transcript.PlanItemPending
+		}
+	}
 }
 
 // extractPlanItemID inspects a tool call's arguments for a
@@ -115,8 +130,8 @@ func extractPlanItemID(tc agent.ToolCall, plan *transcript.Plan) (int, bool) {
 	}
 
 	var args struct {
-		PlanItemID *int   `json:"plan_item_id"`
-		ItemID     *int   `json:"item_id"`
+		PlanItemID *int `json:"plan_item_id"`
+		ItemID     *int `json:"item_id"`
 	}
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 		return 0, false
@@ -409,4 +424,42 @@ func lastActionResultSucceeded(entries []transcript.Entry) bool {
 	// conservative choice (a missing result is not the same as
 	// a successful result).
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Public re-exports for the TUI
+// ---------------------------------------------------------------------------
+//
+// The TUI's plan gate (internal/tui/plan_gate.go) does not
+// have a *Loop to call private methods on, so it needs access
+// to the small package-level helpers that don't mutate Loop
+// state — extractPlanItemID and heuristicBindPlanItem. These
+// re-exports wrap the lowercase functions with Public
+// suffixed names so the TUI can call them without breaking
+// the loop package's encapsulation for everything else.
+//
+// Why a thin wrapper rather than renaming the originals:
+// renaming would require touching every loop-internal caller
+// (plan_test.go, plan_gate.go's own call sites, and the
+// per-action binding in loop.go). The wrappers keep the
+// rename scoped to the TUI's import site.
+
+// ExtractPlanItemIDPublic is the public re-export of
+// extractPlanItemID. See the lowercase helper for full docs.
+func ExtractPlanItemIDPublic(tc agent.ToolCall, plan *transcript.Plan) (int, bool) {
+	return extractPlanItemID(tc, plan)
+}
+
+// HeuristicBindPlanItemPublic is the public re-export of
+// heuristicBindPlanItem. See the lowercase helper for full
+// docs.
+func HeuristicBindPlanItemPublic(plan *transcript.Plan) (int, bool) {
+	return heuristicBindPlanItem(plan)
+}
+
+// ExtractPlanFromToolCallPublic is the public re-export of
+// extractPlanFromToolCall. See the lowercase helper for full
+// docs. Used by the TUI's submit_plan branch in update.go.
+func ExtractPlanFromToolCallPublic(tc agent.ToolCall, revision int) (*transcript.Plan, error) {
+	return extractPlanFromToolCall(tc, revision)
 }

@@ -585,6 +585,46 @@ type Model struct {
 	// currentMode holds the top-level orchestration mode (orchestrator | general | triad).
 	currentMode loop.Mode
 
+	// ---------------------------------------------------------------------------
+	// Plan-first gate (Phase 6.4)
+	// ---------------------------------------------------------------------------
+	//
+	// The TUI's plan gate is the always-on production path. It
+	// mirrors the headless loop's gate (internal/loop/plan_gate.go)
+	// but does NOT read Loop.planGateDisabled — the TUI is the user-
+	// facing path and the gate should always be enforced for non-
+	// trivial tasks. The headless loop's gate is opt-in for tests.
+	//
+	// Field semantics:
+	//   - currentPlan:       the plan recovered from the latest
+	//                        TypeProposedPlan entry, or nil if no
+	//                        plan is currently approved for this
+	//                        cycle. Mutated in place by the
+	//                        mark-in-progress / mark-done paths.
+	//   - planRequired:      true when the active cycle's task
+	//                        requires an approved plan before Coder
+	//                        can take real actions (mirror of
+	//                        loop.PlanRequiredForTask).
+	//   - planBypassed:      true when the gate is inactive for the
+	//                        current cycle — either because the task
+	//                        is trivial, or because currentMode is
+	//                        ModeGeneral (no Reviewer, no gate).
+	//   - planPreTextCount:  consecutive plain-text Coder messages
+	//                        since the cycle started without a
+	//                        submit_plan. Mirrors
+	//                        MaxPlanPreTextMessages; reset at the
+	//                        start of every cycle.
+	//   - planBoundItemID:   the most recent plan item the gate
+	//                        bound to an in-flight action. Used by
+	//                        the toolResultMsg path to mark the
+	//                        item done on success. 0 means "no
+	//                        binding this cycle".
+	currentPlan       *transcript.Plan
+	planRequired      bool
+	planBypassed      bool
+	planPreTextCount  int
+	planBoundItemID   int
+
 	// pendingClarify holds a non-nil Batch when the most recent
 	// user submission triggered a clarification round (Phase 3,
 	// docs/x.md §Phase 3). While non-nil, the next user message
@@ -851,6 +891,16 @@ func (m *Model) RestoreSessionState() {
 			}
 		}
 	}
+
+	// Phase 6.4 — recover the most-recently-approved plan so
+	// the gate's in-progress / done tracking survives a resume.
+	// The plan's state on disk is the source of truth; we mirror
+	// it into m.currentPlan so the per-action binding logic can
+	// read it. Reset the rest of the gate's per-cycle state
+	// (planRequired / planBypassed / counters) — those are
+	// re-derived on every active cycle by resetPlanGateForCycle.
+	m.currentPlan = loop.LatestApprovedPlan(entries)
+	m.planBoundItemID = 0
 
 	if len(entries) == 0 {
 		m.sessionState = loop.StateIdle
