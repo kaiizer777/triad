@@ -181,9 +181,27 @@ func (r *Registry) Filter(prefix string) []Command {
 		}
 	}
 
+	// Helper closure to inject subcommands into matched slice
+	injectSubCmds := func(subCmds []Command) {
+		for _, sub := range subCmds {
+			if prefix == "" || strings.HasPrefix(sub.Name, prefix) {
+				alreadyPresent := false
+				for _, m := range matched {
+					if m.Name == sub.Name {
+						alreadyPresent = true
+						break
+					}
+				}
+				if !alreadyPresent {
+					matched = append(matched, sub)
+				}
+			}
+		}
+	}
+
 	// If "mode" command exists, inject mode subcommand variants
 	if _, hasMode := r.commands["mode"]; hasMode {
-		modeSubCmds := []Command{
+		injectSubCmds([]Command{
 			{
 				Name:        "mode orchestrator",
 				Target:      TargetSystem,
@@ -199,21 +217,64 @@ func (r *Registry) Filter(prefix string) []Command {
 				Target:      TargetSystem,
 				Description: "Switch to Triad mode (full propose → review → execute loop)",
 			},
-		}
-		for _, sub := range modeSubCmds {
-			if prefix == "" || strings.HasPrefix(sub.Name, prefix) {
-				alreadyPresent := false
-				for _, m := range matched {
-					if m.Name == sub.Name {
-						alreadyPresent = true
-						break
-					}
-				}
-				if !alreadyPresent {
-					matched = append(matched, sub)
-				}
-			}
-		}
+		})
+	}
+
+	// If "skill" command exists, inject skill subcommand variants
+	if _, hasSkill := r.commands["skill"]; hasSkill {
+		injectSubCmds([]Command{
+			{
+				Name:        "skill list",
+				Target:      TargetSystem,
+				Description: "List all registered skills and session loaded states",
+			},
+			{
+				Name:        "skill view",
+				Target:      TargetSystem,
+				Description: "View skill content and mini variant details",
+			},
+			{
+				Name:        "skill add",
+				Target:      TargetSystem,
+				Description: "Add a new skill interactively in editor",
+			},
+			{
+				Name:        "skill edit",
+				Target:      TargetSystem,
+				Description: "Edit an existing skill interactively in editor",
+			},
+			{
+				Name:        "skill delete",
+				Target:      TargetSystem,
+				Description: "Delete a skill definition file",
+			},
+			{
+				Name:        "skill force",
+				Target:      TargetSystem,
+				Description: "Force/pin a section to be injected for the session",
+			},
+		})
+	}
+
+	// If "learn" command exists, inject learn subcommand variants
+	if _, hasLearn := r.commands["learn"]; hasLearn {
+		injectSubCmds([]Command{
+			{
+				Name:        "learn list",
+				Target:      TargetSystem,
+				Description: "Show unreviewed self-learning items digest",
+			},
+			{
+				Name:        "learn promote-all",
+				Target:      TargetSystem,
+				Description: "Promote all unreviewed learnings to a topic",
+			},
+			{
+				Name:        "learn dismiss-all",
+				Target:      TargetSystem,
+				Description: "Dismiss all unreviewed learning items",
+			},
+		})
 	}
 
 	sort.Slice(matched, func(i, j int) bool {

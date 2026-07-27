@@ -1219,8 +1219,10 @@ func (m *Model) handleSystemCommand(name string, args string) (body string, errM
 			ProviderName: strings.TrimSpace(args),
 		}
 		return "Opening /provider picker. Use ↑/↓ to navigate, Enter to select, Esc to cancel.", ""
+	case "proceed":
+		return "Proceeding with task execution.", ""
 	default:
-		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill, /models, /provider).", name)
+		return "", fmt.Sprintf("System command /%s is not implemented (known: /status, /summary, /undo, /help, /mode, /trace, /learn, /journey, /skill, /models, /provider, /proceed).", name)
 	}
 }
 
