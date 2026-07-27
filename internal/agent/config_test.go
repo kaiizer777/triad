@@ -66,6 +66,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SessionRetentionDays != DefaultSessionRetentionDays {
 		t.Errorf("Expected SessionRetentionDays %d, got %d", DefaultSessionRetentionDays, cfg.SessionRetentionDays)
 	}
+	if cfg.LogMaxBytes != DefaultLogMaxBytes || cfg.LogMaxBackups != DefaultLogMaxBackups {
+		t.Errorf("log rotation defaults = (%d, %d), want (%d, %d)", cfg.LogMaxBytes, cfg.LogMaxBackups, DefaultLogMaxBytes, DefaultLogMaxBackups)
+	}
 }
 
 func TestLoadConfigSessionRetentionDays(t *testing.T) {
@@ -79,6 +82,20 @@ func TestLoadConfigSessionRetentionDays(t *testing.T) {
 	}
 	if cfg.SessionRetentionDays != 14 {
 		t.Errorf("SessionRetentionDays = %d, want 14", cfg.SessionRetentionDays)
+	}
+}
+
+func TestLoadConfigLogRotation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("log_max_bytes: 2048\nlog_max_backups: 3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogMaxBytes != 2048 || cfg.LogMaxBackups != 3 {
+		t.Errorf("log rotation config = (%d, %d), want (2048, 3)", cfg.LogMaxBytes, cfg.LogMaxBackups)
 	}
 }
 

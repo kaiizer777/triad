@@ -30,23 +30,25 @@ func main() {
 	browserFlag := flag.String("browser", "", `Browser mode override: "real" uses your installed Chrome with visible window and real logins (equivalent to browser_mode: real_chrome in config.yaml)`)
 	flag.Parse()
 
+	// --- Load config ---
+	const configPath = "config.yaml"
+	cfg, err := agent.LoadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
 	// --- Initialise file-based debug logger ---
 	// Must happen before starting the TUI since bubbletea owns stdout/stderr.
 	// All subsequent log output goes to triad.log in the working directory.
-	if err := logger.Init("triad.log"); err != nil {
+	if err := logger.InitWithOptions("triad.log", logger.Options{
+		MaxBytes:   cfg.LogMaxBytes,
+		MaxBackups: cfg.LogMaxBackups,
+	}); err != nil {
 		// Logger init failure is non-fatal: we just lose debug output.
 		// Print to stderr because TUI hasn't started yet.
 		fmt.Fprintf(os.Stderr, "Warning: could not initialise debug log: %v\n", err)
 	}
 	defer logger.Close()
-
-	// --- Load config ---
-	const configPath = "config.yaml"
-	cfg, err := agent.LoadConfig(configPath)
-	if err != nil {
-		logger.L().Error("failed to load config", "error", err.Error())
-		log.Fatalf("Failed to load config: %v", err)
-	}
 
 	// Active provider is now the single source of truth for
 	// base_url / api_key. The cfg.Coder / cfg.Reviewer blocks

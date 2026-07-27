@@ -10,3 +10,8 @@ model: "mimo-v2.5-free"
 # Archive completed session transcripts older than this many days at startup.
 # Archives are gzip files under sessions/archive/ and the active session is protected.
 # session_retention_days: 30
+
+# Rotate triad.log before it exceeds this size, retaining this many backups.
+# Defaults: 10 MiB and 5 backups (triad.log.1 through triad.log.5).
+# log_max_bytes: 10485760
+# log_max_backups: 5

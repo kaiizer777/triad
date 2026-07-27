@@ -214,29 +214,36 @@ four locations, recent files, active files, and archive contents.
 
 **Goal:** cap `triad.log` so it can never grow without bound.
 
-- [ ] 3.1 — Decide the rotation strategy: simple rename-on-startup (current
+- [x] 3.1 — Decide the rotation strategy: simple rename-on-startup (current
       `triad.log` → `triad.log.1`, previous `.1` → `.2`, etc., keeping a
       small fixed number of generations) is the simplest fix and matches
       what the audit already suggested — a full rotation library
       (lumberjack-style) is a heavier dependency than this project likely
       needs for a single log file
-- [ ] 3.2 — Implement a size check (not just a startup-time rotation) — if
+- [x] 3.2 — Implement a size check (not just a startup-time rotation) — if
       `triad.log` exceeds a configured cap (e.g. 10 MB) *during* a long-
       running session, not just at the next startup, it should rotate then
       too, so a single very long session can't blow past the cap before the
       next restart
-- [ ] 3.3 — Set a maximum number of retained rotated files (e.g. keep
+- [x] 3.3 — Set a maximum number of retained rotated files (e.g. keep
       `triad.log` through `triad.log.5`, delete anything older) so rotation
       itself doesn't become its own unbounded-growth problem
-- [ ] 3.4 — **Test:** force the log past the size cap mid-session (write
+- [x] 3.4 — **Test:** force the log past the size cap mid-session (write
       enough synthetic log entries), confirm rotation triggers correctly
       without losing in-flight log writes or corrupting the active file
-- [ ] 3.5 — **Test:** confirm the retained-generations cap in 3.3 actually
+- [x] 3.5 — **Test:** confirm the retained-generations cap in 3.3 actually
       deletes the oldest rotated file once the limit is exceeded
 
 **Checkpoint:** `triad.log` is capped in both size and rotation-history
 depth — it can no longer grow without bound regardless of session length or
 total lifetime usage.
+
+**Implemented:** a dependency-free rotating writer checks before every JSON
+log record and rotates `triad.log` at startup when it is already at the cap.
+`log_max_bytes` defaults to 10 MiB and `log_max_backups` to 5. Backups are
+renamed as `.1` through `.5`; the oldest is removed before each rotation.
+Tests cover in-session rotation, preserved writes, startup rotation, and
+backup pruning.
 
 ---
 

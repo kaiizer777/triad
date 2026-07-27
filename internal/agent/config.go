@@ -106,6 +106,8 @@ type Config struct {
 	ContextWindow         int     `yaml:"context_window"`
 	CommandTimeoutSeconds int     `yaml:"command_timeout_seconds"`
 	SessionRetentionDays  int     `yaml:"session_retention_days"`
+	LogMaxBytes           int64   `yaml:"log_max_bytes"`
+	LogMaxBackups         int     `yaml:"log_max_backups"`
 	BrowserMode           string  `yaml:"browser_mode"`
 	ChromeCDPPort         int     `yaml:"chrome_cdp_port"`
 
@@ -138,6 +140,8 @@ const (
 	DefaultModel                = "mimo-v2.5-free"
 	DefaultCommandTimeoutSecs   = 30
 	DefaultSessionRetentionDays = 30
+	DefaultLogMaxBytes          = 10 * 1024 * 1024
+	DefaultLogMaxBackups        = 5
 	DefaultBrowserMode          = "headless"
 	DefaultChromeCDPPort        = 9222
 	DefaultContextWindow        = 1000000
@@ -226,6 +230,12 @@ func LoadConfig(path string) (*Config, error) {
 		if yamlCfg.SessionRetentionDays > 0 {
 			rawCfg.SessionRetentionDays = yamlCfg.SessionRetentionDays
 		}
+		if yamlCfg.LogMaxBytes > 0 {
+			rawCfg.LogMaxBytes = yamlCfg.LogMaxBytes
+		}
+		if yamlCfg.LogMaxBackups > 0 {
+			rawCfg.LogMaxBackups = yamlCfg.LogMaxBackups
+		}
 		if yamlCfg.BrowserMode != "" {
 			rawCfg.BrowserMode = yamlCfg.BrowserMode
 		}
@@ -271,6 +281,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if rawCfg.SessionRetentionDays <= 0 {
 		rawCfg.SessionRetentionDays = DefaultSessionRetentionDays
+	}
+	if rawCfg.LogMaxBytes <= 0 {
+		rawCfg.LogMaxBytes = DefaultLogMaxBytes
+	}
+	if rawCfg.LogMaxBackups <= 0 {
+		rawCfg.LogMaxBackups = DefaultLogMaxBackups
 	}
 	if rawCfg.BrowserMode == "" {
 		rawCfg.BrowserMode = DefaultBrowserMode
@@ -516,6 +532,12 @@ func SaveConfig(path string, cfg *Config) error {
 	}
 	if cfg.SessionRetentionDays > 0 {
 		overwrites["session_retention_days"] = cfg.SessionRetentionDays
+	}
+	if cfg.LogMaxBytes > 0 {
+		overwrites["log_max_bytes"] = cfg.LogMaxBytes
+	}
+	if cfg.LogMaxBackups > 0 {
+		overwrites["log_max_backups"] = cfg.LogMaxBackups
 	}
 	if cfg.BrowserMode != "" {
 		overwrites["browser_mode"] = cfg.BrowserMode
