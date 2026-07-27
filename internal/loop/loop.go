@@ -80,7 +80,6 @@ func ParseMode(raw string) (Mode, error) {
 	}
 }
 
-
 // AgentClient is the interface the loop uses to call an agent.
 // Using an interface here lets loop_test.go inject a mock without network calls.
 type AgentClient interface {
@@ -250,15 +249,15 @@ func New(
 	workDir string,
 ) *Loop {
 	return &Loop{
-		transcript:        t,
-		coder:             coder,
-		reviewer:          reviewer,
-		client:            client,
-		workDir:           workDir,
-		MaxRetries:        DefaultMaxRetries,
-		CurrentMode:       ModeOrchestrator,
-		recoveryAttempts:  make(map[string]int),
-		loadedSkills:      skills.NewLoadedSet(),
+		transcript:       t,
+		coder:            coder,
+		reviewer:         reviewer,
+		client:           client,
+		workDir:          workDir,
+		MaxRetries:       DefaultMaxRetries,
+		CurrentMode:      ModeOrchestrator,
+		recoveryAttempts: make(map[string]int),
+		loadedSkills:     skills.NewLoadedSet(),
 		// Plan gate is opt-in for the headless loop (see Phase 6.3
 		// design note in issue.md). The default of true keeps every
 		// pre-existing test passing without per-test opt-out calls.
@@ -423,28 +422,34 @@ func (l *Loop) skillsBodiesForPrompt() string {
 // subagent package) receive skill content. Regression check is
 // the fact that this method is only called from Coder paths.
 func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, error) {
-	cfg := l.buildCoderConfigWithSkills()
-	resp, err := l.client.Respond(ctx, cfg, l.transcript.Entries())
-	if err != nil {
-		return resp, fmt.Errorf("coder API call failed: %w", err)
+	// A skill-enabled Coder must complete section selection, then skill
+	// selection, before it may answer or call tools. Selection-only replies
+	// are consumed internally and never leak as an incomplete user response.
+	for attempt := 0; attempt < 3; attempt++ {
+		cfg := l.buildCoderConfigWithSkills()
+		resp, err := l.client.Respond(ctx, cfg, l.transcript.Entries())
+		if err != nil {
+			return resp, fmt.Errorf("coder API call failed: %w", err)
+		}
+		if l.SkillsRegistry == nil || l.SkillsRegistry.Count() == 0 {
+			return resp, nil
+		}
+		if len(resp.ToolCalls) == 0 {
+			cleaned, _ := skills.ParseAndApply(resp.Text, l.SkillsRegistry, l.loadedSkills, l.transcript, l.activeTaskForCycle())
+			resp.Text = cleaned
+		}
+		if !l.loadedSkills.SelectionRequired() {
+			return resp, nil
+		}
+		if len(resp.ToolCalls) > 0 {
+			continue
+		} // tool calls cannot bypass selector.
+		if strings.TrimSpace(resp.Text) == "" {
+			continue
+		}
+		// Prose during selection has not complied; retry the selector prompt.
 	}
-
-	// If Coder emitted a tool call (no plain text), there's no
-	// SELECTED_SECTIONS line to parse. Return the response
-	// unchanged so the caller's tool-call handling runs.
-	if len(resp.ToolCalls) > 0 {
-		return resp, nil
-	}
-
-	// Plain-text response: try to parse a selection out of it. If
-	// no prefix is found, ParseAndApply returns the original
-	// text unchanged and we leave the response as-is. If the
-	// prefix IS present, we strip the line, ApplySelection
-	// updates the loaded set + logs the system entry, and we
-	// return the cleaned text.
-	cleaned, _ := skills.ParseAndApply(resp.Text, l.SkillsRegistry, l.loadedSkills, l.transcript, l.activeTaskForCycle())
-	resp.Text = cleaned
-	return resp, nil
+	return agent.AgentResponse{}, fmt.Errorf("coder did not complete mandatory skill selection")
 }
 
 // activeTaskForCycle returns the original task for the current cycle. A
@@ -790,6 +795,9 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 		activeTask = l.mostRecentHumanTask()
 	}
 	l.activeCycleTask = activeTask
+	if l.loadedSkills != nil && l.SkillsRegistry != nil && l.SkillsRegistry.Count() > 0 {
+		l.loadedSkills.BeginTask()
+	}
 
 	// Phase 6.3 — initialize the plan-first gate for this cycle. This
 	// must happen BEFORE the first Coder turn so the gate's pre-text
@@ -1659,10 +1667,10 @@ func (l *Loop) runBrowserTool(toolCall agent.ToolCall) (string, error) {
 		// it. Return a signal error so the caller can propose it to
 		// Reviewer.
 		return result, &browser.SelectorRecoveryError{
-			Failure:    *failure,
-			Candidate:  recovery.Candidate,
-			Strategy:   recovery.CandidateStrategy,
-			Phase:      "deterministic",
+			Failure:     *failure,
+			Candidate:   recovery.Candidate,
+			Strategy:    recovery.CandidateStrategy,
+			Phase:       "deterministic",
 			OriginalErr: err,
 		}
 	}
@@ -1898,8 +1906,8 @@ func (l *Loop) handleSelectorRecovery(
 	// --- Path 1: Deterministic candidate → propose to Reviewer ---
 	if recoveryErr.Phase == "deterministic" && recoveryErr.Candidate != "" {
 		_ = l.append(transcript.Entry{
-			Speaker:   transcript.SpeakerSystem,
-			Type:      transcript.TypeMessage,
+			Speaker: transcript.SpeakerSystem,
+			Type:    transcript.TypeMessage,
 			Content: fmt.Sprintf("[Recovery]: Selector %q [%s] failed (%s). Deterministic recovery suggests %q [%s]. Proposing to Reviewer.",
 				recoveryErr.Failure.Selector, recoveryErr.Failure.Strategy,
 				recoveryErr.Failure.Type, recoveryErr.Candidate, recoveryErr.Strategy),

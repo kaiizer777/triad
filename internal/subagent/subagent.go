@@ -298,6 +298,9 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parent 
 	)
 
 	res := Result{TranscriptPath: transcriptPath}
+	if r.skillsRegistry != nil && r.skillsRegistry.Count() > 0 {
+		r.loadedSkills.BeginTask()
+	}
 
 	// Inner turn loop. Capped by r.maxTurns. We break out of the loop
 	// when the subagent emits a SUMMARY:-prefixed plain-text message.
@@ -333,6 +336,17 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parent 
 		if len(resp.ToolCalls) == 0 && resp.Text != "" {
 			cleaned, _ := skills.ParseAndApply(resp.Text, r.skillsRegistry, r.loadedSkills, tr, seed)
 			resp.Text = cleaned
+		}
+
+		// Orchestrator-spawned coding subagents use the same mandatory
+		// section → skill funnel as the primary Triad Coder. Do not let a
+		// tool call or prose response bypass it.
+		if r.skillsRegistry != nil && r.skillsRegistry.Count() > 0 && r.loadedSkills.SelectionRequired() {
+			if len(resp.ToolCalls) > 0 || strings.TrimSpace(resp.Text) != "" {
+				_ = tr.Append(transcript.Entry{Speaker: transcript.SpeakerSystem, Type: transcript.TypeMessage, Content: "Skill selection is required before work can begin.", Timestamp: time.Now()})
+			}
+			turn-- // selection turns do not consume the execution turn budget.
+			continue
 		}
 
 		// Two cases: tool call(s) or plain text.

@@ -401,10 +401,8 @@ func TestParseSelection_MalformedJSON(t *testing.T) {
 	}
 }
 
-// TestBuildCoderSystemPromptExtension_IncludesSections verifies
-// the Stage 1 prompt actually contains the bare section labels,
-// and the Stage 2 bodies appear for already-loaded sections. This
-// is what Coder sees every turn when skills are configured.
+// TestBuildCoderSystemPromptExtension_IncludesMini verifies that after the
+// mandatory selector has completed, Coder receives only the active Mini body.
 func TestBuildCoderSystemPromptExtension_IncludesSections(t *testing.T) {
 	reg := threeSkillFixture(t)
 	loaded := NewLoadedSet()
@@ -413,12 +411,6 @@ func TestBuildCoderSystemPromptExtension_IncludesSections(t *testing.T) {
 	loaded.Mark("frontend")
 
 	got := BuildCoderSystemPromptExtension(reg, loaded)
-	if !strings.Contains(got, "- frontend") {
-		t.Errorf("Stage 1 should list frontend section label, got:\n%s", got)
-	}
-	if !strings.Contains(got, "- backend") {
-		t.Errorf("Stage 1 should list backend section label, got:\n%s", got)
-	}
 	if !strings.Contains(got, "FRONTEND MINI: keep components small.") {
 		t.Errorf("Stage 2 should inject frontend Mini body, got:\n%s", got)
 	}

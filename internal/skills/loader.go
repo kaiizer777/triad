@@ -62,8 +62,9 @@ type Skill struct {
 	// user types after `/skill view|edit|delete|force`, and the registry
 	// key for lookups.
 	Name string
-	// Section is the single-domain label shown in Stage 1 (e.g. "frontend").
-	// Section:skill is always 1:1 — Load rejects duplicate sections.
+	// Section is the broad domain label shown in Stage 1 (e.g. "frontend").
+	// A section may contain multiple skills; individual skills are shown only
+	// after Coder has selected the relevant section.
 	Section string
 	// Description is the human-readable explanation of what the skill
 	// covers. Only read in Stage 2, after a section is selected; never
@@ -100,7 +101,7 @@ type Registry struct {
 	// Exposed so /skill add, /skill delete, and /skill edit can compute
 	// target file paths without re-deriving the load dir at every call
 	// site. Empty if the registry was constructed manually (tests).
-	Dir string
+	Dir    string
 	skills map[string]Skill // keyed by lowercased name
 	// order preserves the on-disk iteration order so that SectionLabels
 	// is deterministic regardless of map iteration randomness.
@@ -131,9 +132,8 @@ func Load(dir string) (*Registry, error) {
 		return nil, fmt.Errorf("skills: failed to read directory %q: %w", dir, err)
 	}
 
-	mains := make(map[string]Skill)   // by name (already lowercased)
+	mains := make(map[string]Skill) // by name (already lowercased)
 	order := make([]string, 0)
-	sections := make(map[string]string) // section -> name, for dup check
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -178,13 +178,6 @@ func Load(dir string) (*Registry, error) {
 				path, skill.Name)
 		}
 
-		// Section:skill 1:1 — reject duplicate sections.
-		if existing, dup := sections[skill.Section]; dup {
-			return nil, fmt.Errorf(
-				"skills: duplicate section %q in file %q (already used by %q); section:skill must be 1:1",
-				skill.Section, path, existing)
-		}
-
 		// Mini file resolution. mini_ref is optional — but if it's set,
 		// it must point at a real, well-formed Mini file in the same dir.
 		// If it's not set, MiniBody stays empty (callers handle that).
@@ -205,7 +198,6 @@ func Load(dir string) (*Registry, error) {
 			skill.MiniBody = mini.Body
 		}
 
-		sections[skill.Section] = skill.Name
 		mains[skill.Name] = skill
 		order = append(order, skill.Name)
 	}
@@ -237,10 +229,15 @@ func (r *Registry) Sections() []string {
 	if r == nil {
 		return nil
 	}
+	seen := make(map[string]bool)
 	out := make([]string, 0, len(r.order))
 	for _, name := range r.order {
 		if s, ok := r.skills[name]; ok {
-			out = append(out, s.Section)
+			key := strings.ToLower(s.Section)
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, s.Section)
+			}
 		}
 	}
 	return out
@@ -272,6 +269,22 @@ func (r *Registry) GetBySection(section string) (Skill, bool) {
 		}
 	}
 	return Skill{}, false
+}
+
+// SkillsInSection returns all skills in a selected section, in stable name
+// order. Stage 2 uses this catalogue so Coder never has to scan every skill.
+func (r *Registry) SkillsInSection(section string) []Skill {
+	if r == nil {
+		return nil
+	}
+	out := make([]Skill, 0)
+	for _, name := range r.order {
+		s := r.skills[name]
+		if strings.EqualFold(s.Section, section) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // Names returns all registered skill names in sorted order. Useful

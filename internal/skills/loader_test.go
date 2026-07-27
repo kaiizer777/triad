@@ -311,9 +311,9 @@ func TestLoad_EmptyBody(t *testing.T) {
 	}
 }
 
-func TestLoad_DuplicateSection(t *testing.T) {
+func TestLoad_MultipleSkillsInSection(t *testing.T) {
 	dir := t.TempDir()
-	// Two Main files, same section — must be rejected (section:skill 1:1).
+	// A section is a cheap Stage-1 category and may contain many skills.
 	writeFile(t, dir, "frontend.md", []byte(
 		`---
 name: frontend
@@ -332,9 +332,12 @@ tier: main
 ---
 body two
 `))
-	_, err := Load(dir)
-	if err == nil || !strings.Contains(err.Error(), "duplicate section") {
-		t.Errorf("duplicate section: got %v", err)
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := reg.SkillsInSection("ui"); len(got) != 2 {
+		t.Errorf("SkillsInSection(ui) has %d skills, want 2", len(got))
 	}
 }
 

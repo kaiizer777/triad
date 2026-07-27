@@ -20,14 +20,14 @@ import (
 
 // cmdCoderTurn invokes the Coder agent asynchronously with the
 // Stage-1 / Stage-2 skills funnel applied. The funnel wrapper:
-//   1. Builds a per-turn Coder config with Stage 1 (bare section
-//      labels) + Stage 2 (Mini bodies for already-loaded sections)
-//      appended to the system prompt.
-//   2. Calls the model with the modified config.
-//   3. If Coder returned plain text, parses out the
-//      SELECTED_SECTIONS line, applies the selection to the loaded
-//      set, and returns the cleaned text. Tool-call responses pass
-//      through unchanged.
+//  1. Builds a per-turn Coder config with Stage 1 (bare section
+//     labels) + Stage 2 (Mini bodies for already-loaded sections)
+//     appended to the system prompt.
+//  2. Calls the model with the modified config.
+//  3. If Coder returned plain text, parses out the
+//     SELECTED_SECTIONS line, applies the selection to the loaded
+//     set, and returns the cleaned text. Tool-call responses pass
+//     through unchanged.
 //
 // Pass `reg == nil` (or an empty registry) to disable the funnel —
 // the call becomes a plain Coder turn identical to the pre-Phase-2
@@ -51,27 +51,28 @@ func cmdCoderTurn(
 ) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		coder.SystemPrompt = coder.SystemPrompt + skills.BuildCoderSystemPromptExtension(reg, loaded)
-		resp, err := client.Respond(ctx, coder, tr.Entries())
-		if err != nil {
-			return agentResponseMsg{
-				speaker: transcript.SpeakerCoder,
-				resp:    resp,
-				err:     err,
+		for attempt := 0; attempt < 3; attempt++ {
+			turnCoder := coder
+			turnCoder.SystemPrompt += skills.BuildCoderSystemPromptExtension(reg, loaded)
+			resp, err := client.Respond(ctx, turnCoder, tr.Entries())
+			if err != nil {
+				return agentResponseMsg{speaker: transcript.SpeakerCoder, resp: resp, err: err}
+			}
+			if reg == nil || reg.Count() == 0 {
+				return agentResponseMsg{speaker: transcript.SpeakerCoder, resp: resp}
+			}
+			if len(resp.ToolCalls) == 0 {
+				cleaned, _ := skills.ParseAndApply(resp.Text, reg, loaded, tr, recentTask)
+				resp.Text = cleaned
+			}
+			if !loaded.SelectionRequired() {
+				return agentResponseMsg{speaker: transcript.SpeakerCoder, resp: resp}
+			}
+			if len(resp.ToolCalls) > 0 || strings.TrimSpace(resp.Text) != "" {
+				continue
 			}
 		}
-		// Post-call: parse a selection out of any plain-text
-		// response. Tool-call responses have no plain text to
-		// scan, so the parse is a no-op in that case.
-		if len(resp.ToolCalls) == 0 {
-			cleaned, _ := skills.ParseAndApply(resp.Text, reg, loaded, tr, recentTask)
-			resp.Text = cleaned
-		}
-		return agentResponseMsg{
-			speaker: transcript.SpeakerCoder,
-			resp:    resp,
-			err:     err,
-		}
+		return agentResponseMsg{speaker: transcript.SpeakerCoder, err: fmt.Errorf("coder did not complete mandatory skill selection")}
 	}
 }
 

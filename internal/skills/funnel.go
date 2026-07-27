@@ -36,6 +36,11 @@ const MaxSectionsPerTurn = 3
 // shifts into a new domain) or omit it to use the previous selection.
 const SelectionPrefix = "SELECTED_SECTIONS:"
 
+// SkillSelectionPrefix is the second, mandatory selection step. Coder first
+// chooses a cheap section label, then sees only that section's skills and
+// chooses by title/name.
+const SkillSelectionPrefix = "SELECTED_SKILLS:"
+
 // LoadedSet tracks which sections have already had their Main Skill
 // injected this session. The first time a section is selected, its
 // Main body fires and the section is marked loaded; subsequent
@@ -52,13 +57,54 @@ const SelectionPrefix = "SELECTED_SECTIONS:"
 // escape hatch for "Coder keeps missing this domain" cases. Forced
 // state is per-session and never written to disk.
 type LoadedSet struct {
-	loaded map[string]bool
-	forced map[string]bool
+	loaded            map[string]bool
+	forced            map[string]bool
+	pendingMain       map[string]bool
+	selectedSections  []string
+	selectionRequired bool
 }
 
 // NewLoadedSet returns an empty LoadedSet.
 func NewLoadedSet() *LoadedSet {
-	return &LoadedSet{loaded: make(map[string]bool), forced: make(map[string]bool)}
+	return &LoadedSet{
+		loaded: make(map[string]bool), forced: make(map[string]bool),
+		pendingMain: make(map[string]bool), selectionRequired: true,
+	}
+}
+
+// BeginTask starts the mandatory two-step selection funnel for a new human
+// task. Previously loaded skills remain available as Mini skills after the
+// selected skill's Main body has been delivered.
+func (s *LoadedSet) BeginTask() {
+	if s == nil {
+		return
+	}
+	s.selectedSections = nil
+	s.selectionRequired = true
+}
+
+func (s *LoadedSet) SelectSections(sections []string) {
+	if s == nil {
+		return
+	}
+	s.selectedSections = append([]string(nil), sections...)
+}
+
+func (s *LoadedSet) SelectedSections() []string {
+	if s == nil {
+		return nil
+	}
+	return append([]string(nil), s.selectedSections...)
+}
+
+func (s *LoadedSet) SelectionRequired() bool { return s != nil && s.selectionRequired }
+
+func (s *LoadedSet) CompleteSelection() {
+	if s == nil {
+		return
+	}
+	s.selectedSections = nil
+	s.selectionRequired = false
 }
 
 // Has reports whether the given section has already had its Main
@@ -82,6 +128,9 @@ func (s *LoadedSet) Mark(section string) {
 		return
 	}
 	s.loaded[section] = true
+	// Mark is also used by direct callers that have already made a skill
+	// choice; keep their next prompt in the post-selection state.
+	s.selectionRequired = false
 }
 
 // Sections returns a sorted copy of the loaded set's keys. Useful
@@ -115,7 +164,7 @@ func (s *LoadedSet) Force(section string) {
 	// Forced implies loaded too — the next prompt build should
 	// include the section in BuildLoadedBodies output. We don't
 	// call Mark here because Mark tracks "Main already fired" (i.e.
-// "use Mini next time"), whereas a force means "this section is
+	// "use Mini next time"), whereas a force means "this section is
 	// active in this session, period." Marking it loaded would
 	// incorrectly cause the next Main injection to be skipped. We
 	// instead rely on the prompt builder to consult Forced() in
@@ -315,6 +364,26 @@ func BuildSystemPromptStage1(reg *Registry) string {
 	return b.String()
 }
 
+// BuildSystemPromptStage2 lists names and descriptions only for the sections
+// selected in Stage 1. This keeps a large skill library cheap to scan.
+func BuildSystemPromptStage2(reg *Registry, selected []string) string {
+	if reg == nil || len(selected) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nSKILL CATALOGUE (mandatory Stage 2):\n")
+	b.WriteString("Choose 1 to 3 skills from the selected section(s), then reply with ONLY:\n")
+	b.WriteString("  SELECTED_SKILLS: [\"<skill-name>\", ...]\n\n")
+	for _, section := range selected {
+		b.WriteString("Section: " + section + "\n")
+		for _, sk := range reg.SkillsInSection(section) {
+			fmt.Fprintf(&b, "  - %s — %s\n", sk.Name, sk.Description)
+		}
+	}
+	b.WriteString("Use only listed names. This selection is required before responding to the task or calling a tool.\n")
+	return b.String()
+}
+
 // BuildLoadedBodies returns the Stage 2 body block: the Mini body
 // of every section in `loaded`, wrapped in the
 // `--- skill:NAME (tier: mini) ---` delimiters. Empty-string Mini
@@ -350,6 +419,9 @@ func BuildLoadedBodies(reg *Registry, loaded *LoadedSet) string {
 	for _, s := range loaded.Forced() {
 		seen[s] = true
 	}
+	for s := range loaded.pendingMain {
+		seen[s] = true
+	}
 	if len(seen) == 0 {
 		return ""
 	}
@@ -362,7 +434,10 @@ func BuildLoadedBodies(reg *Registry, loaded *LoadedSet) string {
 
 	var b strings.Builder
 	for _, sec := range keys {
-		sk, ok := reg.GetBySection(sec)
+		sk, ok := reg.Get(sec)
+		if !ok {
+			sk, ok = reg.GetBySection(sec)
+		}
 		if !ok {
 			continue
 		}
@@ -371,10 +446,11 @@ func BuildLoadedBodies(reg *Registry, loaded *LoadedSet) string {
 		// loaded. Subsequent turns → Mini.
 		tier := TierMini
 		var body string
-		if !loaded.Has(sec) {
+		if loaded.pendingMain[strings.ToLower(sec)] || !loaded.Has(sec) {
 			tier = TierMain
 			body = sk.MainBody
 			loaded.Mark(sec)
+			delete(loaded.pendingMain, strings.ToLower(sec))
 		} else {
 			body = sk.MiniBody
 		}
@@ -400,7 +476,13 @@ func BuildCoderSystemPromptExtension(reg *Registry, loaded *LoadedSet) string {
 	if reg == nil || reg.Count() == 0 {
 		return ""
 	}
-	return BuildSystemPromptStage1(reg) + BuildLoadedBodies(reg, loaded)
+	if loaded != nil && loaded.SelectionRequired() {
+		if selected := loaded.SelectedSections(); len(selected) > 0 {
+			return BuildSystemPromptStage2(reg, selected)
+		}
+		return BuildSystemPromptStage1(reg)
+	}
+	return BuildLoadedBodies(reg, loaded)
 }
 
 // ParseAndApply is the post-call half of the funnel: scan a Coder
@@ -432,6 +514,50 @@ func ParseAndApply(
 	tr *transcript.Transcript,
 	task string,
 ) (cleaned string, decisions []LoadDecision) {
+	if selected, remaining, ok := ParseNamedSelection(responseText, SelectionPrefix, reg, true); ok {
+		loaded.SelectSections(selected)
+		// Preserve compatibility for a section containing exactly one skill.
+		// New libraries may group many skills per section and will proceed to
+		// the catalogue; a one-skill section has no meaningful second choice.
+		only := make([]string, 0, len(selected))
+		for _, section := range selected {
+			items := reg.SkillsInSection(section)
+			if len(items) != 1 {
+				only = nil
+				break
+			}
+			only = append(only, items[0].Name)
+		}
+		if len(only) == len(selected) {
+			decisions = ApplySelection(only, false, reg, loaded, tr, task)
+			loaded.CompleteSelection()
+			return remaining, decisions
+		}
+		if tr != nil {
+			tr.Append(transcript.Entry{Speaker: transcript.SpeakerSystem, Type: transcript.TypeMessage, Content: "[Skills] Section selected; presenting its skill catalogue.", Timestamp: time.Now()})
+		}
+		return remaining, nil
+	}
+	if selected, remaining, ok := ParseNamedSelection(responseText, SkillSelectionPrefix, reg, false); ok {
+		allowed := make(map[string]bool)
+		for _, section := range loaded.SelectedSections() {
+			for _, sk := range reg.SkillsInSection(section) {
+				allowed[sk.Name] = true
+			}
+		}
+		filtered := selected[:0]
+		for _, name := range selected {
+			if allowed[name] {
+				filtered = append(filtered, name)
+			}
+		}
+		if len(filtered) == 0 {
+			return responseText, nil
+		}
+		decisions = ApplySelection(filtered, false, reg, loaded, tr, task)
+		loaded.CompleteSelection()
+		return remaining, decisions
+	}
 	selected, remaining, truncated := ParseSelection(responseText, reg)
 	if selected == nil {
 		return responseText, nil
@@ -440,20 +566,54 @@ func ParseAndApply(
 	return remaining, decisions
 }
 
+func ParseNamedSelection(text, prefix string, reg *Registry, sections bool) ([]string, string, bool) {
+	trimmed := strings.TrimLeft(text, " \t\r\n")
+	if !strings.HasPrefix(trimmed, prefix) {
+		return nil, text, false
+	}
+	line, rest, _ := strings.Cut(trimmed, "\n")
+	var raw []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, prefix))), &raw); err != nil {
+		return nil, text, false
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" || seen[value] {
+			continue
+		}
+		valid := false
+		if sections {
+			_, valid = reg.GetBySection(value)
+		} else {
+			_, valid = reg.Get(value)
+		}
+		if valid {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 || len(out) > MaxSectionsPerTurn {
+		return nil, text, false
+	}
+	return out, strings.TrimLeft(rest, " \t\r\n"), true
+}
+
 // ApplySelection is the Stage 2 load step. Given the parsed section
 // selection, the registry, the per-session loaded set, and a
 // transcript to record the decision to, it:
-//   1. For each selected section, looks up the skill, decides
-//      Main (first touch) vs Mini (subsequent) based on the loaded
-//      set, and builds a LoadDecision.
-//   2. Marks each freshly-loaded Main in the loaded set so
-//      subsequent turns pick Mini and the loop's prompt builder
-//      can find the section via LoadedSet.Sections().
-//   3. Writes a single System entry to the transcript recording
-//      which sections were selected, which tier was actually
-//      injected per section, and whether the selection was
-//      truncated by the cap. This entry is what Phase 4's
-//      observability work (work.md §7) will read from.
+//  1. For each selected section, looks up the skill, decides
+//     Main (first touch) vs Mini (subsequent) based on the loaded
+//     set, and builds a LoadDecision.
+//  2. Marks each freshly-loaded Main in the loaded set so
+//     subsequent turns pick Mini and the loop's prompt builder
+//     can find the section via LoadedSet.Sections().
+//  3. Writes a single System entry to the transcript recording
+//     which sections were selected, which tier was actually
+//     injected per section, and whether the selection was
+//     truncated by the cap. This entry is what Phase 4's
+//     observability work (work.md §7) will read from.
 //
 // Returns the LoadDecisions so the caller (and tests) can inspect
 // what was loaded for this turn.
@@ -496,7 +656,10 @@ func ApplySelection(
 	hadUnknown := false
 
 	for _, sec := range sections {
-		sk, ok := reg.GetBySection(sec)
+		sk, ok := reg.Get(sec)
+		if !ok {
+			sk, ok = reg.GetBySection(sec)
+		}
 		if !ok {
 			// Should be filtered by ParseSelection, but be defensive.
 			hadUnknown = true
@@ -507,13 +670,14 @@ func ApplySelection(
 			tier Tier
 			body string
 		)
-		if loaded.Has(sec) {
+		if loaded.Has(sk.Name) {
 			tier = TierMini
 			body = sk.MiniBody
 		} else {
 			tier = TierMain
 			body = sk.MainBody
-			loaded.Mark(sec)
+			loaded.Mark(sk.Name)
+			loaded.pendingMain[strings.ToLower(sk.Name)] = true
 		}
 
 		if body == "" {
@@ -538,6 +702,9 @@ func ApplySelection(
 			Body:    body,
 		})
 	}
+	// Direct callers of ApplySelection (commands/tests) have made a concrete
+	// skill choice, so they should be in the post-selection prompt state too.
+	loaded.CompleteSelection()
 
 	appendSkillSelectionEntry(tr, loaded, task, sections, decisions, truncated, hadUnknown)
 

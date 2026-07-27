@@ -421,6 +421,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.sessionState == loop.StateIdle {
 			m.sessionState = loop.StateActive
+			if m.skillsRegistry != nil && m.skillsRegistry.Count() > 0 && m.loadedSkills != nil {
+				m.loadedSkills.BeginTask()
+			}
 			if note := loop.CheckModeMismatch(m.currentMode, msg.content); note != "" {
 				_ = m.transcript.Append(transcript.Entry{
 					Speaker:   transcript.SpeakerSystem,
@@ -1076,6 +1079,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, tea.Batch(cmds...)
 }
+
 // syncAutocompleteState evaluates the textinput value and updates live slash-command autocomplete state.
 func (m *Model) syncAutocompleteState() {
 	val := m.input.Value()

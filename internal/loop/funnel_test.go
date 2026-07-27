@@ -859,8 +859,8 @@ func TestFunnel_Phase5_5_RealSkillsEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("skills.Load(%q): %v", dir, err)
 	}
-	if reg.Count() != 3 {
-		t.Fatalf("Phase 5.5 FAIL: expected 3 real skills in %q, got %d", dir, reg.Count())
+	if reg.Count() != 4 {
+		t.Fatalf("Phase 5.5 FAIL: expected 4 real skills in %q, got %d", dir, reg.Count())
 	}
 	for _, sec := range []string{"backend", "db", "frontend"} {
 		if _, ok := reg.GetBySection(sec); !ok {
@@ -873,7 +873,7 @@ func TestFunnel_Phase5_5_RealSkillsEndToEnd(t *testing.T) {
 	// stub, the funnel will silently inject nothing and the
 	// "did Mini fire" assertion below will falsely pass. This
 	// belt-and-braces check makes the failure mode loud.
-	for _, sec := range []string{"frontend", "backend", "db"} {
+	for _, sec := range []string{"frontend", "backend", "db", "general-chat"} {
 		sk, _ := reg.GetBySection(sec)
 		if len(sk.MainBody) < 1000 {
 			t.Errorf("Phase 5.5 FAIL: real %q MainBody is suspiciously short (%d chars) — did a phase-5 edit strip the body?",
