@@ -427,6 +427,13 @@ func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, er
 	// are consumed internally and never leak as an incomplete user response.
 	for attempt := 0; attempt < 3; attempt++ {
 		cfg := l.buildCoderConfigWithSkills()
+		// Selection is a protocol message, not work. Removing tool schemas
+		// here stops tool-capable models from trying to act before choosing
+		// their section and skill.
+		if l.loadedSkills != nil && l.loadedSkills.SelectionRequired() {
+			cfg.HasTools = false
+			cfg.Tools = nil
+		}
 		resp, err := l.client.Respond(ctx, cfg, l.transcript.Entries())
 		if err != nil {
 			return resp, fmt.Errorf("coder API call failed: %w", err)

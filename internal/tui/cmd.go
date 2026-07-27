@@ -54,6 +54,10 @@ func cmdCoderTurn(
 		for attempt := 0; attempt < 3; attempt++ {
 			turnCoder := coder
 			turnCoder.SystemPrompt += skills.BuildCoderSystemPromptExtension(reg, loaded)
+			if loaded != nil && loaded.SelectionRequired() {
+				turnCoder.HasTools = false
+				turnCoder.Tools = nil
+			}
 			resp, err := client.Respond(ctx, turnCoder, tr.Entries())
 			if err != nil {
 				return agentResponseMsg{speaker: transcript.SpeakerCoder, resp: resp, err: err}

@@ -325,6 +325,10 @@ func (r *Runner) Run(ctx context.Context, id, task, extraContext string, parent 
 		// matches work.md §3's "subagent is opaque" contract.
 		turnCfg := cfg
 		turnCfg.SystemPrompt = turnCfg.SystemPrompt + skills.BuildCoderSystemPromptExtension(r.skillsRegistry, r.loadedSkills)
+		if r.loadedSkills != nil && r.loadedSkills.SelectionRequired() {
+			turnCfg.HasTools = false
+			turnCfg.Tools = nil
+		}
 		resp, err := r.client.Respond(ctx, turnCfg, tr.Entries())
 		if err != nil {
 			return res, fmt.Errorf("subagent: model call failed on turn %d: %w", turn, err)
