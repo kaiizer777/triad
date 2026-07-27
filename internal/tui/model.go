@@ -365,7 +365,7 @@ func DefaultStyles() Styles {
 		// ── Input Box & Prompts ───────────────────────────────────────
 		InputContainer: lipgloss.NewStyle().
 			Background(obsidianAlt).
-			Padding(0, 1),
+			Padding(2, 2),
 
 		InputPill: lipgloss.NewStyle().
 			Bold(true).
@@ -409,7 +409,8 @@ func DefaultStyles() Styles {
 		StatusBar: lipgloss.NewStyle().
 			Foreground(textDim).
 			Background(obsidianAlt).
-			Padding(0, 1),
+			Padding(0, 1).
+			MarginBottom(1),
 
 		SpinnerStyle: lipgloss.NewStyle().
 			Foreground(violetLt).

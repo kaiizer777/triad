@@ -76,13 +76,11 @@ func (m Model) View() tea.View {
 	}
 
 	inputBar := m.renderInputBar(rightCardInnerWidth)
+	inputFooter := m.renderInputFooter(rightCardInnerWidth)
 
 	// Fixed bottom rows that must ALWAYS be visible in right card:
-	// Input Bar (measured dynamically) + optional Status Bar if no sidebar + optional Autocomplete Popup height when active.
-	bottomRows := lipgloss.Height(inputBar)
-	if sidebarWidth == 0 {
-		bottomRows += 1
-	}
+	// Input Bar + Input Footer + optional Autocomplete/Picker Popup height when active.
+	bottomRows := lipgloss.Height(inputBar) + lipgloss.Height(inputFooter)
 	vpContentHeight := max(1, rightCardInnerHeight-bottomRows-popupHeight)
 	vpContentWidth := max(1, rightCardInnerWidth-m.styles.ViewportContainer.GetHorizontalFrameSize())
 
@@ -117,34 +115,21 @@ func (m Model) View() tea.View {
 		scrollableArea = clipLines(editorStr, vpContentHeight)
 	}
 
-	// Pin bottom: (statusBar if no sidebar) + (popup if active) + input are always rendered last.
+	// Pin bottom: (popup if active) + input bar + input footer are always rendered last.
 	var bottomDock string
-	if sidebarWidth == 0 {
-		statusBar := m.renderStatusBar(rightCardInnerWidth)
-		if popup != "" {
-			bottomDock = lipgloss.JoinVertical(
-				lipgloss.Left,
-				statusBar,
-				popup,
-				inputBar,
-			)
-		} else {
-			bottomDock = lipgloss.JoinVertical(
-				lipgloss.Left,
-				statusBar,
-				inputBar,
-			)
-		}
+	if popup != "" {
+		bottomDock = lipgloss.JoinVertical(
+			lipgloss.Left,
+			popup,
+			inputBar,
+			inputFooter,
+		)
 	} else {
-		if popup != "" {
-			bottomDock = lipgloss.JoinVertical(
-				lipgloss.Left,
-				popup,
-				inputBar,
-			)
-		} else {
-			bottomDock = inputBar
-		}
+		bottomDock = lipgloss.JoinVertical(
+			lipgloss.Left,
+			inputBar,
+			inputFooter,
+		)
 	}
 
 	rightCardContent := lipgloss.JoinVertical(
@@ -213,21 +198,10 @@ func (m Model) renderTitleBar(width int) string {
 		centerWidth = 0
 	}
 
-	var stateStr string
-	switch {
-	case m.sessionState == loop.StateIdle:
-		stateStr = " IDLE"
-	case m.activeToolCall != nil:
-		stateStr = " EXEC " + m.spinner.View()
-	default:
-		stateStr = " THINK " + m.spinner.View()
-	}
-
 	centerFrameW := m.styles.TitleCenter.GetHorizontalFrameSize()
 	centerStyleW := max(0, centerWidth-centerFrameW)
-	statsSummary := m.renderStatsSummary()
-	sessFile := truncatePath(m.transcript.FilePath(), max(5, centerStyleW-lipgloss.Width(stateStr)-lipgloss.Width(statsSummary)-6))
-	centerContent := " " + sessFile + "  " + stateStr + "  " + statsSummary + " "
+	sessFile := truncatePath(m.transcript.FilePath(), max(5, centerStyleW-4))
+	centerContent := " " + sessFile + " "
 	center := m.styles.TitleCenter.Width(centerStyleW).Render(truncateLine(centerContent, centerStyleW))
 
 	res := lipgloss.JoinHorizontal(lipgloss.Top, left, center, right)
@@ -588,21 +562,78 @@ func (m Model) renderJourneySidebar(width, height, innerWidth, innerHeight int, 
 		Render(padded)
 }
 
-// renderStatusBar renders the live status line with state icon and spinner.
-func (m Model) renderStatusBar(width int) string {
-	var icon string
+// renderInputFooter renders the info bar directly below the prompt input bar inside the right card.
+// Left side: State (IDLE/EXEC/THINK) + Token Stats Summary (e.g. "IDLE  0/1M (0.0%) $0.000")
+// Right side: Model Name + Mode + Working Directory
+func (m Model) renderInputFooter(width int) string {
+	containerW := max(0, width-m.styles.StatusBar.GetHorizontalFrameSize())
+	if containerW <= 0 {
+		return ""
+	}
+
+	// 1. Left side: State & Token Stats
+	var stateBadge string
 	switch {
 	case m.sessionState == loop.StateIdle:
-		icon = m.styles.SidebarBadgeIdle.Render(" ● ")
+		stateBadge = m.styles.SidebarBadgeIdle.Render(" IDLE ")
 	case m.activeToolCall != nil:
-		icon = m.styles.SidebarBadgeActive.Render(" ⚡ ") + " " + m.spinner.View()
+		stateBadge = m.styles.SidebarBadgeActive.Render(" EXEC ") + " " + m.spinner.View()
 	default:
-		icon = m.styles.SidebarBadgeThink.Render(" ✦ ") + " " + m.spinner.View()
+		stateBadge = m.styles.SidebarBadgeThink.Render(" THINK ") + " " + m.spinner.View()
 	}
-	statusText := icon + "  " + m.statusMessage
-	containerW := max(0, width-m.styles.StatusBar.GetHorizontalFrameSize())
-	truncated := truncateLine(statusText, containerW)
-	res := m.styles.StatusBar.Width(containerW).Render(truncated)
+
+	statsSummary := m.renderStatsSummary()
+	leftPart := stateBadge + "  " + m.styles.SidebarValue.Render(statsSummary)
+	leftW := lipgloss.Width(leftPart)
+
+	// 2. Right side: Model Name + Mode + Working Directory
+	modelName := m.coder.Model
+	if modelName == "" {
+		modelName = "mimo-v2.5-pro"
+	}
+	modeStr := strings.ToUpper(string(m.currentMode))
+	if modeStr == "" {
+		modeStr = "ORCHESTRATOR"
+	}
+	workDir := m.workDir
+	if workDir == "" {
+		workDir = "."
+	}
+
+	sep := m.styles.SidebarSubHeader.Render(" | ")
+	modelPill := m.styles.SidebarLabel.Render(modelName)
+	modePill := m.styles.SidebarBadgeThink.Render(" " + modeStr + " ")
+
+	prefixRight := modelPill + sep + modePill
+	prefixRightW := lipgloss.Width(prefixRight)
+
+	availForDir := containerW - leftW - prefixRightW - 3
+	var rightPart string
+	if availForDir >= 6 {
+		dirVal := truncatePath(workDir, availForDir)
+		rightPart = prefixRight + sep + m.styles.SidebarValue.Render(dirVal)
+	} else if containerW-leftW >= prefixRightW {
+		rightPart = prefixRight
+	} else if containerW-leftW >= lipgloss.Width(modelPill) {
+		rightPart = modelPill
+	} else {
+		rightPart = ""
+	}
+
+	rightW := lipgloss.Width(rightPart)
+	gapW := containerW - leftW - rightW
+	if gapW < 0 {
+		gapW = 0
+	}
+
+	var row string
+	if gapW > 0 {
+		row = leftPart + strings.Repeat(" ", gapW) + rightPart
+	} else {
+		row = leftPart + rightPart
+	}
+
+	res := m.styles.StatusBar.Width(containerW).Render(truncateLine(row, containerW))
 	return clipLines(res, 1)
 }
 

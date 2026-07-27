@@ -1910,8 +1910,8 @@ func TestTUI_LiveSessionTokenStats(t *testing.T) {
 		t.Errorf("Expected summary to contain '$', got: %s", summary)
 	}
 
-	titleBar := m2.renderTitleBar(140)
-	if !strings.Contains(titleBar, "5k/1M") {
-		t.Errorf("Expected renderTitleBar output to include live stats, got: %s", titleBar)
+	footer := m2.renderInputFooter(140)
+	if !strings.Contains(footer, "5k/1M") {
+		t.Errorf("Expected renderInputFooter output to include live stats, got: %s", footer)
 	}
 }
