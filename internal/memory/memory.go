@@ -345,8 +345,7 @@ func (m *Manager) WriteTopicEntry(topicName string, entry string) error {
 	}
 
 	if writeErr == nil {
-		dateStr := time.Now().Format("2006-01-02")
-		formattedEntry := fmt.Sprintf("- [%s] %s\n", dateStr, strings.TrimSpace(entry))
+		formattedEntry := strings.TrimSpace(entry) + "\n\n"
 		_, writeErr = f.WriteString(formattedEntry)
 	}
 

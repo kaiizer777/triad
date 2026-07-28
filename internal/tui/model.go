@@ -1367,8 +1367,15 @@ func (m *Model) handleLearn(args string) (body string, errMsg string) {
 		}
 		return fmt.Sprintf("[Self-Learning] Dismissed item %s. (Item remains intact in raw daily log.)", id), ""
 	}
+	if args == "stale" {
+		out, err := m.learnSvc.StaleTopics(90 * 24 * time.Hour)
+		if err != nil {
+			return "", fmt.Sprintf("Failed to list stale topics: %v", err)
+		}
+		return out, ""
+	}
 
-	return "", fmt.Sprintf("Unknown subcommand %q for /learn. Available: /learn, /learn promote <id> <topic>, /learn dismiss <id>, /learn promote-all <topic>, /learn dismiss-all.", args)
+	return "", fmt.Sprintf("Unknown subcommand %q for /learn. Available: /learn, /learn stale, /learn promote <id> <topic>, /learn dismiss <id>, /learn promote-all <topic>, /learn dismiss-all.", args)
 }
 
 // handleTrace renders the session trace log using the tracelog package.
