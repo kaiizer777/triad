@@ -127,7 +127,7 @@ func TestPromoteAndDismiss(t *testing.T) {
 
 	// Promote first item to "conventions"
 	itemToPromote := items[0]
-	if err := svc.Promote(itemToPromote.ID, "conventions"); err != nil {
+	if _, err := svc.Promote(itemToPromote.ID, "conventions"); err != nil {
 		t.Fatalf("failed to promote item: %v", err)
 	}
 

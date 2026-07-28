@@ -1351,10 +1351,16 @@ func (m *Model) handleLearn(args string) (body string, errMsg string) {
 			return "", "Usage: /learn promote <id> <topic>"
 		}
 		id, topic := parts[0], parts[1]
-		if err := m.learnSvc.Promote(id, topic); err != nil {
-			return "", fmt.Sprintf("Failed to promote item %s: %v", id, err)
+		warning, err := m.learnSvc.Promote(id, topic)
+		if err != nil {
+			return "", fmt.Errorf("Failed to promote: %v", err).Error()
 		}
-		return fmt.Sprintf("[Self-Learning] Promoted item %s to memory/topics/%s.md.", id, topic), ""
+		
+		msg := fmt.Sprintf("[Self-Learning] Promoted item %s to memory/topics/%s.md", id, topic)
+		if warning != "" {
+			msg += "\nWarning: " + warning
+		}
+		return msg, ""
 	}
 
 	if strings.HasPrefix(args, "dismiss ") {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/kaiizer777/triad/internal/memory"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
+
+var pathRegex = regexp.MustCompile(`(?i)(?:[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+|/[a-zA-Z0-9_-]+)\.(go|md|json|yaml|yml|ts|js|txt|py|java)\b`)
 
 const StateFileName = "learn_state.json"
 
@@ -130,31 +133,40 @@ func (s *Service) GetUnreviewedItems() []Item {
 
 // Promote promotes an unreviewed or candidate learning to a curated topic file (e.g. "conventions").
 // This is the ONLY method that writes to memory/topics/*.md and is strictly human-gated.
-func (s *Service) Promote(id string, topicName string) error {
+func (s *Service) Promote(id string, topicName string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	item, exists := s.state[id]
 	if !exists {
-		return fmt.Errorf("learn: learning ID %q not found", id)
+		return "", fmt.Errorf("learn: learning ID %q not found", id)
+	}
+
+	hasPath := pathRegex.MatchString(item.Summary) || pathRegex.MatchString(item.Context)
+	warningMsg := ""
+	pathTag := ""
+	if hasPath {
+		warningMsg = "This lesson references a file path, which rots fastest. Consider phrasing around the concept instead."
+		pathTag = " | path-reference: true"
 	}
 
 	dateStr := time.Now().Format("2006-01-02")
-	lessonContent := fmt.Sprintf("### [%s] %s: %s\n<!-- confidence: high | verified: %s | source: %s -->\n%s", 
+	lessonContent := fmt.Sprintf("### [%s] %s: %s\n<!-- confidence: high | verified: %s | source: %s%s -->\n%s", 
 		dateStr, 
 		strings.ToUpper(string(item.Type)), 
 		item.Summary, 
 		dateStr, 
 		id, 
+		pathTag,
 		strings.TrimSpace(item.Context))
 	
 	if err := s.mem.WriteTopicEntry(topicName, lessonContent); err != nil {
-		return fmt.Errorf("learn: failed to promote to topic %s: %w", topicName, err)
+		return "", fmt.Errorf("learn: failed to promote to topic %s: %w", topicName, err)
 	}
 
 	item.Status = StatusPromoted
 	s.state[id] = item
-	return s.saveState()
+	return warningMsg, s.saveState()
 }
 
 // Dismiss marks a candidate learning as dismissed.
@@ -178,7 +190,7 @@ func (s *Service) PromoteAll(topicName string) (int, error) {
 	unreviewed := s.GetUnreviewedItems()
 	count := 0
 	for _, item := range unreviewed {
-		if err := s.Promote(item.ID, topicName); err != nil {
+		if _, err := s.Promote(item.ID, topicName); err != nil {
 			return count, err
 		}
 		count++
@@ -225,4 +237,14 @@ func FormatDigest(unreviewed []Item) string {
 	sb.WriteString("- /learn dismiss-all          : Dismiss all unreviewed items\n")
 
 	return strings.TrimSpace(sb.String())
+}
+
+// InjectItemForTest injects an item directly into the state for testing purposes.
+func (s *Service) InjectItemForTest(item Item) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state == nil {
+		s.state = make(map[string]Item)
+	}
+	s.state[item.ID] = item
 }
