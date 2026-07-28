@@ -139,7 +139,15 @@ func (s *Service) Promote(id string, topicName string) error {
 		return fmt.Errorf("learn: learning ID %q not found", id)
 	}
 
-	lessonContent := fmt.Sprintf("[%s] %s", strings.ToUpper(string(item.Type)), item.Summary)
+	dateStr := time.Now().Format("2006-01-02")
+	lessonContent := fmt.Sprintf("### [%s] %s: %s\n<!-- confidence: high | verified: %s | source: %s -->\n%s", 
+		dateStr, 
+		strings.ToUpper(string(item.Type)), 
+		item.Summary, 
+		dateStr, 
+		id, 
+		strings.TrimSpace(item.Context))
+	
 	if err := s.mem.WriteTopicEntry(topicName, lessonContent); err != nil {
 		return fmt.Errorf("learn: failed to promote to topic %s: %w", topicName, err)
 	}
