@@ -131,15 +131,69 @@ func (s *Service) GetUnreviewedItems() []Item {
 	return unreviewed
 }
 
+type OverlapError struct {
+	ExistingEntry string
+	NewEntry      string
+}
+
+func (e *OverlapError) Error() string {
+	return "overlap detected"
+}
+
+func extractTokens(text string) map[string]bool {
+	tokens := make(map[string]bool)
+	words := strings.Fields(strings.ToLower(text))
+	stopwords := map[string]bool{"the": true, "and": true, "a": true, "to": true, "of": true, "in": true, "i": true, "is": true, "that": true, "it": true, "on": true, "you": true, "this": true, "for": true, "but": true, "with": true, "are": true, "have": true, "be": true, "at": true, "or": true, "as": true, "was": true, "so": true, "if": true, "out": true, "not": true}
+	for _, w := range words {
+		w = strings.Trim(w, ".,!?;:()[]{}'\"")
+		if len(w) > 2 && !stopwords[w] {
+			tokens[w] = true
+		}
+	}
+	return tokens
+}
+
+func hasOverlap(newText, existingText string) bool {
+	newTokens := extractTokens(newText)
+	if len(newTokens) == 0 {
+		return false
+	}
+	existingTokens := extractTokens(existingText)
+
+	matchCount := 0
+	for token := range newTokens {
+		if existingTokens[token] {
+			matchCount++
+		}
+	}
+
+	return float64(matchCount)/float64(len(newTokens)) > 0.6
+}
+
 // Promote promotes an unreviewed or candidate learning to a curated topic file (e.g. "conventions").
 // This is the ONLY method that writes to memory/topics/*.md and is strictly human-gated.
-func (s *Service) Promote(id string, topicName string) (string, error) {
+func (s *Service) Promote(id string, topicName string, force bool) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	item, exists := s.state[id]
 	if !exists {
 		return "", fmt.Errorf("learn: learning ID %q not found", id)
+	}
+
+	if !force {
+		existingContent, err := s.mem.LoadTopic(topicName)
+		if err == nil && existingContent != "" {
+			entries := parseTopicEntries(existingContent)
+			for _, entry := range entries {
+				if hasOverlap(item.Summary, entry.OriginalText) {
+					return "", &OverlapError{
+						ExistingEntry: strings.TrimSpace(entry.OriginalText),
+						NewEntry:      item.Summary + "\n" + item.Context,
+					}
+				}
+			}
+		}
 	}
 
 	hasPath := pathRegex.MatchString(item.Summary) || pathRegex.MatchString(item.Context)
@@ -190,7 +244,7 @@ func (s *Service) PromoteAll(topicName string) (int, error) {
 	unreviewed := s.GetUnreviewedItems()
 	count := 0
 	for _, item := range unreviewed {
-		if _, err := s.Promote(item.ID, topicName); err != nil {
+		if _, err := s.Promote(item.ID, topicName, true); err != nil {
 			return count, err
 		}
 		count++

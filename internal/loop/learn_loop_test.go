@@ -61,7 +61,7 @@ func TestPhase9_AutoExtractAndLearnLoop(t *testing.T) {
 	}
 
 	// Promote item 0 to "conventions"
-	if _, err := l.Learn.Promote(items[0].ID, "conventions"); err != nil {
+	if _, err := l.Learn.Promote(items[0].ID, "conventions", false); err != nil {
 		t.Fatalf("failed to promote item: %v", err)
 	}
 	// Dismiss item 1

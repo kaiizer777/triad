@@ -1346,13 +1346,26 @@ func (m *Model) handleLearn(args string) (body string, errMsg string) {
 
 	if strings.HasPrefix(args, "promote ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(args, "promote"))
+		
+		force := false
+		if strings.HasSuffix(rest, "--force") {
+			force = true
+			rest = strings.TrimSpace(strings.TrimSuffix(rest, "--force"))
+		}
+
 		parts := strings.Fields(rest)
 		if len(parts) != 2 {
-			return "", "Usage: /learn promote <id> <topic>"
+			return "", "Usage: /learn promote <id> <topic> [--force]"
 		}
 		id, topic := parts[0], parts[1]
-		warning, err := m.learnSvc.Promote(id, topic)
+
+		warning, err := m.learnSvc.Promote(id, topic, force)
 		if err != nil {
+			if overlapErr, ok := err.(*learn.OverlapError); ok {
+				msg := fmt.Sprintf("This looks related to an existing entry — promote as new, or edit the existing one instead?\n\nEXISTING ENTRY:\n%s\n\nNEW ENTRY:\n%s\n\n(To promote as new, use `/learn promote %s %s --force`. To edit existing, modify memory/topics/%s.md and `/learn dismiss %s`)", 
+					overlapErr.ExistingEntry, overlapErr.NewEntry, id, topic, topic, id)
+				return msg, ""
+			}
 			return "", fmt.Errorf("Failed to promote: %v", err).Error()
 		}
 		

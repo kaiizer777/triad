@@ -127,7 +127,7 @@ func TestPromoteAndDismiss(t *testing.T) {
 
 	// Promote first item to "conventions"
 	itemToPromote := items[0]
-	if _, err := svc.Promote(itemToPromote.ID, "conventions"); err != nil {
+	if _, err := svc.Promote(itemToPromote.ID, "conventions", false); err != nil {
 		t.Fatalf("failed to promote item: %v", err)
 	}
 
@@ -158,6 +158,55 @@ func TestPromoteAndDismiss(t *testing.T) {
 	}
 	if !strings.Contains(dailyLog, itemToPromote.ID) || !strings.Contains(dailyLog, itemToDismiss.ID) {
 		t.Errorf("expected daily log to retain both entries, got:\n%s", dailyLog)
+	}
+}
+
+func TestPromoteOverlap(t *testing.T) {
+	tmpDir := t.TempDir()
+	mem, err := memory.NewManager(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create memory manager: %v", err)
+	}
+
+	svc, err := learn.NewService(mem)
+	if err != nil {
+		t.Fatalf("failed to create learn service: %v", err)
+	}
+
+	item1 := learn.Item{
+		ID:        "ext-obj-1",
+		Type:      learn.TypeReviewerObjection,
+		Summary:   "The quick brown fox jumps over the lazy dog.",
+		Context:   "Context 1",
+		Status:    learn.StatusUnreviewed,
+	}
+	svc.InjectItemForTest(item1)
+
+	if _, err := svc.Promote("ext-obj-1", "overlap_test", false); err != nil {
+		t.Fatalf("expected successful promotion, got: %v", err)
+	}
+
+	item2 := learn.Item{
+		ID:        "ext-obj-2",
+		Type:      learn.TypeReviewerObjection,
+		Summary:   "A quick brown fox jumps over the lazy dog often.",
+		Context:   "Different context but claim overlaps",
+		Status:    learn.StatusUnreviewed,
+	}
+	svc.InjectItemForTest(item2)
+
+	// Should trigger overlap
+	_, err = svc.Promote("ext-obj-2", "overlap_test", false)
+	if err == nil {
+		t.Fatalf("expected overlap error, got nil")
+	}
+	if _, ok := err.(*learn.OverlapError); !ok {
+		t.Fatalf("expected OverlapError, got %T", err)
+	}
+
+	// But force=true should bypass
+	if _, err := svc.Promote("ext-obj-2", "overlap_test", true); err != nil {
+		t.Fatalf("expected successful forced promotion, got: %v", err)
 	}
 }
 
