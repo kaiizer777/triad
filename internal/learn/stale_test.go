@@ -14,9 +14,11 @@ This is a totally dateless entry placed here.
 - Storage: Use flat files.
 - [2026-01-01] Old format with date.
 Some plain text that gets absorbed.
-### [2026-07-28] New format with date: and title
-<!-- confidence: high | verified: 2026-07-28 | source: learn-promote:123 -->
-Body text here
+### [2026-07-28] REVIEWER OBJECTION: raw body required for HMAC verification
+<!-- confidence: high | verified: 2026-07-28 | source: learn-promote:a1b2c3 -->
+Webhook signature verification must run against the raw request body, not
+the parsed/re-serialized JSON — re-serialization changes byte order and
+breaks HMAC comparison.
 `
 	entries := parseTopicEntries(content)
 	if len(entries) != 5 {
@@ -39,5 +41,9 @@ Body text here
 
 	if entries[4].Date.Format("2006-01-02") != "2026-07-28" {
 		t.Errorf("expected entry 4 to have date 2026-07-28, got %v", entries[4].Date)
+	}
+	expectedBodyFragment := "breaks HMAC comparison."
+	if !strings.Contains(entries[4].OriginalText, expectedBodyFragment) {
+		t.Errorf("expected entry 4 to contain the full multi-line body, but it was split or missing. Got:\n%s", entries[4].OriginalText)
 	}
 }
