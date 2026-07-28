@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kaiizer777/triad/internal/logger"
 )
 
 const (
@@ -90,6 +92,11 @@ func NewManager(workDir string) (*Manager, error) {
 
 	if err := m.ensureDirectoriesAndSeeds(); err != nil {
 		return nil, fmt.Errorf("memory: failed to initialize memory structure: %w", err)
+	}
+
+	indexContent, err := m.LoadIndex()
+	if err == nil && strings.Count(indexContent, "\n") > 200 {
+		logger.L().Warn("memory/INDEX.md exceeds 200 lines; consider pruning to keep context window small")
 	}
 
 	return m, nil

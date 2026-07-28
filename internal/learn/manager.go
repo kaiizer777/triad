@@ -181,10 +181,14 @@ func (s *Service) Promote(id string, topicName string, force bool) (string, erro
 		return "", fmt.Errorf("learn: learning ID %q not found", id)
 	}
 
+	var warnings []string
 	if !force {
 		existingContent, err := s.mem.LoadTopic(topicName)
 		if err == nil && existingContent != "" {
 			entries := parseTopicEntries(existingContent)
+			if len(entries) >= 30 {
+				warnings = append(warnings, fmt.Sprintf("Topic '%s' has reached %d entries. Consider splitting it into a sub-topic to maintain context density.", topicName, len(entries)))
+			}
 			for _, entry := range entries {
 				if hasOverlap(item.Summary, entry.OriginalText) {
 					return "", &OverlapError{
@@ -197,12 +201,13 @@ func (s *Service) Promote(id string, topicName string, force bool) (string, erro
 	}
 
 	hasPath := pathRegex.MatchString(item.Summary) || pathRegex.MatchString(item.Context)
-	warningMsg := ""
 	pathTag := ""
 	if hasPath {
-		warningMsg = "This lesson references a file path, which rots fastest. Consider phrasing around the concept instead."
+		warnings = append(warnings, "This lesson references a file path, which rots fastest. Consider phrasing around the concept instead.")
 		pathTag = " | path-reference: true"
 	}
+
+	warningMsg := strings.Join(warnings, "\n")
 
 	dateStr := time.Now().Format("2006-01-02")
 	lessonContent := fmt.Sprintf("### [%s] %s: %s\n<!-- confidence: high | verified: %s | source: %s%s -->\n%s", 
