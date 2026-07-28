@@ -29,6 +29,11 @@ const (
 	// this event type, /trace cannot show skill decisions at all
 	// (it has always read from this log, never the transcript).
 	EventSkillSelection = "skill_selection"
+	EventMemoryLoaded   = "memory_loaded"
+	EventTopicFetched   = "topic_fetched"
+	EventLearnExtracted = "learn_extracted"
+	EventLearnPromoted  = "learn_promoted"
+	EventLearnDismissed = "learn_dismissed"
 )
 
 // Entry represents a single high-level event in the session trace log.

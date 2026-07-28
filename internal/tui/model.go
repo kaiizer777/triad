@@ -1305,12 +1305,18 @@ func (m *Model) handleLearn(args string) (body string, errMsg string) {
 		if err != nil {
 			return "", fmt.Sprintf("Failed to initialize memory manager: %v", err)
 		}
+		if m.transcript != nil {
+			mgr.WithTracePath(tracelog.TracePathForSession(m.transcript.FilePath()))
+		}
 		m.memory = mgr
 	}
 	if m.learnSvc == nil {
 		svc, err := learn.NewService(m.memory)
 		if err != nil {
 			return "", fmt.Sprintf("Failed to initialize learn service: %v", err)
+		}
+		if m.transcript != nil {
+			svc.WithTracePath(tracelog.TracePathForSession(m.transcript.FilePath()))
 		}
 		m.learnSvc = svc
 	}

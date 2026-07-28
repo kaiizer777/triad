@@ -489,12 +489,18 @@ func (l *Loop) AutoExtractLearnings() ([]learn.Item, error) {
 		if err != nil {
 			return nil, err
 		}
+		if l.transcript != nil {
+			mgr.WithTracePath(tracelog.TracePathForSession(l.transcript.FilePath()))
+		}
 		l.Memory = mgr
 	}
 	if l.Learn == nil {
 		svc, err := learn.NewService(l.Memory)
 		if err != nil {
 			return nil, err
+		}
+		if l.transcript != nil {
+			svc.WithTracePath(tracelog.TracePathForSession(l.transcript.FilePath()))
 		}
 		l.Learn = svc
 	}

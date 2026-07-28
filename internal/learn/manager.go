@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kaiizer777/triad/internal/memory"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -22,9 +23,10 @@ const StateFileName = "learn_state.json"
 // state persistence, and human-gated promotion/dismissal.
 type Service struct {
 	mu     sync.Mutex
-	mem    *memory.Manager
-	state  map[string]Item
-	stFile string
+	mem       *memory.Manager
+	state     map[string]Item
+	stFile    string
+	tracePath string
 }
 
 // NewService constructs a learn.Service bound to the given memory.Manager.
@@ -45,6 +47,15 @@ func NewService(mem *memory.Manager) (*Service, error) {
 	}
 
 	return s, nil
+}
+
+// WithTracePath sets the trace path for the service to emit observability events to.
+// This is typically the active session's trace file.
+func (s *Service) WithTracePath(path string) *Service {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tracePath = path
+	return s
 }
 
 func (s *Service) loadState() error {
@@ -106,6 +117,16 @@ func (s *Service) AutoExtractAndLog(entries []transcript.Entry, date time.Time) 
 		item.Status = StatusUnreviewed
 		s.state[item.ID] = item
 		newItems = append(newItems, item)
+
+		_ = tracelog.Append(s.tracePath, tracelog.Entry{
+			Entity:      "learn",
+			EventType:   tracelog.EventLearnExtracted,
+			Description: fmt.Sprintf("Extracted new learning: %s", item.ID),
+			Data: map[string]any{
+				"id":      item.ID,
+				"summary": item.Summary,
+			},
+		})
 	}
 
 	if len(newItems) > 0 {
@@ -225,7 +246,21 @@ func (s *Service) Promote(id string, topicName string, force bool) (string, erro
 
 	item.Status = StatusPromoted
 	s.state[id] = item
-	return warningMsg, s.saveState()
+	if err := s.saveState(); err != nil {
+		return "", err
+	}
+
+	_ = tracelog.Append(s.tracePath, tracelog.Entry{
+		Entity:      "learn",
+		EventType:   tracelog.EventLearnPromoted,
+		Description: fmt.Sprintf("Promoted learning %s to topic %s", id, topicName),
+		Data: map[string]any{
+			"id":    id,
+			"topic": topicName,
+		},
+	})
+
+	return warningMsg, nil
 }
 
 // Dismiss marks a candidate learning as dismissed.
@@ -241,7 +276,20 @@ func (s *Service) Dismiss(id string) error {
 
 	item.Status = StatusDismissed
 	s.state[id] = item
-	return s.saveState()
+	if err := s.saveState(); err != nil {
+		return err
+	}
+
+	_ = tracelog.Append(s.tracePath, tracelog.Entry{
+		Entity:      "learn",
+		EventType:   tracelog.EventLearnDismissed,
+		Description: fmt.Sprintf("Dismissed learning %s", id),
+		Data: map[string]any{
+			"id": id,
+		},
+	})
+
+	return nil
 }
 
 // PromoteAll promotes all currently unreviewed candidate learnings to a target topic.

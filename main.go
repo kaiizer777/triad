@@ -145,6 +145,7 @@ func main() {
 	}
 
 	logger.L().Info("session ready", "path", sessionPath, "entries", len(tr.Entries()))
+	tracePath := tracelog.TracePathForSession(sessionPath)
 
 	// --- Flush transcript on OS signal (SIGINT / SIGTERM) ---
 	// Each Append already writes immediately, but an explicit SaveToFile on signal
@@ -159,6 +160,9 @@ func main() {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 	memoryMgr, err := memory.NewManager(workDir)
+	if err == nil {
+		memoryMgr.WithTracePath(tracePath)
+	}
 	if err != nil {
 		logger.L().Warn("daily-log retention cleanup unavailable", "error", err.Error())
 	} else {
@@ -168,6 +172,22 @@ func main() {
 		} else if cleanup.ArchivedCount() > 0 {
 			logger.L().Info("archived expired daily memory logs", "count", cleanup.ArchivedCount())
 		}
+		
+		idxStat, _ := os.Stat(filepath.Join(workDir, "memory", "INDEX.md"))
+		prefStat, _ := os.Stat(filepath.Join(workDir, "memory", "preferences.md"))
+		var idxSize, prefSize int64
+		if idxStat != nil { idxSize = idxStat.Size() }
+		if prefStat != nil { prefSize = prefStat.Size() }
+		
+		_ = tracelog.Append(tracePath, tracelog.Entry{
+			Entity:      "memory",
+			EventType:   tracelog.EventMemoryLoaded,
+			Description: fmt.Sprintf("Loaded memory seeds (INDEX.md: %d bytes, preferences.md: %d bytes)", idxSize, prefSize),
+			Data: map[string]any{
+				"index_bytes": idxSize,
+				"pref_bytes":  prefSize,
+			},
+		})
 	}
 
 	// --- Ensure workDir is a git repository (docs/work2.md §2.2.1) ---

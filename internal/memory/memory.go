@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/kaiizer777/triad/internal/logger"
+	"github.com/kaiizer777/triad/internal/tracelog"
 )
 
 const (
@@ -76,9 +77,10 @@ const DefaultConventionsTopicContent = `# Project Conventions
 
 // Manager handles reading and writing memory files.
 type Manager struct {
-	mu      sync.Mutex
-	workDir string
-	memDir  string
+	mu        sync.Mutex
+	workDir   string
+	memDir    string
+	tracePath string
 }
 
 // NewManager creates a Manager targeting workDir/memory, creating directory structure
@@ -100,6 +102,15 @@ func NewManager(workDir string) (*Manager, error) {
 	}
 
 	return m, nil
+}
+
+// WithTracePath sets the trace path for the manager to emit observability events to.
+// This is typically the active session's trace file.
+func (m *Manager) WithTracePath(path string) *Manager {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tracePath = path
+	return m
 }
 
 // Dir returns the absolute path to the memory directory.
@@ -193,6 +204,17 @@ func (m *Manager) LoadTopic(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("memory: topic %q not found or readable: %w", name, err)
 	}
+	
+	_ = tracelog.Append(m.tracePath, tracelog.Entry{
+		Entity:      "memory",
+		EventType:   tracelog.EventTopicFetched,
+		Description: fmt.Sprintf("Fetched curated topic: %s.md", name),
+		Data: map[string]any{
+			"topic": name,
+			"size":  len(data),
+		},
+	})
+
 	return string(data), nil
 }
 
