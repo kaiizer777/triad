@@ -1,6 +1,7 @@
 package learn_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,44 @@ func TestPromoteOverlap(t *testing.T) {
 		t.Fatalf("expected successful forced promotion, got: %v", err)
 	}
 }
+
+func TestPromote_SizeWarning(t *testing.T) {
+	tmpDir := t.TempDir()
+	mem, err := memory.NewManager(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create memory manager: %v", err)
+	}
+
+	svc, err := learn.NewService(mem)
+	if err != nil {
+		t.Fatalf("failed to create learn service: %v", err)
+	}
+
+	// Inflate topic past 30 entries
+	var topicEntries []string
+	for i := 0; i < 31; i++ {
+		topicEntries = append(topicEntries, fmt.Sprintf("### [2026-07-29] REVIEWER_OBJECTION: dummy%d\n<!-- confidence: high | verified: 2026-07-29 | source: d%d -->\nDummy content.", i, i))
+	}
+	mem.WriteTopicEntry("large_topic", strings.Join(topicEntries, "\n\n"))
+
+	item := learn.Item{
+		ID:        "ext-new-1",
+		Type:      learn.TypeReviewerObjection,
+		Summary:   "New fact for the large topic.",
+		Context:   "Context details.",
+		Status:    learn.StatusUnreviewed,
+	}
+	svc.InjectItemForTest(item)
+
+	warningMsg, err := svc.Promote("ext-new-1", "large_topic", false)
+	if err != nil {
+		t.Fatalf("expected successful promotion, got error: %v", err)
+	}
+	if !strings.Contains(warningMsg, "has reached 31 entries. Consider splitting it") {
+		t.Errorf("expected warning about topic size, got: %q", warningMsg)
+	}
+}
+
 
 func TestNoAutoPromotionInvariant(t *testing.T) {
 	tempDir := t.TempDir()

@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaiizer777/triad/internal/logger"
 	"github.com/kaiizer777/triad/internal/memory"
 )
 
@@ -34,6 +36,46 @@ func TestManager_Initialization(t *testing.T) {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
 			t.Errorf("expected seed file %s to exist", file)
 		}
+	}
+}
+
+func TestManager_IndexWarning(t *testing.T) {
+	tempDir := t.TempDir()
+	
+	err := os.MkdirAll(filepath.Join(tempDir, "memory"), 0755)
+	if err != nil {
+		t.Fatalf("failed to create memory dir: %v", err)
+	}
+
+	var indexLines []string
+	for i := 0; i < 210; i++ {
+		indexLines = append(indexLines, fmt.Sprintf("Line %d", i))
+	}
+	err = os.WriteFile(filepath.Join(tempDir, "memory", "INDEX.md"), []byte(strings.Join(indexLines, "\n")), 0644)
+	if err != nil {
+		t.Fatalf("failed to write inflated INDEX.md: %v", err)
+	}
+
+	logPath := filepath.Join(tempDir, "test.log")
+	err = logger.InitWithOptions(logPath, logger.Options{})
+	if err != nil {
+		t.Fatalf("failed to init logger: %v", err)
+	}
+	defer logger.Close()
+
+	_, err = memory.NewManager(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	
+	logger.Close()
+
+	logContent, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read test.log: %v", err)
+	}
+	if !strings.Contains(string(logContent), "memory/INDEX.md exceeds 200 lines") {
+		t.Errorf("expected warning about INDEX.md size in logs, got:\n%s", logContent)
 	}
 }
 
