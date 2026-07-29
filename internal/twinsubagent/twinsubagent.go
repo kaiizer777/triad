@@ -470,7 +470,10 @@ func (r *Runner) runReviewCycle(
 func (r *Runner) executeToolCall(tr *transcript.Transcript, id string, tc agent.ToolCall) (string, error) {
 	switch tc.Function.Name {
 	case "read_file", "write_file", "run_command":
-		result, err := agent.ExecuteTool(r.workDir, tc, r.commandTimeout)
+		result, err := agent.ExecuteTool(r.workDir, tc, r.commandTimeout, &agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		})
 		resultContent := result
 		if err != nil {
 			resultContent = "ERROR: " + err.Error()

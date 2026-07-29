@@ -1,0 +1,26 @@
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-02dad943","data":{"id":"ext-obj-02dad943","summary":"Reviewer objection resolved: OBJECTION: Unsafe query"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-e797c3ae","data":{"id":"ext-obj-e797c3ae","summary":"Reviewer objection resolved: OBJECTION: Problem A"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-hum-79b6ef7d","data":{"id":"ext-hum-79b6ef7d","summary":"Human mid-task correction: Correction C"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: conventions.md","data":{"size":188,"topic":"conventions"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-e797c3ae to topic conventions","data":{"id":"ext-obj-e797c3ae","topic":"conventions"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_dismissed","description":"Dismissed learning ext-hum-79b6ef7d","data":{"id":"ext-hum-79b6ef7d"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: conventions.md","data":{"size":384,"topic":"conventions"}}
+{"timestamp":"2026-07-29T13:11:34Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-1 to topic overlap_test","data":{"id":"ext-obj-1","topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:11:35Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: overlap_test.md","data":{"size":191,"topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:11:35Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-2 to topic overlap_test","data":{"id":"ext-obj-2","topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:11:35Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: large_topic.md","data":{"size":3852,"topic":"large_topic"}}
+{"timestamp":"2026-07-29T13:11:35Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-new-1 to topic large_topic","data":{"id":"ext-new-1","topic":"large_topic"}}
+{"timestamp":"2026-07-29T13:11:35Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-844595e4","data":{"id":"ext-obj-844595e4","summary":"Reviewer objection resolved: OBJECTION: Reject"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-02dad943","data":{"id":"ext-obj-02dad943","summary":"Reviewer objection resolved: OBJECTION: Unsafe query"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-e797c3ae","data":{"id":"ext-obj-e797c3ae","summary":"Reviewer objection resolved: OBJECTION: Problem A"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-hum-79b6ef7d","data":{"id":"ext-hum-79b6ef7d","summary":"Human mid-task correction: Correction C"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: conventions.md","data":{"size":188,"topic":"conventions"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-e797c3ae to topic conventions","data":{"id":"ext-obj-e797c3ae","topic":"conventions"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_dismissed","description":"Dismissed learning ext-hum-79b6ef7d","data":{"id":"ext-hum-79b6ef7d"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: conventions.md","data":{"size":384,"topic":"conventions"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-1 to topic overlap_test","data":{"id":"ext-obj-1","topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: overlap_test.md","data":{"size":191,"topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-obj-2 to topic overlap_test","data":{"id":"ext-obj-2","topic":"overlap_test"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"memory","event_type":"topic_fetched","description":"Fetched curated topic: large_topic.md","data":{"size":3852,"topic":"large_topic"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_promoted","description":"Promoted learning ext-new-1 to topic large_topic","data":{"id":"ext-new-1","topic":"large_topic"}}
+{"timestamp":"2026-07-29T13:14:50Z","entity":"learn","event_type":"learn_extracted","description":"Extracted new learning: ext-obj-844595e4","data":{"id":"ext-obj-844595e4","summary":"Reviewer objection resolved: OBJECTION: Reject"}}

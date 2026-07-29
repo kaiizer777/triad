@@ -95,9 +95,14 @@ func cmdReviewerTurn(tr *transcript.Transcript, reviewer agent.AgentConfig, clie
 
 // cmdExecuteTool executes an approved tool call asynchronously.
 // commandTimeout caps run_command executions; 0 uses agent.DefaultCommandTimeout.
+// Standard tools (write_file, read_file, run_command) are retried on transient
+// failures via the shared retry mechanism.
 func cmdExecuteTool(workDir string, toolCall agent.ToolCall, commandTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
-		res, err := agent.ExecuteTool(workDir, toolCall, commandTimeout)
+		res, err := agent.ExecuteTool(workDir, toolCall, commandTimeout, &agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		})
 		return toolResultMsg{
 			toolCall: toolCall,
 			result:   res,
@@ -117,6 +122,9 @@ func cmdExecuteTool(workDir string, toolCall agent.ToolCall, commandTimeout time
 // session (matching a real human's single browser tab), so
 // navigate/click/type/get_text calls in sequence all see the
 // same page state. The manager's own mutex serialises them.
+//
+// Browser tools are retried on transient failures (navigation timeouts,
+// page crashes, connection resets) via the shared retry mechanism.
 func cmdExecuteBrowserTool(workDir string, bm *browser.Manager, toolCall agent.ToolCall) tea.Cmd {
 	return func() tea.Msg {
 		if bm == nil {
@@ -126,7 +134,12 @@ func cmdExecuteBrowserTool(workDir string, bm *browser.Manager, toolCall agent.T
 				err:      fmt.Errorf("browser tool %q approved but no browser.Manager is configured", toolCall.Function.Name),
 			}
 		}
-		res, err := bm.ExecuteTool(workDir, toolCall.Function.Name, toolCall.Function.Arguments)
+		res, err := agent.ExecuteWithRetry(agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		}, func() (string, error) {
+			return bm.ExecuteTool(workDir, toolCall.Function.Name, toolCall.Function.Arguments)
+		})
 		return toolResultMsg{
 			toolCall: toolCall,
 			result:   res,
@@ -136,13 +149,20 @@ func cmdExecuteBrowserTool(workDir string, bm *browser.Manager, toolCall agent.T
 }
 
 // cmdExecuteWebSearch executes an approved web_search tool call asynchronously.
+// Web search is retried on transient failures (network errors, API timeouts)
+// via the shared retry mechanism.
 func cmdExecuteWebSearch(apiKey string, toolCall agent.ToolCall) tea.Cmd {
 	return func() tea.Msg {
 		var args agent.ExecuteToolArgs
 		if toolCall.Function.Arguments != "" && toolCall.Function.Arguments != "{}" {
 			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
 		}
-		res, err := agent.ExecuteWebSearch(args.Query, apiKey)
+		res, err := agent.ExecuteWithRetry(agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		}, func() (string, error) {
+			return agent.ExecuteWebSearch(args.Query, apiKey)
+		})
 		return toolResultMsg{
 			toolCall: toolCall,
 			result:   res,

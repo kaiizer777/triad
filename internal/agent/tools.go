@@ -697,12 +697,15 @@ func validateToolArgs(toolName string, args ExecuteToolArgs) error {
 // ExecuteTool dispatches a ToolCall to the appropriate executor.
 // workDir is the project working directory used to resolve relative paths.
 // commandTimeout is the maximum duration for run_command executions (0 → DefaultCommandTimeout).
+// retryOpts configures retry behavior for retryable tool failures. Pass nil
+// to disable retry (fire-once, the legacy behavior). When non-nil, standard
+// tools (write_file, read_file, run_command) are retried on transient failures.
 // Returns the output string (to be stored as an action_result entry).
 //
 // On malformed tool call arguments, ExecuteTool returns a descriptive error string
 // prefixed with "System: " rather than a Go error, so the TUI can surface it in
 // the transcript without crashing the session.
-func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (string, error) {
+func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration, retryOpts *RetryOptions) (string, error) {
 	logger.L().Debug("executing tool",
 		"tool", call.Function.Name,
 		"id", call.ID,
@@ -734,13 +737,31 @@ func ExecuteTool(workDir string, call ToolCall, commandTimeout time.Duration) (s
 	var result string
 	var execErr error
 
+	// Build the retry-aware executor for standard tools.
+	// write_file, read_file, and run_command are wrapped with retry logic
+	// when retryOpts is non-nil. Other tools (task_complete, browser_*, etc.)
+	// are not retried here — they either don't need it or have their own
+	// retry/recovery mechanisms.
+	executeWithOptionalRetry := func(toolName string, fn func() (string, error)) (string, error) {
+		if retryOpts != nil {
+			return ExecuteWithRetry(*retryOpts, fn)
+		}
+		return fn()
+	}
+
 	switch call.Function.Name {
 	case "write_file":
-		result, execErr = ExecuteWriteFile(workDir, args.Path, args.Content)
+		result, execErr = executeWithOptionalRetry("write_file", func() (string, error) {
+			return ExecuteWriteFile(workDir, args.Path, args.Content)
+		})
 	case "read_file":
-		result, execErr = ExecuteReadFile(workDir, args.Path)
+		result, execErr = executeWithOptionalRetry("read_file", func() (string, error) {
+			return ExecuteReadFile(workDir, args.Path)
+		})
 	case "run_command":
-		result, execErr = ExecuteRunCommand(workDir, args.Command, commandTimeout)
+		result, execErr = executeWithOptionalRetry("run_command", func() (string, error) {
+			return ExecuteRunCommand(workDir, args.Command, commandTimeout)
+		})
 	case "task_complete":
 		// No execution needed — the loop handles this signal itself.
 		// Returning the sentinel string "task_complete" lets the loop detect it.

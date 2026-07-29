@@ -180,7 +180,7 @@ func TestExecuteTool_WriteFile(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteTool(workDir, call, 0)
+	result, err := ExecuteTool(workDir, call, 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestExecuteTool_ReadFile(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteTool(workDir, call, 0)
+	result, err := ExecuteTool(workDir, call, 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestExecuteTool_ReadFile(t *testing.T) {
 func TestExecuteTool_UnknownToolReturnsError(t *testing.T) {
 	_, err := ExecuteTool(t.TempDir(), ToolCall{
 		Function: ToolCallFunction{Name: "delete_everything", Arguments: "{}"},
-	}, 0)
+	}, 0, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown tool name, got nil")
 	}
@@ -240,7 +240,7 @@ func TestExecuteTool_SpawnSubagentMustBeIntercepted(t *testing.T) {
 			Name:      "spawn_subagent",
 			Arguments: `{"task":"x","context":"y"}`,
 		},
-	}, 0)
+	}, 0, nil)
 	if err == nil {
 		t.Fatal("expected error when spawn_subagent reaches ExecuteTool directly, got nil")
 	}
@@ -258,7 +258,7 @@ func TestExecuteTool_SpawnTwinSubagentMustBeIntercepted(t *testing.T) {
 			Name:      "spawn_twin_subagent",
 			Arguments: `{"task":"implement feature x"}`,
 		},
-	}, 0)
+	}, 0, nil)
 	if err == nil {
 		t.Fatal("expected error when spawn_twin_subagent reaches ExecuteTool directly, got nil")
 	}
@@ -278,7 +278,7 @@ func TestExecuteTool_MalformedArguments(t *testing.T) {
 			Name:      "write_file",
 			Arguments: `{not valid json`,
 		},
-	}, 0)
+	}, 0, nil)
 	// Malformed JSON must NOT return a Go error — it must return a System: message.
 	if err != nil {
 		t.Fatalf("expected nil error for malformed JSON (graceful recovery), got: %v", err)
@@ -382,7 +382,7 @@ func TestExecuteTool_MissingRequiredPath(t *testing.T) {
 			Name:      "write_file",
 			Arguments: `{"content":"hello world"}`, // 'path' is missing
 		},
-	}, 0)
+	}, 0, nil)
 	if err != nil {
 		t.Fatalf("expected nil error for missing 'path' (graceful recovery), got: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestExecuteTool_MissingRequiredCommand(t *testing.T) {
 			Name:      "run_command",
 			Arguments: `{}`, // 'command' is missing
 		},
-	}, 0)
+	}, 0, nil)
 	if err != nil {
 		t.Fatalf("expected nil error for missing 'command' (graceful recovery), got: %v", err)
 	}

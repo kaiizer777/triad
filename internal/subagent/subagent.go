@@ -450,7 +450,12 @@ func (r *Runner) runOneToolCall(_ context.Context, tr *transcript.Transcript, id
 			r.appendSystemError(tr, tc, fmt.Errorf("read_file: required argument 'path' is missing or empty"))
 			return nil
 		}
-		result, err := agent.ExecuteReadFile(r.workDir, args.Path)
+		result, err := agent.ExecuteWithRetry(agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		}, func() (string, error) {
+			return agent.ExecuteReadFile(r.workDir, args.Path)
+		})
 		r.appendToolResult(tr, tc, result, err)
 		return nil
 
@@ -468,7 +473,12 @@ func (r *Runner) runOneToolCall(_ context.Context, tr *transcript.Transcript, id
 			r.appendSystemError(tr, tc, fmt.Errorf("run_command: required argument 'command' is missing or empty"))
 			return nil
 		}
-		result, err := agent.ExecuteRunCommand(r.workDir, args.Command, r.commandTimeout)
+		result, err := agent.ExecuteWithRetry(agent.RetryOptions{
+			MaxAttempts: agent.RetryMaxAttempts,
+			BaseDelay:   agent.RetryBaseDelay,
+		}, func() (string, error) {
+			return agent.ExecuteRunCommand(r.workDir, args.Command, r.commandTimeout)
+		})
 		r.appendToolResult(tr, tc, result, err)
 
 		// If the command succeeded AND modified files, commit them now

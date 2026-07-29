@@ -811,11 +811,12 @@ func (l *Loop) runActiveCycle(ctx context.Context) (done bool, err error) {
 			case toolCall.Function.Name == "spawn_twin_subagent":
 				result, execErr = l.runSpawnTwinSubagent(ctx, toolCall)
 			case browser.IsBrowserTool(toolCall.Function.Name):
-				result, execErr = l.runBrowserTool(toolCall)
+				result, execErr = l.runBrowserToolWithRetry(toolCall)
 			case toolCall.Function.Name == "web_search":
-				result, execErr = l.runWebSearch(toolCall)
+				result, execErr = l.runWebSearchWithRetry(toolCall)
 			default:
-				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
+				retryOpts := l.buildRetryOpts()
+				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout, retryOpts)
 			}
 
 			// Phase 3: In General Chat mode, recovery is simpler —
@@ -1175,11 +1176,12 @@ func (l *Loop) runReviewCycle(ctx context.Context, toolCall agent.ToolCall) (app
 			case toolCall.Function.Name == "spawn_twin_subagent":
 				result, execErr = l.runSpawnTwinSubagent(ctx, toolCall)
 			case browser.IsBrowserTool(toolCall.Function.Name):
-				result, execErr = l.runBrowserTool(toolCall)
+				result, execErr = l.runBrowserToolWithRetry(toolCall)
 			case toolCall.Function.Name == "web_search":
-				result, execErr = l.runWebSearch(toolCall)
+				result, execErr = l.runWebSearchWithRetry(toolCall)
 			default:
-				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout)
+				retryOpts := l.buildRetryOpts()
+				result, execErr = agent.ExecuteTool(l.workDir, toolCall, agent.DefaultCommandTimeout, retryOpts)
 			}
 
 			// --- Phase 3: Selector failure recovery ---
@@ -1634,6 +1636,43 @@ func (l *Loop) runWebSearch(toolCall agent.ToolCall) (string, error) {
 		return "", fmt.Errorf("web_search: required argument 'query' is missing or empty")
 	}
 	return agent.ExecuteWebSearch(args.Query, l.SearchAPIKey)
+}
+
+// buildRetryOpts constructs RetryOptions with a callback that surfaces
+// retry progress to the transcript as System entries. This is the shared
+// retry configuration used by all tool execution paths in the loop.
+func (l *Loop) buildRetryOpts() *agent.RetryOptions {
+	return &agent.RetryOptions{
+		MaxAttempts: agent.RetryMaxAttempts,
+		BaseDelay:   agent.RetryBaseDelay,
+		OnRetry: func(attempt, maxAttempts int, err error) {
+			_ = l.append(transcript.Entry{
+				Speaker:   transcript.SpeakerSystem,
+				Type:      transcript.TypeMessage,
+				Content:   fmt.Sprintf("[Retry]: attempt %d/%d failed (%v). Retrying...", attempt, maxAttempts, err),
+				Timestamp: time.Now(),
+			})
+		},
+	}
+}
+
+// runBrowserToolWithRetry wraps runBrowserTool with the shared retry
+// mechanism. Browser tools can fail transiently (navigation timeouts,
+// page crashes, connection resets), so they are retried on transient
+// errors just like standard tools.
+func (l *Loop) runBrowserToolWithRetry(toolCall agent.ToolCall) (string, error) {
+	return agent.ExecuteWithRetry(*l.buildRetryOpts(), func() (string, error) {
+		return l.runBrowserTool(toolCall)
+	})
+}
+
+// runWebSearchWithRetry wraps runWebSearch with the shared retry
+// mechanism. Web search can fail transiently (network errors, API
+// timeouts), so it is retried on transient errors.
+func (l *Loop) runWebSearchWithRetry(toolCall agent.ToolCall) (string, error) {
+	return agent.ExecuteWithRetry(*l.buildRetryOpts(), func() (string, error) {
+		return l.runWebSearch(toolCall)
+	})
 }
 
 // autoCommit is the headless equivalent of the TUI's maybeAutoCommit.
