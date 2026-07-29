@@ -56,11 +56,11 @@ You are working on one phase at a time from a checklist. Before writing any code
 
 **Root cause (likely):** The nudge is a one-way notification emitted by the Orchestrator's complexity/sensitivity heuristic, with no callback wired to actually switch modes or track whether the user acted on it. It's a print statement, not a UI affordance.
 
-- [ ] Confirm current behavior: does anything happen if the user ignores the note and continues in General mode with a genuinely complex/sensitive task? (likely: nothing — no re-check, no escalation)
-- [ ] Decide UX: should this be (a) a one-shot nudge only, (b) a nudge that re-fires if task complexity increases mid-session, or (c) an inline quick-action to switch modes without typing `/mode triad`
-- [ ] If (c): wire a keybinding or inline confirm prompt in the TUI that switches mode directly from the nudge, rather than requiring the user to type the command
-- [ ] Ensure the complexity/sensitivity heuristic that triggers this note is actually logged to `/trace` (so users can see *why* it fired, not just that it fired)
-- [ ] Test: trigger a complex/sensitive task in General mode, confirm the nudge fires exactly once per task (not spammed every turn) and the trace shows the trigger reason
+- [x] Confirm current behavior: does anything happen if the user ignores the note and continues in General mode with a genuinely complex/sensitive task? (likely: nothing — no re-check, no escalation)
+- [x] Decide UX: should this be (a) a one-shot nudge only, (b) a nudge that re-fires if task complexity increases mid-session, or (c) an inline quick-action to switch modes without typing `/mode triad`
+- [x] If (c): wire a keybinding or inline confirm prompt in the TUI that switches mode directly from the nudge, rather than requiring the user to type the command
+- [x] Ensure the complexity/sensitivity heuristic that triggers this note is actually logged to `/trace` (so users can see *why* it fired, not just that it fired)
+- [x] Test: trigger a complex/sensitive task in General mode, confirm the nudge fires exactly once per task (not spammed every turn) and the trace shows the trigger reason
 
 **Checkpoint:** The nudge either offers a real one-step escalation path or is at minimum traceable and non-repetitive — no more silent dead-end hints.
 
