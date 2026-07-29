@@ -2,6 +2,7 @@ package loop_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1062,5 +1063,232 @@ func TestFunnel_Phase5_5_RealSkillsEndToEnd(t *testing.T) {
 			t.Errorf("Phase 5.5 FAIL: trace turn 4 section %q has tier %q, want mini",
 				d["section"], d["tier"])
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Skill selection stall detection and re-prompt tests.
+// ---------------------------------------------------------------------------
+
+// TestFunnel_SelectionStall_RePromptsOnNoSelection verifies that when
+// Coder's first turn returns plain text without a SELECTED_SECTIONS line
+// (and the funnel can't parse a selection), the loop re-prompts Coder
+// instead of silently idling. The second attempt returns a valid
+// selection, and the session completes normally.
+//
+// This is the first checkbox in issue.md Phase 2: "mock Coder response
+// with no tool call pre-selection → confirm loop re-prompts instead of
+// idling".
+func TestFunnel_SelectionStall_RePromptsOnNoSelection(t *testing.T) {
+	mc := newMockClient()
+	reg := makeSkillRegistry(t)
+
+	// Coder turn 1: plain text without SELECTED_SECTIONS — should
+	// trigger a re-prompt.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: "I'll work on the button component.",
+	}})
+	// Coder turn 2 (re-prompt): valid selection — should succeed.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: `SELECTED_SECTIONS: ["frontend"]` + "\n" + "Now I'll write the component.",
+	}})
+	// Coder turn 3 (post-funnel): propose write_file.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"button.tsx","content":"x"}`)},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED."}})
+	// Coder turn 4: task_complete.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Task complete."}})
+
+	l, tr, taskChan := newFunnelTestLoop(t, mc, reg)
+	if err := runLoop(t, l, taskChan, "create button.tsx with a Button component"); err != nil {
+		t.Fatalf("expected clean completion after re-prompt, got: %v", err)
+	}
+
+	entries := tr.Entries()
+
+	// The stall should have been logged to the transcript as a
+	// [Skills] system entry mentioning the stall.
+	var foundStall bool
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerSystem &&
+			strings.Contains(e.Content, "Selection stall") &&
+			strings.Contains(e.Content, "Re-prompting Coder") {
+			foundStall = true
+			break
+		}
+	}
+	if !foundStall {
+		t.Error("expected a [Skills] stall entry in the transcript after Coder returned text without SELECTED_SECTIONS; not found")
+	}
+
+	// The session should have completed successfully (the re-prompt
+	// worked). Verify a [Skills] entry with tier=main exists.
+	var foundMain bool
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerSystem &&
+			strings.Contains(e.Content, "[Skills]") &&
+			strings.Contains(e.Content, "tier: main") {
+			foundMain = true
+			break
+		}
+	}
+	if !foundMain {
+		t.Error("expected a [Skills] entry with tier=main after successful re-prompt; not found")
+	}
+}
+
+// TestFunnel_SelectionStall_CapExhaustionSurfacesError verifies that
+// when Coder returns text without SELECTED_SECTIONS on every attempt
+// (initial + MaxSelectionStallRetries re-prompts), the loop surfaces
+// a clear error instead of hanging silently.
+//
+// This is the second checkbox in issue.md Phase 2: "mock Coder
+// ignoring re-prompt twice → confirm cap triggers and surfaces a
+// clear error instead of hanging".
+func TestFunnel_SelectionStall_CapExhaustionSurfacesError(t *testing.T) {
+	mc := newMockClient()
+	reg := makeSkillRegistry(t)
+
+	maxAttempts := 1 + loop.MaxSelectionStallRetries
+
+	// Coder: returns non-compliant text on every attempt. The mock
+	// replays the last response when the queue is exhausted, so we
+	// only need to configure one response — it repeats.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: "I'll just start working without selecting anything.",
+	}})
+
+	l, tr, taskChan := newFunnelTestLoop(t, mc, reg)
+	err := runLoop(t, l, taskChan, "create button.tsx")
+
+	// The loop should return an error (the stall cap was exhausted).
+	if err == nil {
+		t.Fatal("expected an error after selection stall cap exhaustion, got nil")
+	}
+	if !strings.Contains(err.Error(), "did not complete mandatory skill selection") {
+		t.Errorf("error should mention 'did not complete mandatory skill selection', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("%d attempts", maxAttempts)) {
+		t.Errorf("error should mention the attempt count (%d), got: %v", maxAttempts, err)
+	}
+
+	entries := tr.Entries()
+
+	// Verify stall events were logged to the transcript for each
+	// re-prompt attempt.
+	stallCount := 0
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerSystem &&
+			strings.Contains(e.Content, "Selection stall") {
+			stallCount++
+		}
+	}
+	if stallCount < loop.MaxSelectionStallRetries {
+		t.Errorf("expected at least %d stall entries in transcript, got %d",
+			loop.MaxSelectionStallRetries, stallCount)
+	}
+}
+
+// TestFunnel_SelectionStall_ToolCallsBeforeSelection_RePrompts verifies
+// that when Coder returns a tool call while selection is still mandatory,
+// the loop logs a stall and re-prompts instead of trying to execute the
+// tool call. The tool call is effectively ignored on the stalled turn.
+func TestFunnel_SelectionStall_ToolCallsBeforeSelection_RePrompts(t *testing.T) {
+	mc := newMockClient()
+	reg := makeSkillRegistry(t)
+
+	// Coder turn 1: tool call while selection is mandatory — stall.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"x.txt","content":"x"}`)},
+	}})
+	// Coder turn 2 (re-prompt): valid selection.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: `SELECTED_SECTIONS: ["frontend"]` + "\n" + "Now I'll proceed.",
+	}})
+	// Coder turn 3 (post-funnel): propose write_file.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"button.tsx","content":"ok"}`)},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED."}})
+	// Coder turn 4: task_complete.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Task complete."}})
+
+	l, tr, taskChan := newFunnelTestLoop(t, mc, reg)
+	if err := runLoop(t, l, taskChan, "create button.tsx"); err != nil {
+		t.Fatalf("expected clean completion after re-prompt, got: %v", err)
+	}
+
+	entries := tr.Entries()
+
+	// The stall should have been logged with the specific reason
+	// about tool calls.
+	var foundToolStall bool
+	for _, e := range entries {
+		if e.Speaker == transcript.SpeakerSystem &&
+			strings.Contains(e.Content, "Selection stall") &&
+			strings.Contains(e.Content, "tool calls emitted before selection completed") {
+			foundToolStall = true
+			break
+		}
+	}
+	if !foundToolStall {
+		t.Error("expected a stall entry mentioning 'tool calls emitted before selection completed'; not found")
+	}
+}
+
+// TestFunnel_SelectionStall_TraceLog verifies that skill_selection_stalled
+// events are written to the session's trace log (visible via /trace).
+func TestFunnel_SelectionStall_TraceLog(t *testing.T) {
+	mc := newMockClient()
+	reg := makeSkillRegistry(t)
+
+	// Coder: non-compliant text on attempt 1, then valid selection on attempt 2.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: "Let me think about this...",
+	}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		Text: `SELECTED_SECTIONS: ["frontend"]` + "\n" + "Selected.",
+	}})
+	// Post-funnel: write_file + task_complete.
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("write_file", `{"path":"x.txt","content":"x"}`)},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED."}})
+	mc.addResponse("Coder", mockResponse{resp: agent.AgentResponse{
+		ToolCalls: []agent.ToolCall{makeToolCall("task_complete", "{}")},
+	}})
+	mc.addResponse("Reviewer", mockResponse{resp: agent.AgentResponse{Text: "APPROVED. Task complete."}})
+
+	l, tr, taskChan, tracePath := newFunnelTestLoopWithPath(t, mc, reg)
+	if err := runLoop(t, l, taskChan, "create x.txt"); err != nil {
+		t.Fatalf("loop: %v", err)
+	}
+	_ = tr
+
+	// Read the trace log and verify the stall event was recorded.
+	traceEntries, err := tracelog.LoadTrace(tracePath)
+	if err != nil {
+		t.Fatalf("LoadTrace: %v", err)
+	}
+
+	var foundStallTrace bool
+	for _, e := range traceEntries {
+		if e.EventType == tracelog.EventSkillSelectionStalled {
+			foundStallTrace = true
+			if !strings.Contains(e.Description, "attempt") {
+				t.Errorf("stall trace description should mention 'attempt', got: %q", e.Description)
+			}
+			break
+		}
+	}
+	if !foundStallTrace {
+		t.Error("expected at least one EventSkillSelectionStalled entry in the trace log; not found")
 	}
 }

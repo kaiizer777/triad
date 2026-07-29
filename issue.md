@@ -38,13 +38,13 @@ You are working on one phase at a time from a checklist. Before writing any code
 
 **Root cause (likely):** The gate is reactive — it only rejects when Coder *tries* a coding action pre-selection. It has no fallback for when Coder's turn ends with no tool call and no selection made at all. Likely also a prompt/tool-exposure issue: Coder is told selection is required but still has `write_file`/`run_command`/etc. available, so it can choose to end its turn doing neither.
 
-- [ ] Reproduce: start a coding task in Triad/Orchestrator mode, confirm Coder's turn ends with no Stage 1 selection and no re-prompt — session just idles
-- [ ] Add turn-end check in `internal/loop`: if Coder's turn completes with selection still pending and zero tool calls made, do not idle — force a re-prompt in the same cycle instructing Coder to select a section first
-- [ ] Cap forced re-prompts (e.g. max 2) to avoid infinite stalls; on cap exhaustion, surface a clear error to the human instead of silently idling
-- [ ] Narrow the tool list exposed to Coder pre-selection: remove `write_file`/`run_command`/`spawn_subagent`/etc. from the available schema entirely until Stage 1 completes, instead of exposing them and rejecting after the fact — removes the option to end turn doing nothing
-- [ ] Add trace log event (`skill_selection_stalled`) for forced re-prompts, visible via `/trace`
-- [ ] Integration test: mock Coder response with no tool call pre-selection → confirm loop re-prompts instead of idling
-- [ ] Integration test: mock Coder ignoring re-prompt twice → confirm cap triggers and surfaces a clear error instead of hanging
+- [x] Reproduce: start a coding task in Triad/Orchestrator mode, confirm Coder's turn ends with no Stage 1 selection and no re-prompt — session just idles
+- [x] Add turn-end check in `internal/loop`: if Coder's turn completes with selection still pending and zero tool calls made, do not idle — force a re-prompt in the same cycle instructing Coder to select a section first
+- [x] Cap forced re-prompts (e.g. max 2) to avoid infinite stalls; on cap exhaustion, surface a clear error to the human instead of silently idling
+- [x] Narrow the tool list exposed to Coder pre-selection: remove `write_file`/`run_command`/`spawn_subagent`/etc. from the available schema entirely until Stage 1 completes, instead of exposing them and rejecting after the fact — removes the option to end turn doing nothing
+- [x] Add trace log event (`skill_selection_stalled`) for forced re-prompts, visible via `/trace`
+- [x] Integration test: mock Coder response with no tool call pre-selection → confirm loop re-prompts instead of idling
+- [x] Integration test: mock Coder ignoring re-prompt twice → confirm cap triggers and surfaces a clear error instead of hanging
 
 **Checkpoint:** A Coder turn that ends without selecting a section never silently stalls — it's either forced via a narrowed tool list, retried with a bounded re-prompt, or surfaced as a clear error.
 
