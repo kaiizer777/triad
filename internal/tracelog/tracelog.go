@@ -34,6 +34,14 @@ const (
 	EventLearnExtracted = "learn_extracted"
 	EventLearnPromoted  = "learn_promoted"
 	EventLearnDismissed = "learn_dismissed"
+	// EventSkillSelectionStalled is emitted when Coder's turn ends
+	// without completing mandatory skill selection (no SELECTED_SECTIONS
+	// line found in a text response, or empty text, or tool calls while
+	// selection was still required). The stall triggers a forced
+	// re-prompt up to MaxSelectionStallRetries times; this event is
+	// emitted once per re-prompt attempt so the human can see the
+	// loop is actively retrying rather than silently stuck.
+	EventSkillSelectionStalled = "skill_selection_stalled"
 )
 
 // Entry represents a single high-level event in the session trace log.

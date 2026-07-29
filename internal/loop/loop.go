@@ -417,11 +417,35 @@ func (l *Loop) skillsBodiesForPrompt() string {
 // work.md §3: only Coder (and coding subagents — see the
 // subagent package) receive skill content. Regression check is
 // the fact that this method is only called from Coder paths.
+// MaxSelectionStallRetries is the cap on forced re-prompts when
+// Coder's turn ends without completing mandatory skill selection.
+// The first attempt is the initial Coder call; each subsequent
+// attempt is a forced re-prompt with a nudge injected into the
+// transcript. When the cap is exhausted, coderTurnWithFunnel
+// returns an error instead of silently idling.
+//
+// The value 2 means "retry up to 2 times after the initial
+// attempt" — so 3 total attempts. This matches the issue.md
+// Phase 2 requirement of "cap forced re-prompts (e.g. max 2)".
+const MaxSelectionStallRetries = 2
+
+// coderTurnWithFunnel executes a Coder API call with mandatory skill
+// selection enforcement. When skills are configured and selection is
+// required, the method:
+//
+//  1. Disables tools on the Coder config so the model can't bypass
+//     selection by calling write_file/run_command.
+//  2. Checks the response for a valid SELECTED_SECTIONS line.
+//  3. If selection is still required after the response, emits a
+//     trace event and a transcript nudge before re-prompting.
+//  4. Caps re-prompts at MaxSelectionStallRetries to prevent
+//     infinite stalls.
+//
+// On cap exhaustion, returns a clear error that surfaces to the
+// human via the loop's error handling.
 func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, error) {
-	// A skill-enabled Coder must complete section selection, then skill
-	// selection, before it may answer or call tools. Selection-only replies
-	// are consumed internally and never leak as an incomplete user response.
-	for attempt := 0; attempt < 3; attempt++ {
+	maxAttempts := 1 + MaxSelectionStallRetries
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		cfg := l.buildCoderConfigWithSkills()
 		// Selection is a protocol message, not work. Removing tool schemas
 		// here stops tool-capable models from trying to act before choosing
@@ -444,15 +468,41 @@ func (l *Loop) coderTurnWithFunnel(ctx context.Context) (agent.AgentResponse, er
 		if !l.loadedSkills.SelectionRequired() {
 			return resp, nil
 		}
+		// Selection still required — Coder didn't comply.
+		reason := "response did not contain a valid SELECTED_SECTIONS line"
 		if len(resp.ToolCalls) > 0 {
-			continue
-		} // tool calls cannot bypass selector.
-		if strings.TrimSpace(resp.Text) == "" {
-			continue
+			reason = "tool calls emitted before selection completed"
+		} else if strings.TrimSpace(resp.Text) == "" {
+			reason = "empty response during mandatory selection"
 		}
-		// Prose during selection has not complied; retry the selector prompt.
+		l.logSelectionStall(attempt, maxAttempts, reason)
 	}
-	return agent.AgentResponse{}, fmt.Errorf("coder did not complete mandatory skill selection")
+	return agent.AgentResponse{}, fmt.Errorf("coder did not complete mandatory skill selection after %d attempts — session stalled. "+
+		"The model consistently failed to emit a SELECTED_SECTIONS line. Human intervention required.", maxAttempts)
+}
+
+// logSelectionStalled surfaces a skill selection stall to both the
+// session trace log and the transcript. The trace event is
+// machine-readable (EventSkillSelectionStalled); the transcript
+// entry is human-readable and tells the human the loop is actively
+// retrying rather than silently stuck.
+func (l *Loop) logSelectionStall(attempt, maxAttempts int, reason string) {
+	// Trace log (machine-readable, visible via /trace).
+	tracePath := tracelog.TracePathForSession(l.transcript.FilePath())
+	_ = tracelog.Append(tracePath, tracelog.Entry{
+		Entity:    "skills",
+		EventType: tracelog.EventSkillSelectionStalled,
+		Description: fmt.Sprintf("skill selection stalled (attempt %d/%d): %s",
+			attempt+1, maxAttempts, reason),
+	})
+
+	// Transcript (human-visible, appears in the session log).
+	_ = l.append(transcript.Entry{
+		Speaker:   transcript.SpeakerSystem,
+		Type:      transcript.TypeMessage,
+		Content:   fmt.Sprintf("[Skills] Selection stall (attempt %d/%d): %s. Re-prompting Coder to select sections.", attempt+1, maxAttempts, reason),
+		Timestamp: time.Now(),
+	})
 }
 
 // activeTaskForCycle returns the original task for the current cycle. A
