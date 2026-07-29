@@ -585,6 +585,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Content:   note,
 					Timestamp: time.Now(),
 				})
+				// Log to trace so /trace shows why the nudge fired.
+				direction := "escalate"
+				if m.currentMode == loop.ModeTriad {
+					direction = "downgrade"
+				}
+				_ = tracelog.LogEscalationNudge(m.transcript.FilePath(), direction, note)
 				m.refreshViewport()
 			}
 			// Phase 6.4 — prepare the per-cycle plan-gate state

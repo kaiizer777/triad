@@ -28,7 +28,7 @@ func CheckModeMismatch(mode Mode, task string) string {
 		}
 	case ModeGeneral:
 		if isComplexTask(lower, words) {
-			return "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight."
+			return "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight. Type /mode triad to switch now."
 		}
 	}
 

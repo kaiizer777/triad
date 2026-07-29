@@ -3,11 +3,13 @@ package loop_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kaiizer777/triad/internal/agent"
 	"github.com/kaiizer777/triad/internal/loop"
+	"github.com/kaiizer777/triad/internal/tracelog"
 	"github.com/kaiizer777/triad/internal/transcript"
 )
 
@@ -54,7 +56,7 @@ func TestCheckModeMismatch_Unit(t *testing.T) {
 			mode:     loop.ModeGeneral,
 			task:     "Refactor auth and payment logic across multiple files in internal/auth and internal/payment",
 			wantNote: true,
-			wantText: "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight.",
+			wantText: "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight. Type /mode triad to switch now.",
 		},
 		{
 			name:     "general mode - trivial task triggers no mismatch note",
@@ -175,7 +177,7 @@ func TestLoop_ModeMismatchNotice_ForcedGeneral(t *testing.T) {
 	// Verify System mismatch entry exists for General mode
 	var sysNoteFound bool
 	for _, e := range entries {
-		if e.Speaker == transcript.SpeakerSystem && e.Content == "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight." {
+		if e.Speaker == transcript.SpeakerSystem && e.Content == "[System]: Note — you're in General mode; this task looks complex/sensitive, /mode triad would provide Reviewer oversight. Type /mode triad to switch now." {
 			sysNoteFound = true
 			break
 		}
@@ -183,5 +185,74 @@ func TestLoop_ModeMismatchNotice_ForcedGeneral(t *testing.T) {
 
 	if !sysNoteFound {
 		t.Errorf("expected passive mismatch note in General mode, but none was found. Entries: %+v", entries)
+	}
+}
+
+func TestLoop_EscalationNudge_TraceEvent(t *testing.T) {
+	dir := t.TempDir()
+	tr := transcript.NewTranscript(filepath.Join(dir, "session.jsonl"))
+
+	client := newMockClient()
+	client.addResponse("Coder", mockResponse{
+		resp: agent.AgentResponse{
+			ToolCalls: []agent.ToolCall{makeMismatchToolCall("task_complete", "{}")},
+		},
+	})
+
+	coderCfg := agent.AgentConfig{Name: "Coder"}
+	reviewerCfg := agent.AgentConfig{Name: "Reviewer"}
+
+	l := loop.New(tr, coderCfg, reviewerCfg, client, dir)
+	l.CurrentMode = loop.ModeGeneral
+
+	taskChan := make(chan string, 1)
+	taskChan <- "Refactor auth and payment logic across multiple files"
+	close(taskChan)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := l.Run(ctx, taskChan); err != nil {
+		t.Fatalf("Loop.Run failed: %v", err)
+	}
+
+	// Verify the escalation_nudge trace event was written.
+	tracePath := tracelog.TracePathForSession(tr.FilePath())
+	traceEntries, err := tracelog.LoadTrace(tracePath)
+	if err != nil {
+		t.Fatalf("LoadTrace failed: %v", err)
+	}
+
+	var nudgeFound bool
+	for _, te := range traceEntries {
+		if te.EventType == tracelog.EventEscalationNudge {
+			nudgeFound = true
+			if te.Entity != "loop:mismatch" {
+				t.Errorf("expected entity 'loop:mismatch', got %q", te.Entity)
+			}
+			if te.Description == "" {
+				t.Error("escalation_nudge trace event has empty description")
+			}
+			if te.Data == nil {
+				t.Error("escalation_nudge trace event has nil data")
+			} else if dir, ok := te.Data["direction"]; !ok || dir != "escalate" {
+				t.Errorf("expected direction 'escalate', got %v", te.Data["direction"])
+			}
+			break
+		}
+	}
+	if !nudgeFound {
+		t.Errorf("expected escalation_nudge trace event, but none found. Trace entries: %+v", traceEntries)
+	}
+}
+
+func TestCheckModeMismatch_EscalationNudgeText_ContainsKeybindingHint(t *testing.T) {
+	// Verify the nudge text includes the actionable keybinding hint.
+	note := loop.CheckModeMismatch(loop.ModeGeneral, "Refactor auth and payment logic")
+	if note == "" {
+		t.Fatal("expected a mismatch note for complex task in general mode")
+	}
+	if !strings.Contains(note, "/mode triad to switch now") {
+		t.Errorf("nudge text should contain keybinding hint '/mode triad to switch now', got: %s", note)
 	}
 }

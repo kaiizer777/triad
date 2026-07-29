@@ -636,6 +636,12 @@ func (l *Loop) Run(ctx context.Context, taskChan <-chan string) error {
 					Content:   note,
 					Timestamp: time.Now(),
 				})
+				// Log to trace so /trace shows why the nudge fired.
+				direction := "escalate"
+				if l.CurrentMode == ModeTriad {
+					direction = "downgrade"
+				}
+				_ = tracelog.LogEscalationNudge(l.transcript.FilePath(), direction, note)
 			}
 
 			// --- Orchestrator confirm reply (Phase 4, §4.4) ---

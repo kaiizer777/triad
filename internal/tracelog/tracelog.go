@@ -42,6 +42,14 @@ const (
 	// emitted once per re-prompt attempt so the human can see the
 	// loop is actively retrying rather than silently stuck.
 	EventSkillSelectionStalled = "skill_selection_stalled"
+	// EventEscalationNudge is emitted when the mode-mismatch heuristic
+	// detects a complex/sensitive task in General mode (or a trivial task
+	// in Triad mode) and surfaces a nudge to the human. The Description
+	// carries the human-readable reason; the Data field carries the
+	// structured tier ("escalate" or "downgrade") and the matched
+	// trigger so /trace can answer "why did this fire." Exactly one
+	// event fires per task — never spammed every turn.
+	EventEscalationNudge = "escalation_nudge"
 )
 
 // Entry represents a single high-level event in the session trace log.
@@ -339,6 +347,23 @@ func FormatSkillSelectionLine(e Entry) string {
 		fmt.Fprintf(&sb, "    total tokens: %d\n", data.TotalTokens)
 	}
 	return strings.TrimRight(sb.String(), "\n") + "\n"
+}
+
+// LogEscalationNudge records an escalation_nudge event in the session trace
+// log so /trace can show *why* the mismatch heuristic fired, not just that
+// it fired. direction is "escalate" (general→triad) or "downgrade"
+// (triad→general). reason is the human-readable trigger from
+// CheckModeMismatch (e.g. "task touches a sensitive surface").
+func LogEscalationNudge(sessionPath, direction, reason string) error {
+	tracePath := TracePathForSession(sessionPath)
+	return Append(tracePath, Entry{
+		Entity:      "loop:mismatch",
+		EventType:   EventEscalationNudge,
+		Description: reason,
+		Data: map[string]any{
+			"direction": direction,
+		},
+	})
 }
 
 // LogHookIntervention is a convenience helper for logging hook/blocklist intervention events.
